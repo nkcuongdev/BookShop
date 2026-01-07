@@ -1,0 +1,266 @@
+{
+  "users": [
+    {
+      "id": "d565fbb2-9c1f-4b3b-962a-49dc953f1c20",
+      "name": "Admin",
+      "email": "admin@bookshop.com",
+      "password": "$2a$10$SwbTks70gmiur89hPCwQbe2.LGjLPV5jiuJPAxTvC61PDL6U2jyaC",
+      "role": "admin",
+      "createdAt": "2025-12-30T05:57:33.026Z"
+    },
+    {
+      "id": "c41e14cf-e9b4-4585-9343-110996ee3d5b",
+      "name": "John Doe",
+      "email": "user@bookshop.com",
+      "password": "$2a$10$XUrwm.WgF8wVtBagnOnwluzHBanqJ2eomNZ7/SJA/pPBmxdrL9GaK",
+      "role": "user",
+      "createdAt": "2025-12-30T05:57:33.126Z"
+    }
+  ],
+  "books": [
+    {
+      "id": "2d35444c-9dc9-4e71-b9f0-ea61b7686110",
+      "title": "The Midnight Library",
+      "author": "Matt Haig",
+      "description": "Between life and death there is a library, and within that library, the shelves go on forever. Every book provides a chance to try another life you could have lived.",
+      "price": 24.99,
+      "imageUrl": "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400",
+      "category": "fiction",
+      "stock": 50,
+      "sold": 342,
+      "rating": 4.5,
+      "reviewCount": 128,
+      "createdAt": "2024-01-15T10:00:00.000Z"
+    },
+    {
+      "id": "e9998b42-70cf-4437-ba23-47fe0a46c594",
+      "title": "Atomic Habits",
+      "author": "James Clear",
+      "description": "An easy and proven way to build good habits and break bad ones. Transform your life with tiny changes in behavior.",
+      "price": 19.99,
+      "imageUrl": "https://images.unsplash.com/photo-1589998059171-988d887df646?w=400",
+      "category": "self-help",
+      "stock": 100,
+      "sold": 521,
+      "rating": 4.8,
+      "reviewCount": 256,
+      "createdAt": "2024-02-20T10:00:00.000Z"
+    },
+    {
+      "id": "52f1fa16-5c62-464c-921d-14bd465a2e15",
+      "title": "A Brief History of Time",
+      "author": "Stephen Hawking",
+      "description": "A landmark volume in science writing, exploring the nature of time, the Big Bang, black holes, and the future of the universe.",
+      "price": 29.99,
+      "imageUrl": "https://images.unsplash.com/photo-1532012197267-da84d127e765?w=400",
+      "category": "science",
+      "stock": 35,
+      "sold": 189,
+      "rating": 4.7,
+      "reviewCount": 87,
+      "createdAt": "2023-11-10T10:00:00.000Z"
+    },
+    {
+      "id": "ed3017bc-49cb-4914-9ca4-4d303060847f",
+      "title": "The Very Hungry Caterpillar",
+      "author": "Eric Carle",
+      "description": "A classic children's book about a caterpillar's journey through eating and transformation into a butterfly.",
+      "price": 12.99,
+      "imageUrl": "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=400",
+      "category": "children",
+      "stock": 200,
+      "sold": 678,
+      "rating": 4.9,
+      "reviewCount": 312,
+      "createdAt": "2024-03-01T10:00:00.000Z"
+    },
+    {
+      "id": "6639d966-afe7-4106-8f62-aa127427b087",
+      "title": "Steve Jobs",
+      "author": "Walter Isaacson",
+      "description": "The exclusive biography of Steve Jobs, based on more than forty interviews with Jobs and interviews with family, friends, and colleagues.",
+      "price": 34.99,
+      "imageUrl": "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=400",
+      "category": "biography",
+      "stock": 45,
+      "sold": 234,
+      "rating": 4.6,
+      "reviewCount": 156,
+      "createdAt": "2023-12-05T10:00:00.000Z"
+    },
+    {
+      "id": "6406d356-4a60-458e-a888-dbc30460b241",
+      "title": "Sapiens: A Brief History of Humankind",
+      "author": "Yuval Noah Harari",
+      "description": "A groundbreaking narrative of humanity's creation and evolution, exploring the cognitive, agricultural, and scientific revolutions.",
+      "price": 27.99,
+      "imageUrl": "https://images.unsplash.com/photo-1589998059171-988d887df646?w=400",
+      "category": "non-fiction",
+      "stock": 60,
+      "sold": 445,
+      "rating": 4.7,
+      "reviewCount": 198,
+      "createdAt": "2024-01-20T10:00:00.000Z"
+    },
+    {
+      "id": "d7791961-756b-4a19-89ef-246806c12c63",
+      "title": "The Great Gatsby",
+      "author": "F. Scott Fitzgerald",
+      "description": "A portrait of the Jazz Age in all of its decadence and excess, telling the story of the mysterious Jay Gatsby.",
+      "price": 14.99,
+      "imageUrl": "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400",
+      "category": "fiction",
+      "stock": 80,
+      "sold": 567,
+      "rating": 4.4,
+      "reviewCount": 234,
+      "createdAt": "2024-02-10T10:00:00.000Z"
+    },
+    {
+      "id": "627f0df8-c6ad-4f4f-ba35-7cbe0e2f9e3b",
+      "title": "Clean Code",
+      "author": "Robert C. Martin",
+      "description": "A handbook of agile software craftsmanship. Learn to write clean, maintainable code that works.",
+      "price": 44.99,
+      "imageUrl": "https://images.unsplash.com/photo-1532012197267-da84d127e765?w=400",
+      "category": "science",
+      "stock": 40,
+      "sold": 312,
+      "rating": 4.6,
+      "reviewCount": 178,
+      "createdAt": "2024-03-15T10:00:00.000Z"
+    },
+    {
+      "id": "8f7589dc-0bab-489c-b357-1d81acb99f06",
+      "title": "The Power of Now",
+      "author": "Eckhart Tolle",
+      "description": "A guide to spiritual enlightenment, teaching you to live in the present moment and find inner peace.",
+      "price": 18.99,
+      "imageUrl": "https://images.unsplash.com/photo-1506880018603-83d5b814b5a6?w=400",
+      "category": "self-help",
+      "stock": 75,
+      "sold": 389,
+      "rating": 4.5,
+      "reviewCount": 167,
+      "createdAt": "2024-01-25T10:00:00.000Z"
+    },
+    {
+      "id": "7b9a9869-2ee7-4db6-9e11-dde2e6510fb0",
+      "title": "Harry Potter and the Sorcerer's Stone",
+      "author": "J.K. Rowling",
+      "description": "The beloved first book in the Harry Potter series, where a young wizard discovers his magical heritage.",
+      "price": 22.99,
+      "imageUrl": "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=400",
+      "category": "children",
+      "stock": 150,
+      "sold": 892,
+      "rating": 4.9,
+      "reviewCount": 456,
+      "createdAt": "2024-02-28T10:00:00.000Z"
+    },
+    {
+      "id": "bd1912b0-daa4-4171-921d-cd1d2e5e7db0",
+      "title": "1984",
+      "author": "George Orwell",
+      "description": "A dystopian social science fiction novel that explores the dangers of totalitarianism.",
+      "price": 16.99,
+      "imageUrl": "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400",
+      "category": "fiction",
+      "stock": 90,
+      "sold": 423,
+      "rating": 4.7,
+      "reviewCount": 289,
+      "createdAt": "2024-03-10T10:00:00.000Z"
+    },
+    {
+      "id": "8966a4c5-77dd-4afa-a50f-b365eb802a59",
+      "title": "Thinking, Fast and Slow",
+      "author": "Daniel Kahneman",
+      "description": "A groundbreaking exploration of the two systems that drive the way we think.",
+      "price": 21.99,
+      "imageUrl": "https://images.unsplash.com/photo-1589998059171-988d887df646?w=400",
+      "category": "non-fiction",
+      "stock": 55,
+      "sold": 278,
+      "rating": 4.5,
+      "reviewCount": 145,
+      "createdAt": "2024-01-05T10:00:00.000Z"
+    },
+    {
+      "id": "19f4fdbf-7119-42f7-a8aa-4a280b0fe16a",
+      "title": "Elon Musk",
+      "author": "Ashlee Vance",
+      "description": "The first major biography telling the complete story of Elon Musk and his transformative companies.",
+      "price": 28.99,
+      "imageUrl": "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=400",
+      "category": "biography",
+      "stock": 65,
+      "sold": 356,
+      "rating": 4.4,
+      "reviewCount": 198,
+      "createdAt": "2024-02-05T10:00:00.000Z"
+    },
+    {
+      "id": "2f3ab31e-b26d-48f1-98c3-5794940072e3",
+      "title": "The Design of Everyday Things",
+      "author": "Don Norman",
+      "description": "A powerful primer on how and why some products satisfy customers while others only frustrate them.",
+      "price": 32.99,
+      "imageUrl": "https://images.unsplash.com/photo-1532012197267-da84d127e765?w=400",
+      "category": "science",
+      "stock": 30,
+      "sold": 167,
+      "rating": 4.3,
+      "reviewCount": 89,
+      "createdAt": "2024-03-20T10:00:00.000Z"
+    },
+    {
+      "id": "0730d28e-b1c2-4d6b-b9a7-fea8f5b62109",
+      "title": "Where the Wild Things Are",
+      "author": "Maurice Sendak",
+      "description": "A classic picture book about a young boy named Max who sails to an island inhabited by creatures.",
+      "price": 15.99,
+      "imageUrl": "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=400",
+      "category": "children",
+      "stock": 120,
+      "sold": 534,
+      "rating": 4.8,
+      "reviewCount": 267,
+      "createdAt": "2024-01-30T10:00:00.000Z"
+    }
+  ],
+  "orders": [],
+  "reviews": [],
+  "categories": [
+    {
+      "id": "fiction",
+      "name": "Fiction",
+      "image": "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400"
+    },
+    {
+      "id": "non-fiction",
+      "name": "Non-Fiction",
+      "image": "https://images.unsplash.com/photo-1589998059171-988d887df646?w=400"
+    },
+    {
+      "id": "science",
+      "name": "Science & Tech",
+      "image": "https://images.unsplash.com/photo-1532012197267-da84d127e765?w=400"
+    },
+    {
+      "id": "children",
+      "name": "Children's Books",
+      "image": "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=400"
+    },
+    {
+      "id": "self-help",
+      "name": "Self-Help",
+      "image": "https://images.unsplash.com/photo-1506880018603-83d5b814b5a6?w=400"
+    },
+    {
+      "id": "biography",
+      "name": "Biography",
+      "image": "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=400"
+    }
+  ]
+}

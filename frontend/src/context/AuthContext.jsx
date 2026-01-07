@@ -1,0 +1,63 @@
+import { createContext, useContext, useState, useEffect } from "react";
+import { authAPI } from "../services/api.js";
+
+const AuthContext = createContext(null);
+
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check for stored user on mount
+    const storedUser = authAPI.getCurrentUser();
+    if (storedUser) {
+      setUser(storedUser);
+    }
+    setLoading(false);
+  }, []);
+
+  const login = async (email, password) => {
+    try {
+      const response = await authAPI.login(email, password);
+      if (response.success) {
+        setUser(response.data.user);
+        return { success: true };
+      }
+      return { success: false, error: response.message };
+    } catch (error) {
+      return { success: false, error: error.message || "Login failed" };
+    }
+  };
+
+  const register = async (name, email, password) => {
+    try {
+      const response = await authAPI.register(name, email, password);
+      if (response.success) {
+        setUser(response.data.user);
+        return { success: true };
+      }
+      return { success: false, error: response.message };
+    } catch (error) {
+      return { success: false, error: error.message || "Registration failed" };
+    }
+  };
+
+  const logout = () => {
+    authAPI.logout();
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+}
