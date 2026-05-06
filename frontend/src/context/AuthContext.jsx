@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { authAPI } from "../services/api.js";
+import { authAPI } from "@/services/api";
 
 const AuthContext = createContext(null);
 
@@ -47,8 +47,23 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const updateProfile = async (payload) => {
+    try {
+      const response = await authAPI.updateMe(payload);
+      if (response.success) {
+        setUser(response.data.user);
+        return { success: true, user: response.data.user };
+      }
+      return { success: false, error: response.message };
+    } catch (error) {
+      return { success: false, error: error.message || "Update profile failed" };
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, register, logout, updateProfile }}
+    >
       {children}
     </AuthContext.Provider>
   );

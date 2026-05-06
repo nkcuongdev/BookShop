@@ -2,26 +2,51 @@ import { createContext, useContext, useState, useEffect } from "react";
 
 const CartContext = createContext(null);
 
-export function CartProvider({ children }) {
-  const [items, setItems] = useState([]);
+const getBookKey = (book) => book?._id || book?.id || null;
 
-  useEffect(() => {
-    const savedCart = localStorage.getItem("bookshop_cart");
-    if (savedCart) {
-      setItems(JSON.parse(savedCart));
+function normalizeCartItems(rawItems) {
+  if (!Array.isArray(rawItems)) return [];
+
+  const merged = new Map();
+  for (const entry of rawItems) {
+    const key = getBookKey(entry?.book);
+    const qty = Number(entry?.quantity) || 0;
+    if (!key || qty <= 0) continue;
+
+    const prev = merged.get(key);
+    if (prev) {
+      prev.quantity += qty;
+      continue;
     }
-  }, []);
+    merged.set(key, { book: entry.book, quantity: qty });
+  }
+  return Array.from(merged.values());
+}
+
+export function CartProvider({ children }) {
+  const [items, setItems] = useState(() => {
+    try {
+      const savedCart = localStorage.getItem("bookshop_cart");
+      if (!savedCart) return [];
+      return normalizeCartItems(JSON.parse(savedCart));
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     localStorage.setItem("bookshop_cart", JSON.stringify(items));
   }, [items]);
 
   const addItem = (book, quantity = 1) => {
+    const key = getBookKey(book);
+    if (!key) return;
+
     setItems((prev) => {
-      const existing = prev.find((item) => item.book.id === book.id);
+      const existing = prev.find((item) => getBookKey(item.book) === key);
       if (existing) {
         return prev.map((item) =>
-          item.book.id === book.id
+          getBookKey(item.book) === key
             ? { ...item, quantity: item.quantity + quantity }
             : item
         );
@@ -31,7 +56,9 @@ export function CartProvider({ children }) {
   };
 
   const removeItem = (bookId) => {
-    setItems((prev) => prev.filter((item) => item.book.id !== bookId));
+    setItems((prev) =>
+      prev.filter((item) => getBookKey(item.book) !== String(bookId))
+    );
   };
 
   const updateQuantity = (bookId, quantity) => {
@@ -41,7 +68,7 @@ export function CartProvider({ children }) {
     }
     setItems((prev) =>
       prev.map((item) =>
-        item.book.id === bookId ? { ...item, quantity } : item
+        getBookKey(item.book) === String(bookId) ? { ...item, quantity } : item
       )
     );
   };

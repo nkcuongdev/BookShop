@@ -64,7 +64,11 @@ export default function Register() {
     setLoading(true);
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const result = register(formData.name, formData.email, formData.password);
+    const result = await register(
+      formData.name,
+      formData.email,
+      formData.password
+    );
 
     if (result.success) {
       navigate("/", { replace: true });

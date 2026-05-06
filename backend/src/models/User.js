@@ -2,12 +2,32 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
+const addressSchema = new mongoose.Schema(
+  {
+    label: { type: String, default: "Nhà", trim: true },
+    fullName: { type: String, required: true, trim: true },
+    phone: { type: String, required: true, trim: true },
+    address: { type: String, required: true, trim: true },
+    isDefault: { type: Boolean, default: false },
+  },
+  { timestamps: true }
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true, lowercase: true },
     password: { type: String, required: true },
+    phone: { type: String, default: "" },
+    addresses: { type: [addressSchema], default: [] },
+    wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: "Book" }],
     role: { type: String, enum: ["user", "admin"], default: "user" },
+    status: {
+      type: String,
+      enum: ["active", "banned"],
+      default: "active",
+    },
+    avatar: { type: String, default: "" },
   },
   { timestamps: true }
 );

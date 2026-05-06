@@ -1,312 +1,193 @@
-import { useState, useEffect } from "react";
-import { Card, Row, Col, Statistic, Table, Tag, Typography, Spin } from "antd";
-import {
-  BookOutlined,
-  ShoppingCartOutlined,
-  DollarOutlined,
-  ClockCircleOutlined,
-  RiseOutlined,
-  FireOutlined,
-  UserOutlined,
-} from "@ant-design/icons";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { adminAPI, booksAPI } from "../../services/api.js";
-import { formatVND } from "../../utils/format.js";
+import {
+  DollarSign,
+  ShoppingCart,
+  TrendingUp,
+  Users,
+  Activity,
+  PieChart as PieIcon,
+  LineChart as LineIcon,
+  Flame,
+  Clock,
+  Filter,
+} from "lucide-react";
+import { PageHeader } from "@/components/admin/common/PageHeader";
+import { StatCard } from "@/components/admin/common/StatCard";
+import { SectionCard } from "@/components/admin/common/SectionCard";
+import { ErrorState } from "@/components/admin/common/ErrorState";
+import { RevenueAreaChart } from "@/components/admin/charts/RevenueAreaChart";
+import { CategoryPieChart } from "@/components/admin/charts/CategoryPieChart";
+import { RecentOrders } from "@/components/admin/dashboard/RecentOrders";
+import { TopBooks } from "@/components/admin/dashboard/TopBooks";
+import { ActivityFeed } from "@/components/admin/dashboard/ActivityFeed";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { formatVND } from "@/utils/format";
+import {
+  useActivityFeed,
+  useCategoryShare,
+  useDashboardStats,
+  useRecentOrders,
+  useRevenueSeries,
+  useTopBooks,
+} from "@/features/admin/dashboard/hooks";
 
-const { Title, Text } = Typography;
+const RANGE_OPTIONS = [
+  { value: 7, label: "7 ngày qua" },
+  { value: 30, label: "30 ngày qua" },
+  { value: 90, label: "90 ngày qua" },
+];
 
 export default function Dashboard() {
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState(null);
-  const [recentOrders, setRecentOrders] = useState([]);
-  const [topBooks, setTopBooks] = useState([]);
+  const [range, setRange] = useState(30);
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setLoading(true);
-        const [statsRes, ordersRes, booksRes] = await Promise.all([
-          adminAPI.getStats(),
-          adminAPI.getOrders({ limit: 5 }),
-          booksAPI.getBestSellers(5),
-        ]);
+  const statsQ = useDashboardStats();
+  const ordersQ = useRecentOrders(6);
+  const topBooksQ = useTopBooks(5);
+  const seriesQ = useRevenueSeries(range);
+  const shareQ = useCategoryShare();
+  const activityQ = useActivityFeed();
 
-        if (statsRes.success) setStats(statsRes.data);
-        if (ordersRes.success) setRecentOrders(ordersRes.data.orders || []);
-        if (booksRes.success) setTopBooks(booksRes.data.books || []);
-      } catch (error) {
-        console.error("Dashboard error:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchDashboardData();
-  }, []);
-
-  const orderColumns = [
-    {
-      title: "Mã đơn",
-      dataIndex: "_id",
-      key: "_id",
-      render: (id) => (
-        <Link
-          to={`/admin/orders`}
-          className="text-primary-600 font-medium hover:underline"
-        >
-          #{(id || "").slice(-8).toUpperCase()}
-        </Link>
-      ),
-    },
-    {
-      title: "Ngày",
-      dataIndex: "createdAt",
-      key: "createdAt",
-      render: (date) => new Date(date).toLocaleDateString("vi-VN"),
-    },
-    {
-      title: "Sản phẩm",
-      dataIndex: "items",
-      key: "items",
-      render: (items) => items?.length || 0,
-    },
-    {
-      title: "Tổng tiền",
-      dataIndex: "totalAmount",
-      key: "totalAmount",
-      render: (amount) => (
-        <span className="font-semibold">{formatVND(amount)}</span>
-      ),
-    },
-    {
-      title: "Trạng thái",
-      dataIndex: "status",
-      key: "status",
-      render: (status) => {
-        const statusMap = {
-          pending: { color: "orange", text: "Chờ xử lý" },
-          processing: { color: "blue", text: "Đang xử lý" },
-          shipped: { color: "cyan", text: "Đang giao" },
-          delivered: { color: "green", text: "Đã giao" },
-          completed: { color: "green", text: "Hoàn thành" },
-          cancelled: { color: "red", text: "Đã hủy" },
-        };
-        const s = statusMap[status] || { color: "default", text: status };
-        return <Tag color={s.color}>{s.text}</Tag>;
-      },
-    },
-  ];
-
-  const bookColumns = [
-    {
-      title: "Hạng",
-      key: "rank",
-      width: 60,
-      render: (_, __, index) => (
-        <div
-          className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-            index === 0
-              ? "bg-amber-500 text-white"
-              : index === 1
-              ? "bg-gray-400 text-white"
-              : index === 2
-              ? "bg-amber-700 text-white"
-              : "bg-gray-200 text-gray-600"
-          }`}
-        >
-          {index + 1}
-        </div>
-      ),
-    },
-    {
-      title: "Sách",
-      dataIndex: "title",
-      key: "title",
-      render: (title, record) => (
-        <div className="flex items-center gap-3">
-          <img
-            src={record.imageUrl}
-            alt={title}
-            className="w-10 h-14 object-cover rounded"
-          />
-          <div>
-            <div className="font-medium text-secondary-800 line-clamp-1">
-              {title}
-            </div>
-            <div className="text-xs text-secondary-500">{record.author}</div>
-          </div>
-        </div>
-      ),
-    },
-    {
-      title: "Đã bán",
-      dataIndex: "sold",
-      key: "sold",
-      render: (count) => (
-        <span className="font-semibold text-primary-600">{count || 0}</span>
-      ),
-    },
-    {
-      title: "Doanh thu",
-      key: "revenue",
-      render: (_, record) => (
-        <span className="font-semibold">
-          {formatVND((record.sold || 0) * record.price)}
-        </span>
-      ),
-    },
-  ];
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Spin size="large" />
-      </div>
-    );
-  }
-
-  const totalBooks = stats?.books?.total || 0;
-  const totalStock = stats?.books?.totalStock || 0;
-  const totalSold = stats?.books?.totalSold || 0;
-  const totalOrders = stats?.orders?.totalOrders || 0;
-  const totalRevenue = stats?.orders?.totalRevenue || 0;
-  const pendingOrders = stats?.orders?.statusCounts?.pending || 0;
-  const totalUsers = stats?.users || 0;
+  const stats = statsQ.data;
+  const mom = stats?.monthOverMonth || {};
 
   return (
     <div className="space-y-6">
-      <div>
-        <Title level={2} className="!mb-1">
-          Tổng quan
-        </Title>
-        <Text type="secondary">
-          Chào mừng trở lại! Đây là tình hình cửa hàng của bạn.
-        </Text>
+      <PageHeader
+        title="Tổng quan"
+        description="Chào mừng trở lại — đây là tình hình cửa hàng hôm nay."
+        actions={
+          <div className="flex items-center gap-2">
+            <Select value={String(range)} onValueChange={(v) => setRange(Number(v))}>
+              <SelectTrigger className="h-9 w-[160px]">
+                <Filter className="h-3.5 w-3.5 text-secondary-400" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RANGE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={String(o.value)}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button asChild>
+              <Link to="/admin/books/new">Thêm sách mới</Link>
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {statsQ.isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28 w-full rounded-2xl" />
+          ))
+        ) : (
+          <>
+            <StatCard
+              title="Doanh thu"
+              value={formatVND(stats?.orders?.totalRevenue || 0)}
+              delta={mom.revenue ?? 0}
+              icon={DollarSign}
+              accent="green"
+              footer={`${stats?.orders?.totalOrders || 0} đơn hàng`}
+            />
+            <StatCard
+              title="Đơn hàng"
+              value={stats?.orders?.totalOrders || 0}
+              delta={mom.orders ?? 0}
+              icon={ShoppingCart}
+              accent="primary"
+              footer={`${stats?.orders?.statusCounts?.PENDING || 0} chờ xử lý`}
+            />
+            <StatCard
+              title="Người dùng"
+              value={stats?.users || 0}
+              delta={mom.users ?? 0}
+              icon={Users}
+              accent="violet"
+              footer="tổng tài khoản"
+            />
+            <StatCard
+              title="Sách đã bán"
+              value={stats?.books?.totalSold || 0}
+              delta={mom.soldBooks ?? 0}
+              icon={TrendingUp}
+              accent="amber"
+              footer={`${stats?.books?.totalStock || 0} còn trong kho`}
+            />
+          </>
+        )}
       </div>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={6}>
-          <Card
-            bordered={false}
-            className="shadow-sm hover:shadow-md transition-shadow"
-          >
-            <Statistic
-              title={<span className="text-secondary-500">Tổng sách</span>}
-              value={totalBooks}
-              prefix={<BookOutlined className="text-primary-500" />}
-              suffix={
-                <span className="text-sm text-secondary-400">
-                  / {totalStock} trong kho
-                </span>
-              }
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card
-            bordered={false}
-            className="shadow-sm hover:shadow-md transition-shadow"
-          >
-            <Statistic
-              title={<span className="text-secondary-500">Tổng đơn hàng</span>}
-              value={totalOrders}
-              prefix={<ShoppingCartOutlined className="text-blue-500" />}
-              suffix={
-                pendingOrders > 0 && (
-                  <Tag color="orange" className="ml-2">
-                    {pendingOrders} chờ xử lý
-                  </Tag>
-                )
-              }
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card
-            bordered={false}
-            className="shadow-sm hover:shadow-md transition-shadow"
-          >
-            <Statistic
-              title={<span className="text-secondary-500">Doanh thu</span>}
-              value={formatVND(totalRevenue)}
-              prefix={<DollarOutlined className="text-green-500" />}
-              valueStyle={{ color: "#10b981", fontSize: "20px" }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card
-            bordered={false}
-            className="shadow-sm hover:shadow-md transition-shadow"
-          >
-            <Statistic
-              title={<span className="text-secondary-500">Sách đã bán</span>}
-              value={totalSold}
-              prefix={<RiseOutlined className="text-purple-500" />}
-            />
-          </Card>
-        </Col>
-      </Row>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <SectionCard
+          title="Doanh thu"
+          description={`Biểu đồ doanh thu ${range} ngày qua`}
+          icon={LineIcon}
+          className="xl:col-span-2"
+        >
+          {seriesQ.isError ? (
+            <ErrorState onRetry={() => seriesQ.refetch()} />
+          ) : seriesQ.isLoading ? (
+            <Skeleton className="h-72 w-full" />
+          ) : (
+            <RevenueAreaChart data={seriesQ.data || []} />
+          )}
+        </SectionCard>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={14}>
-          <Card
-            title={
-              <div className="flex items-center gap-2">
-                <ClockCircleOutlined className="text-primary-500" />
-                <span>Đơn hàng gần đây</span>
-              </div>
-            }
-            extra={
-              <Link
-                to="/admin/orders"
-                className="text-primary-600 hover:underline"
-              >
-                Xem tất cả
-              </Link>
-            }
-            bordered={false}
-            className="shadow-sm"
-          >
-            <Table
-              columns={orderColumns}
-              dataSource={recentOrders}
-              rowKey={(r) => r._id || r.id}
-              pagination={false}
-              size="small"
-            />
-          </Card>
-        </Col>
+        <SectionCard title="Theo danh mục" description="Tỉ trọng doanh thu" icon={PieIcon}>
+          {shareQ.isLoading ? (
+            <Skeleton className="h-72 w-full" />
+          ) : (
+            <CategoryPieChart data={shareQ.data || []} />
+          )}
+        </SectionCard>
+      </div>
 
-        <Col xs={24} lg={10}>
-          <Card
-            title={
-              <div className="flex items-center gap-2">
-                <FireOutlined className="text-orange-500" />
-                <span>Sách bán chạy</span>
-              </div>
-            }
-            extra={
-              <Link
-                to="/admin/books"
-                className="text-primary-600 hover:underline"
-              >
-                Xem tất cả
-              </Link>
-            }
-            bordered={false}
-            className="shadow-sm"
-          >
-            <Table
-              columns={bookColumns}
-              dataSource={topBooks}
-              rowKey={(r) => r._id || r.id}
-              pagination={false}
-              size="small"
-            />
-          </Card>
-        </Col>
-      </Row>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <SectionCard
+          title="Đơn hàng gần đây"
+          icon={Clock}
+          action={
+            <Link to="/admin/orders" className="text-xs font-semibold text-primary-600 hover:underline">
+              Xem tất cả
+            </Link>
+          }
+          className="xl:col-span-2"
+        >
+          {ordersQ.isError ? (
+            <ErrorState onRetry={() => ordersQ.refetch()} />
+          ) : (
+            <RecentOrders orders={ordersQ.data || []} isLoading={ordersQ.isLoading} />
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Sách bán chạy"
+          icon={Flame}
+          action={
+            <Link to="/admin/books" className="text-xs font-semibold text-primary-600 hover:underline">
+              Xem tất cả
+            </Link>
+          }
+        >
+          <TopBooks books={topBooksQ.data || []} isLoading={topBooksQ.isLoading} />
+        </SectionCard>
+      </div>
+
+      <SectionCard title="Hoạt động" icon={Activity}>
+        <ActivityFeed items={activityQ.data || []} isLoading={activityQ.isLoading} />
+      </SectionCard>
     </div>
   );
 }

@@ -2,6 +2,7 @@ const express = require("express");
 const Book = require("../models/Book");
 const Review = require("../models/Review");
 const Order = require("../models/Order");
+const Promotion = require("../models/Promotion");
 const { auth, adminOnly } = require("../middleware/auth");
 
 const router = express.Router();
@@ -10,6 +11,7 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   try {
     const { category, search, sortBy, order, page, limit } = req.query;
+    const useRaw = String(req.query?.raw || "") === "1";
 
     const books = await Book.findWithFilters({
       category,
@@ -21,11 +23,14 @@ router.get("/", async (req, res) => {
     });
 
     const total = await Book.countDocuments(category ? { category } : {});
+    const decorated = useRaw
+      ? books.map((b) => ({ ...b.toObject(), id: b._id }))
+      : await Promotion.decorateBooks(books);
 
     res.json({
       success: true,
       data: {
-        books: books.map((b) => ({ ...b.toObject(), id: b._id })),
+        books: decorated,
         pagination: {
           total,
           page: parseInt(page) || 1,
@@ -47,10 +52,11 @@ router.get("/best-sellers", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 8;
     const books = await Book.getBestSellers(limit);
+    const decorated = await Promotion.decorateBooks(books);
 
     res.json({
       success: true,
-      data: { books: books.map((b) => ({ ...b.toObject(), id: b._id })) },
+      data: { books: decorated },
     });
   } catch (error) {
     res.status(500).json({
@@ -66,10 +72,11 @@ router.get("/new-arrivals", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 8;
     const books = await Book.getNewArrivals(limit);
+    const decorated = await Promotion.decorateBooks(books);
 
     res.json({
       success: true,
-      data: { books: books.map((b) => ({ ...b.toObject(), id: b._id })) },
+      data: { books: decorated },
     });
   } catch (error) {
     res.status(500).json({
@@ -93,11 +100,15 @@ router.get("/:id", async (req, res) => {
     }
 
     const reviews = await Review.getByBook(req.params.id);
+    const useRaw = String(req.query?.raw || "") === "1";
+    const decorated = useRaw
+      ? { ...book.toObject(), id: book._id }
+      : (await Promotion.decorateBooks([book]))[0];
 
     res.json({
       success: true,
       data: {
-        book: { ...book.toObject(), id: book._id },
+        book: decorated,
         reviews: reviews.map((r) => ({
           ...r.toObject(),
           id: r._id,
@@ -241,28 +252,78 @@ router.get("/:id/can-review", auth, async (req, res) => {
   }
 });
 
+// Whitelist of fields the admin is allowed to write.
+const ALLOWED_BOOK_FIELDS = [
+  "title",
+  "author",
+  "description",
+  "price",
+  "imageUrl",
+  "category",
+  "stock",
+  "status",
+  "publisher",
+  "publishedDate",
+  "isbn",
+  "pages",
+  "language",
+  "weight",
+  "dimensions",
+  "tags",
+  "gallery",
+  "attributes",
+];
+
+function pickBookPayload(body = {}) {
+  const payload = {};
+  for (const key of ALLOWED_BOOK_FIELDS) {
+    if (body[key] !== undefined) payload[key] = body[key];
+  }
+
+  // Normalize attributes: drop empty keys, trim.
+  if (Array.isArray(payload.attributes)) {
+    payload.attributes = payload.attributes
+      .map((a) => ({
+        key: String(a?.key || "").trim(),
+        value: String(a?.value ?? ""),
+      }))
+      .filter((a) => a.key);
+  }
+
+  // Normalize arrays of strings.
+  if (Array.isArray(payload.tags)) {
+    payload.tags = payload.tags.map((t) => String(t).trim()).filter(Boolean);
+  }
+  if (Array.isArray(payload.gallery)) {
+    payload.gallery = payload.gallery
+      .map((g) => String(g).trim())
+      .filter(Boolean);
+  }
+
+  // Empty string -> null for optional scalars that are typed Number/Date.
+  ["pages", "weight"].forEach((k) => {
+    if (payload[k] === "" || payload[k] === null) payload[k] = null;
+  });
+  if (payload.publishedDate === "" || payload.publishedDate === null) {
+    payload.publishedDate = null;
+  }
+
+  return payload;
+}
+
 // Create book (admin only)
 router.post("/", auth, adminOnly, async (req, res) => {
   try {
-    const { title, author, description, price, imageUrl, category, stock } =
-      req.body;
+    const payload = pickBookPayload(req.body);
 
-    if (!title || !author || !price || !category) {
+    if (!payload.title || !payload.author || payload.price == null || !payload.category) {
       return res.status(400).json({
         success: false,
         message: "Vui lòng điền đầy đủ thông tin",
       });
     }
 
-    const book = new Book({
-      title,
-      author,
-      description,
-      price,
-      imageUrl,
-      category,
-      stock: stock || 0,
-    });
+    const book = new Book(payload);
     await book.save();
 
     res.status(201).json({
@@ -282,8 +343,10 @@ router.post("/", auth, adminOnly, async (req, res) => {
 // Update book (admin only)
 router.put("/:id", auth, adminOnly, async (req, res) => {
   try {
-    const book = await Book.findByIdAndUpdate(req.params.id, req.body, {
+    const payload = pickBookPayload(req.body);
+    const book = await Book.findByIdAndUpdate(req.params.id, payload, {
       new: true,
+      runValidators: true,
     });
 
     if (!book) {

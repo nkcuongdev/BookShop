@@ -1,37 +1,34 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { booksAPI, categoriesAPI } from "../services/api.js";
-import BookCard from "../components/BookCard.jsx";
+import { ArrowRight, Flame, BookOpen, TrendingUp, Sparkles } from "lucide-react";
+import { booksAPI, categoriesAPI } from "@/services/api";
+import BookCard from "@/components/book/BookCard";
+import { BookGridSkeleton } from "@/components/book/BookCardSkeleton";
+import RecommendationRail from "@/components/book/RecommendationRail";
+import HeroCarousel from "@/components/layout/HeroCarousel";
+import CategoryPills from "@/components/common/CategoryPills";
+import CountdownTimer from "@/components/common/CountdownTimer";
+import TrustBadgeRow from "@/components/common/TrustBadgeRow";
+import EmptyState from "@/components/common/EmptyState";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import useRecentlyViewed from "@/hooks/useRecentlyViewed";
 
 export default function Home() {
   const [categories, setCategories] = useState([]);
-  const [booksByCategory, setBooksByCategory] = useState({});
+  const [allBooks, setAllBooks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { items: recentlyViewed } = useRecentlyViewed();
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Fetch categories and all books
         const [categoriesRes, booksRes] = await Promise.all([
           categoriesAPI.getAll(),
           booksAPI.getAll(),
         ]);
-
-        const cats = categoriesRes.data?.categories || [];
-        const allBooks = booksRes.data?.books || [];
-        setCategories(cats);
-
-        // Group books by category and get top 5 featured books per category
-        const grouped = {};
-        cats.forEach((cat) => {
-          const categorySlug = cat.slug || cat._id || cat.id;
-          const categoryBooks = allBooks
-            .filter((book) => book.category === categorySlug)
-            .sort((a, b) => (b.sold || 0) - (a.sold || 0)) // Sort by sold count
-            .slice(0, 5); // Take top 5
-          grouped[categorySlug] = categoryBooks;
-        });
-        setBooksByCategory(grouped);
+        setCategories(categoriesRes.data?.categories || []);
+        setAllBooks(booksRes.data?.books || []);
       } catch (error) {
         console.error("Error loading data:", error);
       } finally {
@@ -41,259 +38,272 @@ export default function Home() {
     loadData();
   }, []);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="mt-4 text-secondary-500">Đang tải...</p>
-        </div>
-      </div>
-    );
-  }
+  // Flash sale ends at end of current day
+  const flashEnd = useMemo(() => {
+    const d = new Date();
+    d.setHours(23, 59, 59, 999);
+    return d.getTime();
+  }, []);
 
-  // Check if there are any books
-  const hasBooks = Object.values(booksByCategory).some(
-    (books) => books.length > 0
+  const bestSellers = useMemo(
+    () =>
+      [...allBooks]
+        .sort((a, b) => (b.sold || 0) - (a.sold || 0))
+        .slice(0, 10),
+    [allBooks]
   );
 
+  const newArrivals = useMemo(
+    () =>
+      [...allBooks]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 10),
+    [allBooks]
+  );
+
+  // "Flash sale" = top rated & most affordable (simulated)
+  const flashSaleBooks = useMemo(
+    () =>
+      [...allBooks]
+        .filter((b) => (b.stock || 0) > 0)
+        .sort((a, b) => (b.rating || 0) - (a.rating || 0) || a.price - b.price)
+        .slice(0, 10),
+    [allBooks]
+  );
+
+  const booksByCategory = useMemo(() => {
+    const map = {};
+    categories.forEach((cat) => {
+      const slug = cat.slug || cat._id || cat.id;
+      map[slug] = allBooks
+        .filter((b) => b.category === slug)
+        .sort((a, b) => (b.sold || 0) - (a.sold || 0))
+        .slice(0, 10);
+    });
+    return map;
+  }, [categories, allBooks]);
+
   return (
-    <div className="bg-gray-50">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-secondary-900 via-secondary-800 to-secondary-900">
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute -top-40 -right-40 w-96 h-96 bg-primary-500/20 rounded-full blur-3xl"></div>
-          <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-primary-600/20 rounded-full blur-3xl"></div>
-        </div>
+    <div>
+      <HeroCarousel />
 
-        <div
-          className="absolute inset-0 opacity-[0.02]"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)",
-            backgroundSize: "50px 50px",
-          }}
-        ></div>
-
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-24">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div className="text-center lg:text-left">
-              <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm text-primary-300 px-4 py-2 rounded-full text-sm font-medium mb-6">
-                <span className="w-2 h-2 bg-primary-400 rounded-full animate-pulse"></span>
-                Chào mừng đến với BookShop
-              </div>
-
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold text-white leading-tight">
-                Khám phá
-                <span className="block bg-gradient-to-r from-primary-400 to-primary-300 bg-clip-text text-transparent">
-                  Thế giới sách
-                </span>
-              </h1>
-
-              <p className="mt-6 text-lg text-secondary-300 max-w-lg mx-auto lg:mx-0">
-                Khám phá bộ sưu tập sách đa dạng với nhiều thể loại phong phú.
-                Tìm cuốn sách hoàn hảo cho mọi tâm trạng.
-              </p>
-
-              <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                <Link
-                  to="/products"
-                  className="inline-flex items-center justify-center gap-2 bg-primary-500 text-white px-8 py-4 rounded-xl font-semibold hover:bg-primary-600 transition-all duration-200 shadow-lg shadow-primary-500/25 hover:shadow-xl hover:shadow-primary-500/30 hover:-translate-y-0.5 cursor-pointer"
-                >
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-                    />
-                  </svg>
-                  Khám phá ngay
-                </Link>
-              </div>
-            </div>
-
-            <div className="relative hidden lg:block">
-              <div className="relative">
-                {/* Left book */}
-                <div className="absolute -left-8 top-20 w-48 h-64 rounded-2xl transform -rotate-12 shadow-2xl overflow-hidden">
-                  <img
-                    src="https://images.unsplash.com/photo-1543002588-bfa74002ed7e?w=400"
-                    alt="Book"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                {/* Right book */}
-                <div className="absolute -right-4 bottom-12 w-48 h-64 rounded-2xl transform rotate-6 shadow-2xl overflow-hidden">
-                  <img
-                    src="https://images.unsplash.com/photo-1532012197267-da84d127e765?w=400"
-                    alt="Book"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                {/* Center book */}
-                <div className="relative z-10 w-72 h-96 mx-auto">
-                  <img
-                    src="https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=600"
-                    alt="Featured Book"
-                    className="w-full h-full object-cover rounded-2xl shadow-2xl"
-                  />
-                  <div className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/20"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Trust strip */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6 relative z-10">
+        <TrustBadgeRow />
       </section>
 
-      {/* Empty State */}
-      {!hasBooks && categories.length === 0 && (
-        <section className="py-16">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <div className="w-24 h-24 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
-              <svg
-                className="w-12 h-12 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-                />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-secondary-800 mb-2">
-              Chưa có sách nào
-            </h2>
-            <p className="text-secondary-500 mb-6 max-w-md mx-auto">
-              Vui lòng thêm danh mục và sách qua trang quản trị Admin để bắt
-              đầu.
-            </p>
-            <Link
-              to="/admin/categories"
-              className="inline-flex items-center gap-2 bg-primary-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-primary-600 transition-all"
-            >
-              Thêm danh mục
-            </Link>
-          </div>
+      {/* Category pills */}
+      {categories.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <CategoryPills categories={categories} />
         </section>
       )}
 
-      {/* Books by Category - Each category is a horizontal row */}
-      {categories.map((category, idx) => {
-        const categorySlug = category.slug || category._id || category.id;
-        const books = booksByCategory[categorySlug] || [];
-
-        if (books.length === 0) return null;
-
-        return (
-          <section
-            key={categorySlug}
-            className={`py-12 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
-          >
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              {/* Category Header */}
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-1 h-8 bg-primary-500 rounded-full"></div>
-                  <h2 className="text-2xl font-display font-bold text-secondary-800">
-                    {category.name}
-                  </h2>
-                  <span className="text-secondary-400 text-sm">
-                    ({books.length} sách)
-                  </span>
-                </div>
-                <Link
-                  to={`/products?category=${categorySlug}`}
-                  className="text-primary-600 hover:text-primary-700 font-medium text-sm flex items-center gap-1 group"
-                >
-                  Xem tất cả
-                  <svg
-                    className="w-4 h-4 transform group-hover:translate-x-1 transition-transform"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 5l7 7-7 7"
-                    />
-                  </svg>
-                </Link>
-              </div>
-
-              {/* Horizontal Book Row */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 lg:gap-6">
-                {books.map((book, bookIdx) => (
-                  <BookCard
-                    key={book._id || book.id}
-                    book={book}
-                    badge={bookIdx === 0 ? "bestseller" : undefined}
-                    rank={bookIdx === 0 ? 1 : undefined}
-                  />
-                ))}
-              </div>
-            </div>
-          </section>
-        );
-      })}
-
-      {/* Categories Overview Grid - only show if there are categories */}
-      {categories.length > 0 && (
-        <section className="bg-white py-12 lg:py-16 border-t border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-10">
-              <h2 className="text-2xl lg:text-3xl font-display font-bold text-secondary-800">
-                Tất cả danh mục
-              </h2>
-              <p className="text-secondary-500 mt-2">
-                Tìm sách theo thể loại yêu thích
-              </p>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-              {categories.map((cat) => {
-                const catSlug = cat.slug || cat._id || cat.id;
-                const catBooks = booksByCategory[catSlug] || [];
-                return (
-                  <Link
-                    key={catSlug}
-                    to={`/products?category=${catSlug}`}
-                    className="group relative overflow-hidden rounded-2xl aspect-[4/5] cursor-pointer"
-                  >
-                    <img
-                      src={
-                        cat.image ||
-                        "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400"
-                      }
-                      alt={cat.name}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
-                    <div className="absolute inset-0 bg-primary-600/0 group-hover:bg-primary-600/20 transition-colors duration-300"></div>
-                    <div className="absolute bottom-0 left-0 right-0 p-4">
-                      <h3 className="text-white font-semibold text-sm lg:text-base">
-                        {cat.name}
-                      </h3>
-                      <p className="text-white/70 text-xs mt-1">
-                        {catBooks.length} sách
+      {loading ? (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <BookGridSkeleton count={10} />
+        </section>
+      ) : allBooks.length === 0 ? (
+        <section className="py-12">
+          <EmptyState
+            icon={BookOpen}
+            title="Chưa có sách nào"
+            description="Vui lòng thêm danh mục và sách qua trang quản trị Admin để bắt đầu."
+            action={
+              <Button asChild>
+                <Link to="/admin/categories">Thêm danh mục</Link>
+              </Button>
+            }
+          />
+        </section>
+      ) : (
+        <>
+          {/* Flash Sale */}
+          {flashSaleBooks.length > 0 && (
+            <section className="bg-gradient-to-br from-red-50 via-orange-50 to-primary-50 py-10 mt-4">
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center shadow-lg shadow-red-500/30 animate-pulse">
+                      <Flame className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl lg:text-2xl font-display font-bold text-secondary-900">
+                        Flash Sale hôm nay
+                      </h2>
+                      <p className="text-xs lg:text-sm text-secondary-600">
+                        Săn ngay trước khi hết giờ!
                       </p>
                     </div>
+                  </div>
+                  <CountdownTimer target={flashEnd} />
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {flashSaleBooks.slice(0, 5).map((book, i) => (
+                    <BookCard
+                      key={book._id || book.id}
+                      book={{
+                        ...book,
+                        discountPercent: 10 + ((i * 5) % 25),
+                      }}
+                      badge={i === 0 ? "bestseller" : undefined}
+                    />
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Best Sellers rail */}
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <RecommendationRail
+              title="Bán chạy nhất"
+              subtitle="Được hàng ngàn độc giả yêu thích"
+              books={bestSellers}
+              action={
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="hidden lg:inline-flex"
+                >
+                  <Link to="/products?sort=bestseller">
+                    Xem tất cả
+                    <ArrowRight className="w-4 h-4" />
                   </Link>
-                );
-              })}
-            </div>
+                </Button>
+              }
+            />
           </div>
-        </section>
+
+          {/* New Arrivals */}
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <RecommendationRail
+              title="Mới ra mắt"
+              subtitle="Những tựa sách mới nhất dành cho bạn"
+              books={newArrivals}
+              action={
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="hidden lg:inline-flex"
+                >
+                  <Link to="/products?sort=newest">
+                    Xem tất cả
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
+                </Button>
+              }
+            />
+          </div>
+
+          {/* By Category */}
+          {categories.map((category, idx) => {
+            const slug = category.slug || category._id || category.id;
+            const books = booksByCategory[slug] || [];
+            if (books.length === 0) return null;
+            return (
+              <section
+                key={slug}
+                className={idx % 2 === 0 ? "bg-white py-8" : "bg-gray-50 py-8"}
+              >
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-1 h-8 bg-primary-500 rounded-full" />
+                      <div>
+                        <h2 className="text-xl lg:text-2xl font-display font-bold text-secondary-800">
+                          {category.name}
+                        </h2>
+                        <p className="text-xs text-secondary-500">
+                          {books.length} sản phẩm
+                        </p>
+                      </div>
+                    </div>
+                    <Button asChild variant="ghost" size="sm">
+                      <Link to={`/products?category=${slug}`}>
+                        Xem tất cả
+                        <ArrowRight className="w-4 h-4" />
+                      </Link>
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 lg:gap-5">
+                    {books.slice(0, 5).map((book, i) => (
+                      <BookCard
+                        key={book._id || book.id}
+                        book={book}
+                        badge={i === 0 ? "bestseller" : undefined}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </section>
+            );
+          })}
+
+          {/* Recently viewed */}
+          {recentlyViewed.length > 0 && (
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 bg-white">
+              <RecommendationRail
+                title="Đã xem gần đây"
+                subtitle="Tiếp tục khám phá những cuốn sách bạn đã quan tâm"
+                books={recentlyViewed}
+              />
+            </div>
+          )}
+
+          {/* Categories overview */}
+          {categories.length > 0 && (
+            <section className="bg-white py-12 border-t border-gray-100">
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="text-center mb-8">
+                  <Badge variant="secondary" className="mb-3">
+                    <Sparkles className="w-3 h-3" />
+                    Khám phá theo thể loại
+                  </Badge>
+                  <h2 className="text-2xl lg:text-3xl font-display font-bold text-secondary-800">
+                    Tất cả danh mục
+                  </h2>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                  {categories.map((cat) => {
+                    const slug = cat.slug || cat._id || cat.id;
+                    const catBooks = booksByCategory[slug] || [];
+                    return (
+                      <Link
+                        key={slug}
+                        to={`/products?category=${slug}`}
+                        className="group relative overflow-hidden rounded-2xl aspect-[4/5]"
+                      >
+                        <img
+                          src={
+                            cat.image ||
+                            catBooks[0]?.imageUrl ||
+                            "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400"
+                          }
+                          alt={cat.name}
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                        <div className="absolute inset-0 bg-primary-600/0 group-hover:bg-primary-600/30 transition-colors duration-300" />
+                        <div className="absolute bottom-0 left-0 right-0 p-4">
+                          <h3 className="text-white font-semibold text-sm lg:text-base line-clamp-1">
+                            {cat.name}
+                          </h3>
+                          <p className="text-white/70 text-xs mt-0.5">
+                            {catBooks.length} sách
+                          </p>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   );

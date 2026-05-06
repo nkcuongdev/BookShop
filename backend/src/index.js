@@ -4,6 +4,7 @@ const cors = require("cors");
 const connectDB = require("./config/db");
 const config = require("./config");
 const routes = require("./routes");
+const orderTTL = require("./jobs/orderTTL");
 
 const app = express();
 
@@ -60,6 +61,7 @@ app.listen(PORT, () => {
   console.log(`\n🚀 BookShop API Server running on port ${PORT}`);
   console.log(`📚 API: http://localhost:${PORT}/api`);
   console.log(`❤️  Health: http://localhost:${PORT}/api/health\n`);
+  orderTTL.start();
 });
 
 module.exports = app;

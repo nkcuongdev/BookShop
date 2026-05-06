@@ -1,14 +1,58 @@
 const mongoose = require("mongoose");
 
+const dimensionsSchema = new mongoose.Schema(
+  {
+    length: { type: Number, min: 0, default: null },
+    width: { type: Number, min: 0, default: null },
+    height: { type: Number, min: 0, default: null },
+  },
+  { _id: false }
+);
+
+const attributeSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true, trim: true },
+    value: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const bookSchema = new mongoose.Schema(
   {
-    title: { type: String, required: true },
-    author: { type: String, required: true },
+    // Core
+    title: { type: String, required: true, trim: true },
+    author: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
     price: { type: Number, required: true, min: 0 },
     imageUrl: { type: String, default: "" },
     category: { type: String, required: true },
     stock: { type: Number, default: 0, min: 0 },
+    status: {
+      type: String,
+      enum: ["active", "inactive"],
+      default: "active",
+      index: true,
+    },
+
+    // Publishing
+    publisher: { type: String, default: "", trim: true },
+    publishedDate: { type: Date, default: null },
+    isbn: { type: String, default: "", trim: true, index: true },
+    pages: { type: Number, default: null, min: 0 },
+    language: { type: String, default: "", trim: true },
+
+    // Physical specs (grams / centimeters)
+    weight: { type: Number, default: null, min: 0 },
+    dimensions: { type: dimensionsSchema, default: () => ({}) },
+
+    // Taxonomy / media
+    tags: { type: [String], default: [] },
+    gallery: { type: [String], default: [] },
+
+    // Custom key-value attributes
+    attributes: { type: [attributeSchema], default: [] },
+
+    // Metrics
     sold: { type: Number, default: 0, min: 0 },
     rating: { type: Number, default: 0, min: 0, max: 5 },
     reviewCount: { type: Number, default: 0 },
@@ -58,11 +102,11 @@ bookSchema.statics.findWithFilters = async function (options = {}) {
   return query.exec();
 };
 
-// Update sold count
+// Update sold count (stock đã được trừ lúc đặt đơn, ở đây chỉ tăng sold)
 bookSchema.statics.updateSold = async function (id, quantity) {
   return this.findByIdAndUpdate(
     id,
-    { $inc: { sold: quantity, stock: -quantity } },
+    { $inc: { sold: quantity } },
     { new: true }
   );
 };
