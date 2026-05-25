@@ -304,22 +304,29 @@ async function handlePaymentFailed({ orderCode, reason, rawPayload }) {
 // ──────────────────────────────────────────────────────────────
 // Admin actions
 // ──────────────────────────────────────────────────────────────
-async function adminConfirmCOD(orderId, adminId) {
+async function adminApproveOrder(orderId, adminId) {
   const order = await Order.findById(orderId);
   if (!order) throw new Error("Order không tồn tại");
-  if (order.payment.method !== PAYMENT_METHOD.COD)
-    throw new Error("Order không phải COD");
-  if (order.status !== ORDER_STATUS.PENDING)
-    throw new Error(`Không thể xác nhận, status = ${order.status}`);
+  const isCOD = order.payment.method === PAYMENT_METHOD.COD;
+  if (isCOD) {
+    if (order.status !== ORDER_STATUS.PENDING)
+      throw new Error(`Không thể xác nhận, status = ${order.status}`);
+  } else if (order.status !== ORDER_STATUS.PAID) {
+    throw new Error(
+      `Đơn online cần thanh toán thành công trước khi duyệt, status = ${order.status}`
+    );
+  }
 
   order.applyTransition(ORDER_STATUS.PROCESSING, {
     by: `admin:${adminId}`,
-    reason: "COD confirmed",
+    reason: isCOD ? "COD confirmed" : "Online payment approved",
   });
   order.expiresAt = null;
   await order.save();
   return order;
 }
+
+const adminConfirmCOD = adminApproveOrder;
 
 async function adminMarkShipped(orderId, adminId) {
   const order = await Order.findById(orderId);
@@ -475,6 +482,7 @@ module.exports = {
   createOrder,
   handlePaymentSuccess,
   handlePaymentFailed,
+  adminApproveOrder,
   adminConfirmCOD,
   adminMarkShipped,
   adminMarkDelivered,

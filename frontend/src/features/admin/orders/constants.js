@@ -19,8 +19,8 @@ export const ADMIN_ORDER_ACTIONS = {
   ],
   PAID: [
     // Sau khi thanh toán online thành công, đơn tự vào PAID.
-    // Backend cho phép PAID -> PROCESSING qua PATCH status.
-    { action: "processing", label: "Bắt đầu xử lý", next: "PROCESSING" },
+    // Admin duyệt để chuyển sang xử lý giao hàng.
+    { action: "processing", label: "Duyệt đơn online", next: "PROCESSING" },
   ],
   PROCESSING: [
     { action: "ship", label: "Bàn giao vận chuyển", next: "SHIPPED" },

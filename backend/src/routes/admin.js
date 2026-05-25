@@ -94,10 +94,10 @@ router.get("/orders/:id", async (req, res) => {
   }
 });
 
-// POST /api/admin/orders/:id/confirm - Xác nhận COD (PENDING → PROCESSING)
+// POST /api/admin/orders/:id/confirm - Duyệt đơn sang PROCESSING
 router.post("/orders/:id/confirm", async (req, res) => {
   try {
-    const order = await orderService.adminConfirmCOD(
+    const order = await orderService.adminApproveOrder(
       req.params.id,
       req.user._id
     );
@@ -150,7 +150,7 @@ router.patch("/orders/:id/status", async (req, res) => {
   try {
     const { status } = req.body;
     const map = {
-      PROCESSING: orderService.adminConfirmCOD,
+      PROCESSING: orderService.adminApproveOrder,
       SHIPPED: orderService.adminMarkShipped,
       DELIVERED: orderService.adminMarkDelivered,
     };
