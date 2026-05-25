@@ -8,6 +8,7 @@ import ProductList from "./pages/ProductList.jsx";
 import BookDetail from "./pages/BookDetail.jsx";
 import Cart from "./pages/Cart.jsx";
 import Checkout from "./pages/Checkout.jsx";
+import PaymentResult from "./pages/PaymentResult.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
 import NewsList from "./pages/NewsList.jsx";
@@ -74,6 +75,7 @@ function App() {
         <Route path="/books/:id" element={<BookDetail />} />
         <Route path="/cart" element={<Cart />} />
         <Route path="/checkout" element={<Checkout />} />
+        <Route path="/payment-result" element={<PaymentResult />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/news" element={<NewsList />} />

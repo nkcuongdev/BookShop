@@ -38,8 +38,7 @@ export const ADMIN_ORDER_ACTIONS = {
 export const PAYMENT_METHOD_LABEL = {
   COD: "COD",
   VNPAY: "VNPAY",
-  ZALOPAY: "ZaloPay",
-  STRIPE: "Stripe",
+  MOMO: "MoMo",
 };
 
 export const PAYMENT_STATUS_LABEL = {

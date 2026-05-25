@@ -11,11 +11,18 @@ const PENDING_TTL_MS = 15 * 60 * 1000;
 function normalizePaymentMethod(method) {
   if (!method) return PAYMENT_METHOD.COD;
   const upper = String(method).toUpperCase();
+  const aliases = {
+    BANKING: PAYMENT_METHOD.VNPAY,
+    ATM: PAYMENT_METHOD.VNPAY,
+    MOMO: PAYMENT_METHOD.MOMO,
+    WALLET: PAYMENT_METHOD.MOMO,
+  };
+  const normalized = aliases[upper] || upper;
   const allowed = Object.values(PAYMENT_METHOD);
-  if (!allowed.includes(upper)) {
+  if (!allowed.includes(normalized)) {
     throw new Error(`Phương thức thanh toán không hợp lệ: ${method}`);
   }
-  return upper;
+  return normalized;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -132,6 +139,8 @@ async function createOrder({
   voucherCode,
   shippingFee = 0,
   note = "",
+  clientIp,
+  frontendUrl,
 }) {
   if (!items?.length) throw new Error("Giỏ hàng trống");
   const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
@@ -209,7 +218,11 @@ async function createOrder({
       status: ORDER_STATUS.PENDING,
       shippingAddress,
       note,
-      payment: { method: normalizedPaymentMethod, status: PAYMENT_STATUS.UNPAID },
+      payment: {
+        method: normalizedPaymentMethod,
+        status: PAYMENT_STATUS.UNPAID,
+        frontendReturnUrl: frontendUrl || "",
+      },
       placedAt: now,
       expiresAt: new Date(now.getTime() + PENDING_TTL_MS),
       history: [
@@ -231,6 +244,8 @@ async function createOrder({
         orderCode: order.orderCode,
         amount: order.totalAmount,
         method: order.payment.method,
+        clientIp,
+        frontendUrl: order.payment.frontendReturnUrl,
       });
       paymentUrl = result.paymentUrl;
       order.payment.transactionId = result.transactionId;

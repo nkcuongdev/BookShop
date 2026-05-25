@@ -18,8 +18,7 @@ const MAP = {
   // ── Payment method ──
   COD: { label: "COD", cls: "bg-gray-100 text-gray-700 ring-gray-200" },
   VNPAY: { label: "VNPAY", cls: "bg-sky-100 text-sky-800 ring-sky-200" },
-  ZALOPAY: { label: "ZaloPay", cls: "bg-blue-100 text-blue-800 ring-blue-200" },
-  STRIPE: { label: "Stripe", cls: "bg-indigo-100 text-indigo-800 ring-indigo-200" },
+  MOMO: { label: "MoMo", cls: "bg-pink-100 text-pink-800 ring-pink-200" },
 
   // ── Others (giữ cũ) ──
   active: { label: "Hoạt động", cls: "bg-emerald-100 text-emerald-800 ring-emerald-200" },

@@ -71,7 +71,7 @@ export default function Checkout() {
   });
   const [errors, setErrors] = useState({});
   const [shippingMethod, setShippingMethod] = useState("standard");
-  const [paymentMethod, setPaymentMethod] = useState("cod");
+  const [paymentMethod, setPaymentMethod] = useState("COD");
   const [submitting, setSubmitting] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState([]);
   const [selectedSavedAddressId, setSelectedSavedAddressId] = useState("");
@@ -81,9 +81,6 @@ export default function Checkout() {
     discount: 0,
     shipping: 0,
   });
-
-  if (items.length === 0) return <Navigate to="/cart" replace />;
-  if (!user) return <Navigate to="/login?redirect=/checkout" replace />;
 
   useEffect(() => {
     try {
@@ -113,6 +110,9 @@ export default function Checkout() {
       savedAddresses.find((addr) => addr.id === selectedSavedAddressId) || null,
     [savedAddresses, selectedSavedAddressId]
   );
+
+  if (items.length === 0) return <Navigate to="/cart" replace />;
+  if (!user) return <Navigate to="/login?redirect=/checkout" replace />;
 
   const handleSelectSavedAddress = (addr) => {
     setSelectedSavedAddressId(addr.id || "");
@@ -159,6 +159,7 @@ export default function Checkout() {
       return;
     }
     setSubmitting(true);
+    let redirectingToPayment = false;
     try {
       const orderItems = items.map((item) => ({
         bookId: item.book._id || item.book.id,
@@ -180,20 +181,24 @@ export default function Checkout() {
         note: address.note?.trim() || "",
       });
       if (response.success) {
-        toast.success("Đặt hàng thành công!");
-        clearCart();
         const newId = response.data.order._id || response.data.order.id;
         const paymentUrl = response.data.paymentUrl;
         if (paymentUrl) {
+          redirectingToPayment = true;
+          toast.info("Đang chuyển sang cổng thanh toán...");
           window.location.href = paymentUrl;
           return;
         }
+        clearCart();
+        toast.success("Đặt hàng thành công!");
         navigate(`/profile/orders/${newId}`, { state: { justCreated: true } });
       }
     } catch (e) {
       toast.error(e?.message || "Đặt hàng thất bại, thử lại sau");
     } finally {
-      setSubmitting(false);
+      if (!redirectingToPayment) {
+        setSubmitting(false);
+      }
     }
   };
 

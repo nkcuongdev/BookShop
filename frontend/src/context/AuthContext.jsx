@@ -8,12 +8,18 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for stored user on mount
+    const handleSessionExpired = () => setUser(null);
+    window.addEventListener("bookshop:session-expired", handleSessionExpired);
+
     const storedUser = authAPI.getCurrentUser();
     if (storedUser) {
       setUser(storedUser);
     }
     setLoading(false);
+
+    return () => {
+      window.removeEventListener("bookshop:session-expired", handleSessionExpired);
+    };
   }, []);
 
   const login = async (email, password) => {

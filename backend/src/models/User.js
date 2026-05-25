@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const config = require("../config");
 
 const addressSchema = new mongoose.Schema(
   {
@@ -47,8 +48,8 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 userSchema.methods.generateToken = function () {
   return jwt.sign(
     { id: this._id, email: this.email, role: this.role },
-    process.env.JWT_SECRET || "bookshop_secret_key",
-    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+    config.jwtSecret,
+    { expiresIn: config.jwtExpiresIn }
   );
 };
 

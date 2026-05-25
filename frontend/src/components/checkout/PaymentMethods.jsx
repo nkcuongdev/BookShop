@@ -1,38 +1,35 @@
-import { Banknote, CreditCard, Smartphone, Wallet } from "lucide-react";
+import { Banknote, QrCode, Smartphone } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 const METHODS = [
   {
-    value: "cod",
+    value: "COD",
     icon: Banknote,
     title: "Thanh toán khi nhận hàng (COD)",
     desc: "Thanh toán bằng tiền mặt khi bạn nhận sách.",
-    badge: "Phổ biến",
   },
   {
-    value: "momo",
+    value: "VNPAY",
+    icon: QrCode,
+    title: "VNPay QR / thẻ ngân hàng",
+    desc: "Quét QR, ATM nội địa hoặc thẻ qua cổng VNPay.",
+  },
+  {
+    value: "MOMO",
     icon: Smartphone,
     title: "Ví MoMo",
-    desc: "Thanh toán nhanh qua MoMo — an toàn & tiện lợi.",
-  },
-  {
-    value: "banking",
-    icon: CreditCard,
-    title: "Chuyển khoản ngân hàng",
-    desc: "Chuyển khoản qua ATM/Internet Banking.",
-  },
-  {
-    value: "wallet",
-    icon: Wallet,
-    title: "Ví BookShop",
-    desc: "Thanh toán nhanh với số dư trong ví.",
-    disabled: true,
+    desc: "Thanh toán nhanh qua ví MoMo.",
   },
 ];
 
-export default function PaymentMethods({ value = "cod", onChange }) {
+export default function PaymentMethods({ value = "COD", onChange }) {
+  const selectMethod = (method) => {
+    if (method.disabled) return;
+    onChange?.(method.value);
+  };
+
   return (
     <RadioGroup value={value} onValueChange={onChange} className="gap-3">
       {METHODS.map((m) => {
@@ -41,6 +38,16 @@ export default function PaymentMethods({ value = "cod", onChange }) {
           <Label
             key={m.value}
             htmlFor={`pm-${m.value}`}
+            role="radio"
+            tabIndex={m.disabled ? -1 : 0}
+            aria-checked={isActive}
+            onClick={() => selectMethod(m)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                selectMethod(m);
+              }
+            }}
             className={cn(
               "flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all",
               m.disabled && "opacity-50 cursor-not-allowed",
@@ -70,11 +77,6 @@ export default function PaymentMethods({ value = "cod", onChange }) {
                 <p className="font-semibold text-secondary-800 text-sm">
                   {m.title}
                 </p>
-                {m.badge && (
-                  <span className="text-[10px] font-bold uppercase tracking-wide bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
-                    {m.badge}
-                  </span>
-                )}
               </div>
               <p className="text-xs text-secondary-500 mt-0.5">{m.desc}</p>
             </div>

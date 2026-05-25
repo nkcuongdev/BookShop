@@ -2,6 +2,18 @@ export const API_BASE = "http://localhost:5000/api";
 
 const getToken = () => localStorage.getItem("bookshop_token");
 
+function clearStoredSession() {
+  localStorage.removeItem("bookshop_token");
+  localStorage.removeItem("bookshop_user");
+  window.dispatchEvent(new Event("bookshop:session-expired"));
+}
+
+function redirectToLogin() {
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  if (window.location.pathname === "/login") return;
+  window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+}
+
 export async function request(endpoint, options = {}) {
   const token = getToken();
   const config = {
@@ -17,6 +29,12 @@ export async function request(endpoint, options = {}) {
     const response = await fetch(`${API_BASE}${endpoint}`, config);
     const data = await response.json();
     if (!response.ok) {
+      const isLoginRequest =
+        endpoint === "/auth/login" || endpoint === "/auth/register";
+      if (response.status === 401 && !isLoginRequest) {
+        clearStoredSession();
+        redirectToLogin();
+      }
       throw new Error(data.message || "Request failed");
     }
     return data;

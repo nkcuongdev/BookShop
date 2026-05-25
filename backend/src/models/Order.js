@@ -37,8 +37,7 @@ const PAYMENT_STATUS = Object.freeze({
 const PAYMENT_METHOD = Object.freeze({
   COD: "COD",
   VNPAY: "VNPAY",
-  ZALOPAY: "ZALOPAY",
-  STRIPE: "STRIPE",
+  MOMO: "MOMO",
 });
 
 // Allowed transitions: from -> [to, to, ...]
@@ -115,6 +114,7 @@ const paymentInfoSchema = new mongoose.Schema(
     },
     // Gateway-returned transaction id (e.g. VNPay TxnRef)
     transactionId: { type: String, default: "" },
+    frontendReturnUrl: { type: String, default: "" },
     // Id returned by the refund API call
     refundTransactionId: { type: String, default: "" },
     paidAt: { type: Date, default: null },

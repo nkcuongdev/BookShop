@@ -6,8 +6,7 @@ import { formatDateTimeVN } from "@/utils/format.js";
 const METHOD_LABEL = {
   COD: { label: "Thanh toán khi nhận hàng (COD)", icon: Wallet },
   VNPAY: { label: "VNPay", icon: CreditCard },
-  ZALOPAY: { label: "ZaloPay", icon: CreditCard },
-  STRIPE: { label: "Stripe", icon: CreditCard },
+  MOMO: { label: "MoMo", icon: CreditCard },
 };
 
 export default function OrderPaymentCard({ payment }) {
