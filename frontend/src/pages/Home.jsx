@@ -13,6 +13,7 @@ import EmptyState from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import useRecentlyViewed from "@/hooks/useRecentlyViewed";
+import { getPriceInfo } from "@/utils/format";
 
 export default function Home() {
   const [categories, setCategories] = useState([]);
@@ -61,11 +62,11 @@ export default function Home() {
     [allBooks]
   );
 
-  // "Flash sale" = top rated & most affordable (simulated)
+  // Flash sale only includes books with real active promotions from the API.
   const flashSaleBooks = useMemo(
     () =>
       [...allBooks]
-        .filter((b) => (b.stock || 0) > 0)
+        .filter((b) => (b.stock || 0) > 0 && getPriceInfo(b).discountPercent > 0)
         .sort((a, b) => (b.rating || 0) - (a.rating || 0) || a.price - b.price)
         .slice(0, 10),
     [allBooks]
@@ -143,10 +144,7 @@ export default function Home() {
                   {flashSaleBooks.slice(0, 5).map((book, i) => (
                     <BookCard
                       key={book._id || book.id}
-                      book={{
-                        ...book,
-                        discountPercent: 10 + ((i * 5) % 25),
-                      }}
+                      book={book}
                       badge={i === 0 ? "bestseller" : undefined}
                     />
                   ))}
