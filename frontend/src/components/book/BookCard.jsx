@@ -33,7 +33,11 @@ export default function BookCard({
   const handleAddToCart = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    addItem(book, 1);
+    const result = addItem(book, 1);
+    if (!result?.success) {
+      toast.error("Số lượng trong giỏ đã đạt mức còn hàng");
+      return;
+    }
     toast.success("Đã thêm vào giỏ hàng", {
       description: book.title,
     });

@@ -9,6 +9,9 @@ export default function CartItem({ item, onUpdateQty, onRemove }) {
   const bookId = book._id || book.id;
   const { price, originalPrice } = getPriceInfo(book);
   const lineTotal = price * quantity;
+  const stockLimit = Number.isFinite(Number(book.stock))
+    ? Math.max(0, Number(book.stock))
+    : 99;
 
   return (
     <div className="flex gap-4 p-4 bg-white rounded-2xl border border-gray-100 hover:border-gray-200 transition-colors">
@@ -46,7 +49,7 @@ export default function CartItem({ item, onUpdateQty, onRemove }) {
             value={quantity}
             onChange={(v) => onUpdateQty(bookId, v)}
             size="sm"
-            max={book.stock || 99}
+            max={stockLimit}
           />
           <div className="text-right">
             <p className="text-[11px] text-secondary-400">Thành tiền</p>

@@ -4,23 +4,39 @@ const CartContext = createContext(null);
 
 const getBookKey = (book) => book?._id || book?.id || null;
 
+const getStockLimit = (book) => {
+  const stock = Number(book?.stock);
+  return Number.isFinite(stock) ? Math.max(0, Math.floor(stock)) : Infinity;
+};
+
+const normalizeQuantity = (quantity) =>
+  Math.max(0, Math.floor(Number(quantity) || 0));
+
+const clampQuantity = (book, quantity) => {
+  const normalized = normalizeQuantity(quantity);
+  const stockLimit = getStockLimit(book);
+  return Number.isFinite(stockLimit)
+    ? Math.min(normalized, stockLimit)
+    : normalized;
+};
+
 function normalizeCartItems(rawItems) {
   if (!Array.isArray(rawItems)) return [];
 
   const merged = new Map();
   for (const entry of rawItems) {
     const key = getBookKey(entry?.book);
-    const qty = Number(entry?.quantity) || 0;
+    const qty = clampQuantity(entry?.book, entry?.quantity);
     if (!key || qty <= 0) continue;
 
     const prev = merged.get(key);
     if (prev) {
-      prev.quantity += qty;
+      prev.quantity = clampQuantity(prev.book, prev.quantity + qty);
       continue;
     }
     merged.set(key, { book: entry.book, quantity: qty });
   }
-  return Array.from(merged.values());
+  return Array.from(merged.values()).filter((item) => item.quantity > 0);
 }
 
 export function CartProvider({ children }) {
@@ -40,19 +56,49 @@ export function CartProvider({ children }) {
 
   const addItem = (book, quantity = 1) => {
     const key = getBookKey(book);
-    if (!key) return;
+    const requestedQuantity = normalizeQuantity(quantity);
+    if (!key || requestedQuantity <= 0) {
+      return { success: false, reason: "invalid_quantity", addedQuantity: 0 };
+    }
+
+    const existing = items.find((item) => getBookKey(item.book) === key);
+    const currentQuantity = existing?.quantity || 0;
+    const nextQuantity = clampQuantity(book, currentQuantity + requestedQuantity);
+    const addedQuantity = Math.max(0, nextQuantity - currentQuantity);
+    const stockLimit = getStockLimit(book);
+    const result = {
+      success: addedQuantity > 0,
+      addedQuantity,
+      quantity: nextQuantity,
+      maxQuantity: Number.isFinite(stockLimit) ? stockLimit : null,
+      capped: addedQuantity < requestedQuantity,
+      reason:
+        addedQuantity > 0
+          ? null
+          : stockLimit === 0
+            ? "out_of_stock"
+            : "limit_reached",
+    };
 
     setItems((prev) => {
-      const existing = prev.find((item) => getBookKey(item.book) === key);
-      if (existing) {
+      const prevExisting = prev.find((item) => getBookKey(item.book) === key);
+      if (prevExisting) {
         return prev.map((item) =>
           getBookKey(item.book) === key
-            ? { ...item, quantity: item.quantity + quantity }
+            ? {
+                ...item,
+                book: { ...item.book, ...book },
+                quantity: clampQuantity(book, item.quantity + requestedQuantity),
+              }
             : item
         );
       }
-      return [...prev, { book, quantity }];
+      const clampedQuantity = clampQuantity(book, requestedQuantity);
+      if (clampedQuantity <= 0) return prev;
+      return [...prev, { book, quantity: clampedQuantity }];
     });
+
+    return result;
   };
 
   const removeItem = (bookId) => {
@@ -62,13 +108,17 @@ export function CartProvider({ children }) {
   };
 
   const updateQuantity = (bookId, quantity) => {
-    if (quantity <= 0) {
+    const item = items.find((cartItem) => getBookKey(cartItem.book) === String(bookId));
+    const nextQuantity = item ? clampQuantity(item.book, quantity) : quantity;
+    if (nextQuantity <= 0) {
       removeItem(bookId);
       return;
     }
     setItems((prev) =>
       prev.map((item) =>
-        getBookKey(item.book) === String(bookId) ? { ...item, quantity } : item
+        getBookKey(item.book) === String(bookId)
+          ? { ...item, quantity: clampQuantity(item.book, quantity) }
+          : item
       )
     );
   };

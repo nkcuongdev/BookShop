@@ -13,8 +13,16 @@ export default function ProfileWishlist() {
   const { addItem } = useCart();
 
   const addAllToCart = () => {
-    items.forEach((b) => addItem(b, 1));
-    toast.success(`Đã thêm ${items.length} sản phẩm vào giỏ`);
+    const added = items.reduce((count, b) => {
+      const result = addItem(b, 1);
+      return result?.success ? count + 1 : count;
+    }, 0);
+
+    if (added > 0) {
+      toast.success(`Đã thêm ${added} sản phẩm vào giỏ`);
+    } else {
+      toast.error("Số lượng trong giỏ đã đạt mức còn hàng");
+    }
   };
 
   if (items.length === 0) {

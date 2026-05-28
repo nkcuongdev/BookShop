@@ -201,15 +201,25 @@ export default function BookDetail() {
 
   const handleAddToCart = () => {
     if (!book) return;
-    addItem(book, quantity);
+    const result = addItem(book, quantity);
+    if (!result?.success) {
+      toast.error("Số lượng trong giỏ đã đạt mức còn hàng");
+      return;
+    }
     toast.success("Đã thêm vào giỏ hàng", {
-      description: `${book.title} × ${quantity}`,
+      description: result.capped
+        ? `${book.title} - đã thêm số lượng còn lại`
+        : `${book.title} × ${quantity}`,
     });
   };
 
   const handleBuyNow = () => {
     if (!book) return;
-    addItem(book, quantity);
+    const result = addItem(book, quantity);
+    if (!result?.success && result?.reason !== "limit_reached") {
+      toast.error("Số lượng trong giỏ đã đạt mức còn hàng");
+      return;
+    }
     window.location.href = "/checkout";
   };
 
@@ -364,7 +374,9 @@ export default function BookDetail() {
                       const currentlyWished = wished;
                       const res = await toggleWishlist(book);
                       if (!res?.success) {
-                        toast.error(res?.message || "Không thể cập nhật yêu thích");
+                        toast.error(
+                          res?.message || "Không thể cập nhật yêu thích",
+                        );
                         return;
                       }
                       toast.success(
@@ -495,9 +507,6 @@ export default function BookDetail() {
                   onChange={setQuantity}
                   max={Math.max(book.stock || 1, 1)}
                 />
-                <span className="text-xs text-secondary-500">
-                  (Tối đa {book.stock})
-                </span>
               </div>
 
               {/* CTA - desktop */}
