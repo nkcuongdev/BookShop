@@ -15,11 +15,15 @@ const { getCookieValue } = require("./middleware/auth");
 const app = express();
 const server = http.createServer(app);
 
-const allowedOrigins = new Set(
-  [config.frontendUrl, process.env.FRONTEND_URL]
+function parseOrigins(...values) {
+  return values
     .filter(Boolean)
-    .map((origin) => origin.replace(/\/$/, ""))
-);
+    .flatMap((value) => String(value).split(","))
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+}
+
+const allowedOrigins = new Set(parseOrigins(config.frontendUrl, process.env.FRONTEND_URL));
 
 const corsOptions = {
   origin(origin, callback) {

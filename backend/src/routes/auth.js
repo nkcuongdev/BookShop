@@ -13,20 +13,22 @@ const authLimiter = createRateLimiter({
 });
 
 function setAuthCookie(res, token) {
+  const isProduction = process.env.NODE_ENV === "production";
   res.cookie("bookshop_token", token, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: isProduction ? "none" : "lax",
+    secure: isProduction,
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: "/",
   });
 }
 
 function clearAuthCookie(res) {
+  const isProduction = process.env.NODE_ENV === "production";
   res.clearCookie("bookshop_token", {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: isProduction ? "none" : "lax",
+    secure: isProduction,
     path: "/",
   });
 }

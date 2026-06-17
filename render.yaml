@@ -19,9 +19,9 @@ services:
       - key: MONGO_URI
         sync: false
       - key: FRONTEND_URL
-        sync: false
+        value: https://bookshop-web.onrender.com
       - key: API_PUBLIC_URL
-        sync: false
+        value: https://bookshop-api.onrender.com
       - key: PAYMENT_MOCK_ENABLED
         value: false
       - key: VNPAY_TMN_CODE
@@ -58,4 +58,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_BASE_URL
-        sync: false
+        value: https://bookshop-api.onrender.com/api
