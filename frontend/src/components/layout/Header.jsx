@@ -15,6 +15,7 @@ import {
   X,
   Heart,
   Bell,
+  CheckCheck,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext.jsx";
 import { useCart } from "@/context/CartContext.jsx";
@@ -324,6 +325,20 @@ function NotificationMenu({ user }) {
     }
   };
 
+  const handleMarkAllRead = async (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (unreadCount <= 0) return;
+    await notificationsAPI.markAllRead().catch(() => null);
+    setUnreadCount(0);
+    setItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        readAt: item.readAt || new Date().toISOString(),
+      }))
+    );
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -339,35 +354,53 @@ function NotificationMenu({ user }) {
           )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel>Thong bao</DropdownMenuLabel>
+      <DropdownMenuContent align="end" className="w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden p-0">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <DropdownMenuLabel className="p-0 text-xs font-semibold uppercase tracking-wide text-secondary-500">
+            Thông báo
+          </DropdownMenuLabel>
+          {unreadCount > 0 && (
+            <button
+              type="button"
+              onClick={handleMarkAllRead}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-primary-600 hover:bg-primary-50"
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              Đánh dấu đã xem
+            </button>
+          )}
+        </div>
         <DropdownMenuSeparator />
         {items.length === 0 ? (
-          <div className="p-4 text-sm text-secondary-500">Chua co thong bao</div>
+          <div className="p-4 text-sm text-secondary-500">Chưa có thông báo</div>
         ) : (
-          items.map((item) => (
-            <DropdownMenuItem
-              key={item._id || item.id}
-              onClick={() => handleOpen(item)}
-              className="block cursor-pointer whitespace-normal"
-            >
-              <div className="flex items-start gap-2">
-                {!item.readAt && (
-                  <span className="mt-1.5 h-2 w-2 rounded-full bg-primary-500" />
-                )}
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-secondary-800">
-                    {item.title}
-                  </p>
-                  {item.message && (
-                    <p className="mt-0.5 line-clamp-2 text-xs text-secondary-500">
-                      {item.message}
+          <div className="max-h-[420px] overflow-y-auto py-1">
+            {items.map((item) => (
+              <DropdownMenuItem
+                key={item._id || item.id}
+                onClick={() => handleOpen(item)}
+                className="block cursor-pointer whitespace-normal px-4 py-3"
+              >
+                <div className="flex items-start gap-2.5">
+                  <span
+                    className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                      item.readAt ? "bg-transparent" : "bg-primary-500"
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-1 text-sm font-semibold text-secondary-800">
+                      {item.title}
                     </p>
-                  )}
+                    {item.message && (
+                      <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-secondary-500">
+                        {item.message}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </DropdownMenuItem>
-          ))
+              </DropdownMenuItem>
+            ))}
+          </div>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
