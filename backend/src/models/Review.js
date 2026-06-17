@@ -49,9 +49,7 @@ reviewSchema.statics.ensureReviewIndexes = async function () {
         Object.keys(key).length === 2 &&
         key.book === expectedKey.book &&
         key.user === expectedKey.user;
-      const isStaleReviewIndex = key.book || key.user;
-
-      if (!isExpected && isStaleReviewIndex) {
+      if (!isExpected) {
         await this.collection.dropIndex(index.name);
         console.log(`Dropped stale review index: ${index.name}`);
       }

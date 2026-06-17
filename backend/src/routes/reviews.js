@@ -20,6 +20,21 @@ function serializeReview(review) {
   };
 }
 
+async function createReviewWithIndexRepair(payload) {
+  try {
+    return await Review.create(payload);
+  } catch (error) {
+    if (error.code !== 11000) throw error;
+
+    console.warn("Duplicate review write, repairing indexes and retrying", {
+      keyPattern: error.keyPattern,
+      keyValue: error.keyValue,
+    });
+    await Review.ensureReviewIndexes();
+    return Review.create(payload);
+  }
+}
+
 router.get("/book/:bookId", async (req, res) => {
   try {
     const reviews = await Review.getByBook(req.params.bookId);
@@ -84,7 +99,7 @@ router.post("/", auth, async (req, res) => {
       });
     }
 
-    const review = await Review.create({
+    const review = await createReviewWithIndexRepair({
       book: bookId,
       user: req.user._id,
       userName: req.user.name || "",

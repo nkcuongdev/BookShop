@@ -42,6 +42,21 @@ async function serializeExistingUserReview(review, user) {
   return serializeReview(review, user);
 }
 
+async function createReviewWithIndexRepair(payload) {
+  try {
+    return await Review.create(payload);
+  } catch (error) {
+    if (error.code !== 11000) throw error;
+
+    console.warn("Duplicate review write, repairing indexes and retrying", {
+      keyPattern: error.keyPattern,
+      keyValue: error.keyValue,
+    });
+    await Review.ensureReviewIndexes();
+    return Review.create(payload);
+  }
+}
+
 // Get all books (public)
 router.get("/", optionalAuth, async (req, res) => {
   try {
@@ -278,7 +293,7 @@ router.post("/:id/reviews", auth, async (req, res) => {
       });
     }
 
-    const review = await Review.create({
+    const review = await createReviewWithIndexRepair({
       book: bookId,
       user: req.user._id,
       userName: req.user.name || "",
