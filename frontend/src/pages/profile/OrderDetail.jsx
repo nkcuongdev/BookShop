@@ -174,6 +174,9 @@ export default function OrderDetail() {
           <OrderShippingCard
             shippingAddress={order.shippingAddress}
             trackingNumber={order.trackingNumber}
+            carrier={order.carrier}
+            estimatedDelivery={order.estimatedDelivery}
+            trackingEvents={order.trackingEvents}
             note={order.note}
           />
           <OrderPaymentCard payment={order.payment} />

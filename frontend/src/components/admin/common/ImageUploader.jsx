@@ -10,6 +10,11 @@ export function ImageUploader({ value, onChange, className, ratio = "3/4" }) {
 
   const handleFile = (file) => {
     if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+    if (file.size > 1_000_000) {
+      window.alert("Anh toi da 1MB. Hay dung URL anh hoac nen anh truoc khi tai len.");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => onChange?.(e.target.result);
     reader.readAsDataURL(file);

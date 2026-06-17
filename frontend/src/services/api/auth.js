@@ -7,7 +7,6 @@ export const authAPI = {
       body: JSON.stringify({ email, password }),
     });
     if (response.success) {
-      localStorage.setItem("bookshop_token", response.data.token);
       localStorage.setItem("bookshop_user", JSON.stringify(response.data.user));
     }
     return response;
@@ -19,13 +18,13 @@ export const authAPI = {
       body: JSON.stringify({ name, email, password }),
     });
     if (response.success) {
-      localStorage.setItem("bookshop_token", response.data.token);
       localStorage.setItem("bookshop_user", JSON.stringify(response.data.user));
     }
     return response;
   },
 
   logout: () => {
+    request("/auth/logout", { method: "POST" }).catch(() => null);
     localStorage.removeItem("bookshop_token");
     localStorage.removeItem("bookshop_user");
   },

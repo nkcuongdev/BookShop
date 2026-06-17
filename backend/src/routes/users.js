@@ -2,6 +2,7 @@ const express = require("express");
 const User = require("../models/User");
 const Order = require("../models/Order");
 const { auth, adminOnly } = require("../middleware/auth");
+const { safeRegex } = require("../utils/security");
 
 const router = express.Router();
 
@@ -38,8 +39,8 @@ router.get("/", async (req, res) => {
     const query = {};
 
     if (search) {
-      const regex = new RegExp(search, "i");
-      query.$or = [{ name: regex }, { email: regex }, { phone: regex }];
+      const regex = safeRegex(search);
+      if (regex) query.$or = [{ name: regex }, { email: regex }, { phone: regex }];
     }
     if (role && role !== "all") query.role = toDbRole(role);
     if (status && status !== "all") query.status = status;
@@ -80,6 +81,13 @@ router.patch("/:id/role", async (req, res) => {
     if (!role) {
       return res.status(400).json({ success: false, message: "Thiếu role" });
     }
+    if (String(req.user._id) === String(req.params.id) && toDbRole(role) !== "admin") {
+      return res.status(400).json({
+        success: false,
+        message: "Khong the ha quyen admin cua chinh minh",
+      });
+    }
+
     const user = await User.findByIdAndUpdate(
       req.params.id,
       { role: toDbRole(role) },
@@ -133,6 +141,14 @@ router.delete("/:id", async (req, res) => {
         message: "Không thể xoá chính mình",
       });
     }
+    const orderCount = await Order.countDocuments({ user: req.params.id });
+    if (orderCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "User da co don hang, hay khoa tai khoan thay vi xoa",
+      });
+    }
+
     const user = await User.findByIdAndDelete(req.params.id);
     if (!user) {
       return res.status(404).json({ success: false, message: "Không tìm thấy user" });

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { safeRegex } = require("../utils/security");
 
 const voucherSchema = new mongoose.Schema(
   {
@@ -28,7 +29,8 @@ const voucherSchema = new mongoose.Schema(
 );
 
 voucherSchema.statics.search = function (q) {
-  const regex = new RegExp(q, "i");
+  const regex = safeRegex(q);
+  if (!regex) return this.find().sort({ createdAt: -1 });
   return this.find({
     $or: [{ code: regex }, { description: regex }],
   }).sort({ createdAt: -1 });

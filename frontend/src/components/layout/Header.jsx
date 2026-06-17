@@ -14,11 +14,13 @@ import {
   User,
   X,
   Heart,
+  Bell,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext.jsx";
 import { useCart } from "@/context/CartContext.jsx";
 import { useCategories } from "@/context/CategoryContext.jsx";
-import { booksAPI } from "@/services/api";
+import { booksAPI, notificationsAPI } from "@/services/api";
+import { connectSocket } from "@/services/socket";
 import useDebounce from "@/hooks/useDebounce";
 import { cn } from "@/lib/utils";
 import { formatVND } from "@/utils/format";
@@ -281,6 +283,97 @@ function CartPopover({ items, totalPrice, onOpenCart }) {
   );
 }
 
+function NotificationMenu({ user }) {
+  const [items, setItems] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const navigate = useNavigate();
+
+  const load = async () => {
+    if (!user) return;
+    try {
+      const res = await notificationsAPI.getAll(10);
+      setItems(res?.data?.notifications || []);
+      setUnreadCount(res?.data?.unreadCount || 0);
+    } catch {
+      setItems([]);
+      setUnreadCount(0);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    if (!user) return undefined;
+    const socket = connectSocket();
+    const onNew = () => load();
+    socket.on("notification:new", onNew);
+    return () => {
+      socket.off("notification:new", onNew);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?._id, user?.id]);
+
+  if (!user) return null;
+
+  const handleOpen = async (notification) => {
+    if (!notification.readAt) {
+      await notificationsAPI.markRead(notification._id || notification.id).catch(() => null);
+      load();
+    }
+    if (notification.link) {
+      navigate(notification.link);
+    }
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="relative p-2.5 text-secondary-600 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-colors"
+          aria-label="Thong bao"
+        >
+          <Bell className="w-5 h-5" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[11px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center font-bold shadow-md">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel>Thong bao</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {items.length === 0 ? (
+          <div className="p-4 text-sm text-secondary-500">Chua co thong bao</div>
+        ) : (
+          items.map((item) => (
+            <DropdownMenuItem
+              key={item._id || item.id}
+              onClick={() => handleOpen(item)}
+              className="block cursor-pointer whitespace-normal"
+            >
+              <div className="flex items-start gap-2">
+                {!item.readAt && (
+                  <span className="mt-1.5 h-2 w-2 rounded-full bg-primary-500" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-secondary-800">
+                    {item.title}
+                  </p>
+                  {item.message && (
+                    <p className="mt-0.5 line-clamp-2 text-xs text-secondary-500">
+                      {item.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </DropdownMenuItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export default function Header() {
   const { user, logout } = useAuth();
   const { items, totalItems, totalPrice } = useCart();
@@ -425,6 +518,8 @@ export default function Header() {
             >
               <Heart className="w-5 h-5" />
             </Link>
+
+            <NotificationMenu user={user} />
 
             {/* Cart */}
             <Popover open={cartOpen} onOpenChange={setCartOpen}>

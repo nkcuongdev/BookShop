@@ -1,25 +1,90 @@
 require("dotenv").config();
 const express = require("express");
+const http = require("http");
 const cors = require("cors");
+const { Server } = require("socket.io");
+const jwt = require("jsonwebtoken");
 const connectDB = require("./config/db");
 const config = require("./config");
 const routes = require("./routes");
 const orderTTL = require("./jobs/orderTTL");
+const User = require("./models/User");
+const Conversation = require("./models/Conversation");
+const { getCookieValue } = require("./middleware/auth");
 
 const app = express();
+const server = http.createServer(app);
 
-// Connect to MongoDB
-connectDB();
+const allowedOrigins = new Set(
+  [config.frontendUrl, process.env.FRONTEND_URL]
+    .filter(Boolean)
+    .map((origin) => origin.replace(/\/$/, ""))
+);
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    const normalized = origin.replace(/\/$/, "");
+    if (
+      allowedOrigins.has(normalized) ||
+      (process.env.NODE_ENV !== "production" &&
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized))
+    ) {
+      return callback(null, true);
+    }
+    return callback(new Error("CORS origin not allowed"));
+  },
+  credentials: true,
+};
 
-// API routes
+const io = new Server(server, { cors: corsOptions });
+app.set("io", io);
+
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token || getCookieValue(socket, "bookshop_token");
+    if (!token) return next(new Error("Authentication required"));
+
+    const decoded = jwt.verify(token, config.jwtSecret);
+    const user = await User.findById(decoded.id || decoded.userId);
+    if (!user || user.status === "banned") {
+      return next(new Error("Authentication failed"));
+    }
+
+    socket.user = user;
+    return next();
+  } catch {
+    return next(new Error("Authentication failed"));
+  }
+});
+
+io.on("connection", (socket) => {
+  socket.join(`user:${socket.user._id}`);
+  socket.join(`role:${socket.user.role === "admin" ? "admin" : "user"}`);
+
+  socket.on("chat:join", async (conversationId) => {
+    try {
+      if (!conversationId) return;
+      const conversation = await Conversation.findById(conversationId).select("user");
+      if (!conversation) return;
+
+      const isAdmin = socket.user.role === "admin";
+      const isOwner = String(conversation.user || "") === String(socket.user._id);
+      if (isAdmin || isOwner) {
+        socket.join(`conversation:${conversationId}`);
+      }
+    } catch {
+      // Ignore malformed ids and stale conversations.
+    }
+  });
+});
+
+app.use(cors(corsOptions));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+
 app.use("/api", routes);
 
-// Root endpoint
 app.get("/", (req, res) => {
   res.json({
     success: true,
@@ -37,7 +102,6 @@ app.get("/", (req, res) => {
   });
 });
 
-// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -45,7 +109,6 @@ app.use((req, res) => {
   });
 });
 
-// Error handler
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
   res.status(500).json({
@@ -55,13 +118,20 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-const PORT = config.port;
-app.listen(PORT, () => {
-  console.log(`\n🚀 BookShop API Server running on port ${PORT}`);
-  console.log(`📚 API: http://localhost:${PORT}/api`);
-  console.log(`❤️  Health: http://localhost:${PORT}/api/health\n`);
-  orderTTL.start();
+async function start() {
+  await connectDB();
+  const PORT = config.port;
+  server.listen(PORT, () => {
+    console.log(`\nBookShop API Server running on port ${PORT}`);
+    console.log(`API: http://localhost:${PORT}/api`);
+    console.log(`Health: http://localhost:${PORT}/api/health\n`);
+    orderTTL.start();
+  });
+}
+
+start().catch((error) => {
+  console.error("Failed to start server:", error);
+  process.exit(1);
 });
 
 module.exports = app;

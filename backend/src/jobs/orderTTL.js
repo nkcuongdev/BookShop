@@ -1,5 +1,6 @@
 const Book = require("../models/Book");
 const orderService = require("../services/orderService");
+const mongoose = require("mongoose");
 
 const POLL_INTERVAL_MS = 60 * 1000;
 
@@ -7,6 +8,7 @@ let timer = null;
 
 async function tick() {
   try {
+    if (mongoose.connection.readyState !== 1) return;
     const cancelled = await orderService.expirePendingOrders();
     if (cancelled.length > 0) {
       console.log(
@@ -25,10 +27,11 @@ async function tick() {
  */
 async function migrateReservedStock() {
   try {
+    if (mongoose.connection.readyState !== 1) return;
     const col = Book.collection;
-    const stuck = await col
-      .find({ reservedStock: { $exists: true, $gt: 0 } })
-      .toArray();
+    const stuck = await Book.find({ reservedStock: { $exists: true, $gt: 0 } })
+      .select("_id reservedStock")
+      .lean();
 
     if (stuck.length > 0) {
       for (const doc of stuck) {

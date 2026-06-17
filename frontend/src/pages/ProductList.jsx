@@ -32,13 +32,16 @@ const PRICE_LABELS = {
   "100000-200000": "100k - 200k",
   "200000+": "> 200k",
 };
+const PAGE_SIZE = 60;
 
 export default function ProductList() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { categories } = useCategories();
 
   const [books, setBooks] = useState([]);
+  const [totalBooks, setTotalBooks] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const sortBy = searchParams.get("sort") || "bestseller";
@@ -47,13 +50,41 @@ export default function ProductList() {
   const search = searchParams.get("search") || "";
   const minRating = Number(searchParams.get("rating") || 0);
   const inStock = searchParams.get("stock") === "1";
+  const tag = searchParams.get("tag") || "";
+
+  const filterKey = useMemo(
+    () => JSON.stringify({ category, inStock, minRating, priceRange, search, sortBy, tag }),
+    [category, inStock, minRating, priceRange, search, sortBy, tag]
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterKey]);
 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       try {
-        const booksRes = await booksAPI.getAll();
-        setBooks(booksRes.data?.books || []);
+        const priceMap = {
+          "0-50000": { maxPrice: 49999 },
+          "50000-100000": { minPrice: 50000, maxPrice: 99999 },
+          "100000-200000": { minPrice: 100000, maxPrice: 199999 },
+          "200000+": { minPrice: 200000 },
+        };
+        const booksRes = await booksAPI.getAll({
+          category,
+          search,
+          tag,
+          sort: sortBy,
+          rating: minRating || undefined,
+          stock: inStock ? "1" : undefined,
+          page,
+          limit: PAGE_SIZE,
+          ...(priceMap[priceRange] || {}),
+        });
+        const nextBooks = booksRes.data?.books || [];
+        setBooks((prev) => (page === 1 ? nextBooks : [...prev, ...nextBooks]));
+        setTotalBooks(booksRes.data?.pagination?.total || 0);
       } catch (error) {
         console.error("Error loading data:", error);
       } finally {
@@ -61,48 +92,11 @@ export default function ProductList() {
       }
     };
     loadData();
-  }, []);
+  }, [category, filterKey, inStock, minRating, page, priceRange, search, sortBy, tag]);
 
   const filteredBooks = useMemo(() => {
-    let result = [...books];
-    if (category) result = result.filter((b) => b.category === category);
-    if (search) {
-      const s = search.toLowerCase();
-      result = result.filter(
-        (b) =>
-          b.title?.toLowerCase().includes(s) ||
-          b.author?.toLowerCase().includes(s)
-      );
-    }
-    if (priceRange && priceRange !== "all") {
-      if (priceRange === "0-50000")
-        result = result.filter((b) => b.price < 50000);
-      else if (priceRange === "50000-100000")
-        result = result.filter((b) => b.price >= 50000 && b.price < 100000);
-      else if (priceRange === "100000-200000")
-        result = result.filter((b) => b.price >= 100000 && b.price < 200000);
-      else if (priceRange === "200000+")
-        result = result.filter((b) => b.price >= 200000);
-    }
-    if (minRating > 0)
-      result = result.filter((b) => (b.rating || 0) >= minRating);
-    if (inStock) result = result.filter((b) => (b.stock || 0) > 0);
-
-    if (sortBy === "bestseller")
-      result.sort((a, b) => (b.sold || 0) - (a.sold || 0));
-    else if (sortBy === "newest")
-      result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    else if (sortBy === "price-asc")
-      result.sort((a, b) => a.price - b.price);
-    else if (sortBy === "price-desc")
-      result.sort((a, b) => b.price - a.price);
-    else if (sortBy === "rating")
-      result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
-    else if (sortBy === "name")
-      result.sort((a, b) => a.title.localeCompare(b.title));
-
-    return result;
-  }, [books, category, search, priceRange, sortBy, minRating, inStock]);
+    return books;
+  }, [books]);
 
   const updateParam = (key, value) => {
     const p = new URLSearchParams(searchParams);
@@ -136,6 +130,12 @@ export default function ProductList() {
       key: "search",
       label: `"${search}"`,
       onRemove: () => updateParam("search", ""),
+    });
+  if (tag)
+    chips.push({
+      key: "tag",
+      label: `#${tag}`,
+      onRemove: () => updateParam("tag", ""),
     });
   if (minRating > 0)
     chips.push({
@@ -192,7 +192,7 @@ export default function ProductList() {
               : "Tất cả sách"}
           </h1>
           <p className="text-secondary-500 mt-1 text-sm">
-            {loading ? "Đang tải..." : `${filteredBooks.length} sản phẩm`}
+            {loading ? "Đang tải..." : `${totalBooks || filteredBooks.length} sản phẩm`}
           </p>
         </div>
       </div>
@@ -246,7 +246,7 @@ export default function ProductList() {
               />
             </div>
 
-            {loading ? (
+            {loading && page === 1 ? (
               <BookGridSkeleton count={10} />
             ) : filteredBooks.length === 0 ? (
               <EmptyState
@@ -261,11 +261,24 @@ export default function ProductList() {
                 }
               />
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-4 lg:gap-5">
-                {filteredBooks.map((book) => (
-                  <BookCard key={book._id || book.id} book={book} />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-4 lg:gap-5">
+                  {filteredBooks.map((book) => (
+                    <BookCard key={book._id || book.id} book={book} />
+                  ))}
+                </div>
+                {filteredBooks.length < totalBooks && (
+                  <div className="mt-6 flex justify-center">
+                    <Button
+                      variant="outline"
+                      onClick={() => setPage((p) => p + 1)}
+                      disabled={loading}
+                    >
+                      Tai them
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

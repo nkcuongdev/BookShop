@@ -11,7 +11,7 @@ const serializeConv = (c) => {
     _id: obj._id,
     id: obj._id,
     customer: {
-      name: obj.user?.name || obj.customerName || "Khách",
+      name: obj.user?.name || obj.customerName || "Khach",
       email: obj.user?.email || obj.customerEmail || "",
       avatar: "",
     },
@@ -33,11 +33,20 @@ const serializeMessage = (m) => {
   };
 };
 
-// ============================================================
-// CUSTOMER endpoints (must be logged-in user)
-// ============================================================
+function emitChat(req, conversationId, message, conversation = null) {
+  const io = req.app.get("io");
+  if (!io) return;
+  const payload = {
+    conversationId: String(conversationId),
+    message: serializeMessage(message),
+  };
+  io.to(`conversation:${conversationId}`).emit("chat:message", payload);
+  io.to("role:admin").emit("chat:conversation", {
+    conversationId: String(conversationId),
+    conversation: conversation ? serializeConv(conversation) : null,
+  });
+}
 
-// GET /api/chat/me  -> lấy/tạo hội thoại của khách hàng hiện tại + danh sách tin nhắn
 router.get("/me", auth, async (req, res) => {
   try {
     let conv = await Conversation.findOne({ user: req.user._id });
@@ -52,10 +61,9 @@ router.get("/me", auth, async (req, res) => {
         unreadCustomer: 0,
       });
     }
-    const messages = await Message.find({ conversation: conv._id }).sort({ at: 1 });
 
-    // mark customer-side as read
-    if (conv.unreadCustomer && conv.unreadCustomer > 0) {
+    const messages = await Message.find({ conversation: conv._id }).sort({ at: 1 });
+    if (conv.unreadCustomer > 0) {
       conv.unreadCustomer = 0;
       await conv.save();
     }
@@ -68,16 +76,15 @@ router.get("/me", auth, async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Lỗi server", error: error.message });
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 });
 
-// POST /api/chat/me/messages  -> khách hàng gửi tin nhắn
 router.post("/me/messages", auth, async (req, res) => {
   try {
     const { text } = req.body || {};
     if (!text || !text.trim()) {
-      return res.status(400).json({ success: false, message: "Nội dung trống" });
+      return res.status(400).json({ success: false, message: "Message is empty" });
     }
 
     let conv = await Conversation.findOne({ user: req.user._id });
@@ -98,24 +105,22 @@ router.post("/me/messages", auth, async (req, res) => {
 
     conv.lastMessage = msg.text;
     conv.lastAt = msg.at;
-    conv.unread = (conv.unread || 0) + 1; // admin chưa đọc
+    conv.unread = (conv.unread || 0) + 1;
     await conv.save();
+    await conv.populate("user", "name email");
+    emitChat(req, conv._id, msg, conv);
 
     res.status(201).json({
       success: true,
       data: { message: serializeMessage(msg) },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Lỗi server", error: error.message });
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 });
 
-// ============================================================
-// ADMIN endpoints
-// ============================================================
 router.use(auth, adminOnly);
 
-// GET /api/admin/chat/conversations
 router.get("/conversations", async (req, res) => {
   try {
     const list = await Conversation.find()
@@ -126,36 +131,32 @@ router.get("/conversations", async (req, res) => {
       data: { conversations: list.map(serializeConv) },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Lỗi server", error: error.message });
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 });
 
-// GET /api/admin/chat/conversations/:id/messages
 router.get("/conversations/:id/messages", async (req, res) => {
   try {
-    const messages = await Message.find({ conversation: req.params.id }).sort({
-      at: 1,
-    });
+    const messages = await Message.find({ conversation: req.params.id }).sort({ at: 1 });
     res.json({
       success: true,
       data: { messages: messages.map(serializeMessage) },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Lỗi server", error: error.message });
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 });
 
-// POST /api/admin/chat/conversations/:id/messages
 router.post("/conversations/:id/messages", async (req, res) => {
   try {
     const { text } = req.body || {};
     if (!text || !text.trim()) {
-      return res.status(400).json({ success: false, message: "Nội dung trống" });
+      return res.status(400).json({ success: false, message: "Message is empty" });
     }
 
     const conv = await Conversation.findById(req.params.id);
     if (!conv) {
-      return res.status(404).json({ success: false, message: "Không tìm thấy hội thoại" });
+      return res.status(404).json({ success: false, message: "Conversation not found" });
     }
 
     const msg = await Message.create({
@@ -168,19 +169,27 @@ router.post("/conversations/:id/messages", async (req, res) => {
     conv.lastMessage = msg.text;
     conv.lastAt = msg.at;
     conv.unread = 0;
-    conv.unreadCustomer = (conv.unreadCustomer || 0) + 1; // khách chưa đọc
+    conv.unreadCustomer = (conv.unreadCustomer || 0) + 1;
     await conv.save();
+    await conv.populate("user", "name email");
+    emitChat(req, conv._id, msg, conv);
+    const io = req.app.get("io");
+    if (io && conv.user?._id) {
+      io.to(`user:${conv.user._id}`).emit("chat:message", {
+        conversationId: String(conv._id),
+        message: serializeMessage(msg),
+      });
+    }
 
     res.status(201).json({
       success: true,
       data: { message: serializeMessage(msg) },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Lỗi server", error: error.message });
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 });
 
-// PATCH /api/admin/chat/conversations/:id/read
 router.patch("/conversations/:id/read", async (req, res) => {
   try {
     const conv = await Conversation.findByIdAndUpdate(
@@ -189,11 +198,11 @@ router.patch("/conversations/:id/read", async (req, res) => {
       { new: true }
     );
     if (!conv) {
-      return res.status(404).json({ success: false, message: "Không tìm thấy hội thoại" });
+      return res.status(404).json({ success: false, message: "Conversation not found" });
     }
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Lỗi server", error: error.message });
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 });
 

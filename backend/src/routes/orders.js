@@ -3,6 +3,9 @@ const Order = require("../models/Order");
 const config = require("../config");
 const orderService = require("../services/orderService");
 const paymentGateway = require("../services/paymentGateway");
+const Cart = require("../models/Cart");
+const AnalyticsEvent = require("../models/AnalyticsEvent");
+const notificationService = require("../services/notificationService");
 const { auth } = require("../middleware/auth");
 
 const router = express.Router();
@@ -64,6 +67,37 @@ router.post("/", auth, async (req, res) => {
       clientIp: getClientIp(req),
       frontendUrl: getFrontendUrl(req),
     });
+
+    await Cart.updateOne({ user: req.user._id }, { $set: { items: [] } }).catch(() => null);
+    await AnalyticsEvent.create({
+      user: req.user._id,
+      sessionId: req.body.sessionId || "",
+      type: "order_created",
+      order: order._id,
+      value: order.totalAmount,
+      metadata: { orderCode: order.orderCode, paymentMethod: order.payment?.method },
+    }).catch(() => null);
+    await notificationService.notifyUser(
+      req.user._id,
+      {
+        type: "order",
+        title: "Order placed",
+        message: `Order ${order.orderCode} has been created.`,
+        link: `/profile/orders/${order._id}`,
+        metadata: { orderId: order._id, orderCode: order.orderCode },
+      },
+      req
+    ).catch(() => null);
+    await notificationService.notifyAdmins(
+      {
+        type: "order",
+        title: "New order",
+        message: `Order ${order.orderCode} needs processing.`,
+        link: `/admin/orders/${order._id}`,
+        metadata: { orderId: order._id, orderCode: order.orderCode },
+      },
+      req
+    ).catch(() => null);
 
     res.status(201).json({
       success: true,
@@ -368,6 +402,14 @@ router.get("/payment-return/mock", async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing orderCode" });
     }
 
+    const paymentOrder = await Order.findOne({ orderCode }).select("payment orderCode");
+    if (!paymentOrder) {
+      return res.redirect(paymentGateway.buildFrontendPaymentUrl(null, "error"));
+    }
+    if (!txnRef || String(paymentOrder.payment?.transactionId || "") !== String(txnRef)) {
+      return res.redirect(paymentGateway.buildFrontendPaymentUrl(paymentOrder, "failed"));
+    }
+
     if (status === "success") {
       const { order } = await orderService.handlePaymentSuccess({
         orderCode,
@@ -377,12 +419,12 @@ router.get("/payment-return/mock", async (req, res) => {
       return res.redirect(paymentGateway.buildFrontendPaymentUrl(order, "success"));
     }
 
-    const order = await orderService.handlePaymentFailed({
+    const failedOrder = await orderService.handlePaymentFailed({
       orderCode,
       reason: "Mock payment failed",
       rawPayload: req.query,
     });
-    return res.redirect(paymentGateway.buildFrontendPaymentUrl(order, "failed"));
+    return res.redirect(paymentGateway.buildFrontendPaymentUrl(failedOrder, "failed"));
   } catch (error) {
     console.error("[payment-return/mock]", error);
     return res.redirect(paymentGateway.buildFrontendPaymentUrl(null, "error"));

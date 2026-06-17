@@ -1,4 +1,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import { cartAPI } from "@/services/api";
+import { authAPI } from "@/services/api";
 
 const CartContext = createContext(null);
 
@@ -54,6 +56,54 @@ export function CartProvider({ children }) {
     localStorage.setItem("bookshop_cart", JSON.stringify(items));
   }, [items]);
 
+  useEffect(() => {
+    let active = true;
+
+    const syncServerCart = async () => {
+      const user = authAPI.getCurrentUser();
+      if (!user) {
+        setItems([]);
+        localStorage.removeItem("bookshop_cart");
+        localStorage.removeItem("bookshop_cart_merged_user");
+        return;
+      }
+      try {
+        const userId = String(user.id || user._id || "");
+        const alreadyMerged =
+          localStorage.getItem("bookshop_cart_merged_user") === userId;
+        const localItems = normalizeCartItems(
+          JSON.parse(localStorage.getItem("bookshop_cart") || "[]")
+        );
+        const res = localItems.length && !alreadyMerged
+          ? await cartAPI.merge(localItems)
+          : await cartAPI.get();
+        if (!active) return;
+        const serverItems = normalizeCartItems(res?.data?.cart?.items || []);
+        setItems(serverItems);
+        localStorage.setItem("bookshop_cart", JSON.stringify(serverItems));
+        if (userId) localStorage.setItem("bookshop_cart_merged_user", userId);
+      } catch {
+        // Keep local cart as fallback.
+      }
+    };
+
+    syncServerCart();
+    window.addEventListener("bookshop:auth-changed", syncServerCart);
+    return () => {
+      active = false;
+      window.removeEventListener("bookshop:auth-changed", syncServerCart);
+    };
+  }, []);
+
+  const persistServer = async (operation) => {
+    if (!authAPI.getCurrentUser()) return;
+    try {
+      await operation();
+    } catch {
+      // Local optimistic state remains usable if the server is temporarily unavailable.
+    }
+  };
+
   const addItem = (book, quantity = 1) => {
     const key = getBookKey(book);
     const requestedQuantity = normalizeQuantity(quantity);
@@ -98,6 +148,8 @@ export function CartProvider({ children }) {
       return [...prev, { book, quantity: clampedQuantity }];
     });
 
+    persistServer(() => cartAPI.addItem(key, requestedQuantity));
+
     return result;
   };
 
@@ -105,6 +157,7 @@ export function CartProvider({ children }) {
     setItems((prev) =>
       prev.filter((item) => getBookKey(item.book) !== String(bookId))
     );
+    persistServer(() => cartAPI.removeItem(bookId));
   };
 
   const updateQuantity = (bookId, quantity) => {
@@ -121,10 +174,12 @@ export function CartProvider({ children }) {
           : item
       )
     );
+    persistServer(() => cartAPI.updateItem(bookId, nextQuantity));
   };
 
   const clearCart = () => {
     setItems([]);
+    persistServer(() => cartAPI.clear());
   };
 
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);

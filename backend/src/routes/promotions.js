@@ -2,6 +2,7 @@ const express = require("express");
 const Promotion = require("../models/Promotion");
 const Book = require("../models/Book");
 const { auth, adminOnly } = require("../middleware/auth");
+const { safeRegex, parsePositiveInt } = require("../utils/security");
 
 const router = express.Router();
 
@@ -57,10 +58,13 @@ router.get("/", async (req, res) => {
     const { search, status } = req.query;
     const filter = {};
     if (search) {
+      const r = safeRegex(search);
+      if (r) {
       filter.$or = [
-        { name: new RegExp(search, "i") },
-        { description: new RegExp(search, "i") },
+        { name: r },
+        { description: r },
       ];
+      }
     }
     const promotions = await Promotion.find(filter)
       .populate("books", "title author imageUrl price category")
@@ -211,15 +215,15 @@ router.get("/util/books", async (req, res) => {
     const { search, category, limit = 50 } = req.query;
     const filter = {};
     if (search) {
-      const r = new RegExp(search, "i");
-      filter.$or = [{ title: r }, { author: r }];
+      const r = safeRegex(search);
+      if (r) filter.$or = [{ title: r }, { author: r }];
     }
     if (category) filter.category = category;
 
     const books = await Book.find(filter)
       .select("title author imageUrl price category stock")
       .sort({ title: 1 })
-      .limit(Math.min(parseInt(limit) || 50, 200));
+      .limit(parsePositiveInt(limit, 50, 200));
 
     res.json({
       success: true,

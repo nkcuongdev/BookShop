@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Link, useNavigate } from "react-router-dom";
 import {
   Truck,
@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useCart } from "@/context/CartContext.jsx";
 import { useAuth } from "@/context/AuthContext.jsx";
-import { ordersAPI } from "@/services/api";
+import { authAPI, eventsAPI, ordersAPI } from "@/services/api";
 import { formatVND } from "@/utils/format";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -55,8 +55,6 @@ const SHIPPING_OPTIONS = [
   },
 ];
 
-const ADDRESS_STORAGE_KEY = "bookshop_addresses";
-
 export default function Checkout() {
   const { items, totalPrice, clearCart } = useCart();
   const { user } = useAuth();
@@ -81,33 +79,47 @@ export default function Checkout() {
     discount: 0,
     shipping: 0,
   });
+  const trackedCheckoutStart = useRef(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(ADDRESS_STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      const list = Array.isArray(parsed) ? parsed : [];
-      setSavedAddresses(list);
+    if (!user || items.length === 0 || trackedCheckoutStart.current) return;
+    trackedCheckoutStart.current = true;
+    eventsAPI.track({ type: "checkout_start", value: totalPrice }).catch(() => null);
+  }, [items.length, totalPrice, user]);
 
-      const defaultAddr =
-        list.find((addr) => addr?.isDefault) || list[0] || null;
-      if (!defaultAddr) return;
+  useEffect(() => {
+    if (!user) return undefined;
+    let active = true;
+    authAPI
+      .getAddresses()
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data?.addresses || [];
+        setSavedAddresses(list);
 
-      setSelectedSavedAddressId(defaultAddr.id || "");
-      setAddress((prev) => ({
-        ...prev,
-        fullName: defaultAddr.fullName || prev.fullName || "",
-        phone: defaultAddr.phone || "",
-        address: defaultAddr.address || "",
-      }));
-    } catch {
-      setSavedAddresses([]);
-    }
-  }, []);
+        const defaultAddr =
+          list.find((addr) => addr?.isDefault) || list[0] || null;
+        if (!defaultAddr) return;
+
+        setSelectedSavedAddressId(defaultAddr._id || defaultAddr.id || "");
+        setAddress((prev) => ({
+          ...prev,
+          fullName: defaultAddr.fullName || prev.fullName || "",
+          phone: defaultAddr.phone || "",
+          address: defaultAddr.address || "",
+        }));
+      })
+      .catch(() => {
+        if (active) setSavedAddresses([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   const selectedSavedAddress = useMemo(
     () =>
-      savedAddresses.find((addr) => addr.id === selectedSavedAddressId) || null,
+      savedAddresses.find((addr) => (addr._id || addr.id) === selectedSavedAddressId) || null,
     [savedAddresses, selectedSavedAddressId]
   );
 
@@ -115,7 +127,7 @@ export default function Checkout() {
   if (!user) return <Navigate to="/login?redirect=/checkout" replace />;
 
   const handleSelectSavedAddress = (addr) => {
-    setSelectedSavedAddressId(addr.id || "");
+    setSelectedSavedAddressId(addr._id || addr.id || "");
     setAddress((prev) => ({
       ...prev,
       fullName: addr.fullName || "",
@@ -179,6 +191,7 @@ export default function Checkout() {
         voucherCode: appliedVoucherCode || undefined,
         shippingFee: fee,
         note: address.note?.trim() || "",
+        sessionId: eventsAPI.getSessionId(),
       });
       if (response.success) {
         const newId = response.data.order._id || response.data.order.id;
@@ -253,10 +266,12 @@ export default function Checkout() {
                     </p>
                     <div className="space-y-2">
                       {savedAddresses.map((addr) => {
-                        const active = selectedSavedAddress?.id === addr.id;
+                        const active =
+                          (selectedSavedAddress?._id || selectedSavedAddress?.id) ===
+                          (addr._id || addr.id);
                         return (
                           <button
-                            key={addr.id}
+                            key={addr._id || addr.id}
                             type="button"
                             onClick={() => handleSelectSavedAddress(addr)}
                             className={

@@ -34,4 +34,10 @@ export const vouchersAPI = {
     request(`/admin/vouchers/${id}/toggle`, {
       method: "PATCH",
     }),
+
+  validate: (code, subtotal) =>
+    request(`/vouchers/validate`, {
+      method: "POST",
+      body: JSON.stringify({ code, subtotal }),
+    }),
 };

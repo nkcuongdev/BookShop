@@ -9,6 +9,9 @@ const Conversation = require("./Conversation");
 const Message = require("./Message");
 const Post = require("./Post");
 const PostCategory = require("./PostCategory");
+const Cart = require("./Cart");
+const Notification = require("./Notification");
+const AnalyticsEvent = require("./AnalyticsEvent");
 
 module.exports = {
   User,
@@ -22,4 +25,7 @@ module.exports = {
   Message,
   Post,
   PostCategory,
+  Cart,
+  Notification,
+  AnalyticsEvent,
 };

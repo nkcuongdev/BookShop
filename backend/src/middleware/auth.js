@@ -2,72 +2,79 @@ const jwt = require("jsonwebtoken");
 const config = require("../config");
 const User = require("../models/User");
 
-// Verify JWT token
-const auth = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
+function getCookieValue(reqOrSocket, name) {
+  const headers = reqOrSocket.headers || reqOrSocket.handshake?.headers || {};
+  const cookieHeader = headers.cookie || "";
+  const parts = cookieHeader.split(";").map((part) => part.trim());
+  const prefix = `${name}=`;
+  const match = parts.find((part) => part.startsWith(prefix));
+  return match ? decodeURIComponent(match.slice(prefix.length)) : "";
+}
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+function getBearerToken(req) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.split(" ")[1];
+  }
+  return getCookieValue(req, "bookshop_token");
+}
+
+const auth = async (req, res, next) => {
+  const token = getBearerToken(req);
+
+  if (!token) {
     return res.status(401).json({
       success: false,
-      message: "Vui lòng đăng nhập",
+      message: "Vui long dang nhap",
     });
   }
-
-  const token = authHeader.split(" ")[1];
 
   try {
     const decoded = jwt.verify(token, config.jwtSecret);
     const user = await User.findById(decoded.id || decoded.userId);
 
-    if (!user) {
+    if (!user || user.status === "banned") {
       return res.status(401).json({
         success: false,
-        message: "Token không hợp lệ",
+        message: "Token khong hop le",
       });
     }
 
     req.user = user;
-    next();
+    return next();
   } catch (error) {
     return res.status(401).json({
       success: false,
-      message: "Token hết hạn hoặc không hợp lệ",
+      message: "Token het han hoac khong hop le",
     });
   }
 };
 
-// Check if user is admin
 const adminOnly = (req, res, next) => {
   if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({
       success: false,
-      message: "Chỉ admin mới có quyền truy cập",
+      message: "Chi admin moi co quyen truy cap",
     });
   }
-  next();
+  return next();
 };
 
-// Optional auth - doesn't fail if no token
 const optionalAuth = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return next();
-  }
-
-  const token = authHeader.split(" ")[1];
+  const token = getBearerToken(req);
+  if (!token) return next();
 
   try {
     const decoded = jwt.verify(token, config.jwtSecret);
     const user = await User.findById(decoded.id || decoded.userId);
-    if (user) {
+    if (user && user.status !== "banned") {
       req.user = user;
     }
-  } catch (error) {
-    // Token invalid, continue without user
+  } catch {
+    // Invalid optional token is treated as anonymous.
   }
 
-  next();
+  return next();
 };
 
-module.exports = { auth, adminOnly, optionalAuth };
+module.exports = { auth, adminOnly, optionalAuth, getCookieValue };

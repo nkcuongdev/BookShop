@@ -29,6 +29,106 @@ const users = [
 const day = 24 * 3600_000;
 const now = Date.now();
 
+const categories = [
+  { name: "Van hoc", slug: "van-hoc", description: "Tieu thuyet, truyen ngan va tac pham kinh dien" },
+  { name: "Kinh doanh", slug: "kinh-doanh", description: "Quan tri, tai chinh va khoi nghiep" },
+  { name: "Cong nghe", slug: "cong-nghe", description: "Lap trinh, kien truc phan mem va du lieu" },
+  { name: "Ky nang song", slug: "ky-nang-song", description: "Phat trien ban than va thoi quen" },
+];
+
+const books = [
+  {
+    title: "Clean Code",
+    author: "Robert C. Martin",
+    category: "cong-nghe",
+    price: 320000,
+    stock: 25,
+    sold: 68,
+    rating: 4.8,
+    reviewCount: 12,
+    publisher: "Prentice Hall",
+    language: "English",
+    tags: ["programming", "software-engineering"],
+    imageUrl: "https://m.media-amazon.com/images/I/41SH-SvWPxL._SY445_SX342_.jpg",
+    description: "Huong dan viet code de doc, de bao tri va giam loi trong du an phan mem.",
+  },
+  {
+    title: "Atomic Habits",
+    author: "James Clear",
+    category: "ky-nang-song",
+    price: 189000,
+    stock: 40,
+    sold: 120,
+    rating: 4.9,
+    reviewCount: 34,
+    publisher: "Avery",
+    language: "Vietnamese",
+    tags: ["habits", "self-help"],
+    imageUrl: "https://m.media-amazon.com/images/I/81ANaVZk5LL._SY466_.jpg",
+    description: "Cach xay dung thoi quen nho nhung tao tac dong lon theo thoi gian.",
+  },
+  {
+    title: "Dac Nhan Tam",
+    author: "Dale Carnegie",
+    category: "ky-nang-song",
+    price: 86000,
+    stock: 55,
+    sold: 210,
+    rating: 4.7,
+    reviewCount: 45,
+    publisher: "Tong hop TP.HCM",
+    language: "Vietnamese",
+    tags: ["communication", "classic"],
+    imageUrl: "https://m.media-amazon.com/images/I/71vK0WVQ4rL._SY466_.jpg",
+    description: "Tac pham kinh dien ve giao tiep va xay dung moi quan he.",
+  },
+  {
+    title: "The Lean Startup",
+    author: "Eric Ries",
+    category: "kinh-doanh",
+    price: 230000,
+    stock: 18,
+    sold: 74,
+    rating: 4.6,
+    reviewCount: 16,
+    publisher: "Crown Business",
+    language: "English",
+    tags: ["startup", "business"],
+    imageUrl: "https://m.media-amazon.com/images/I/81-QB7nDh4L._SY466_.jpg",
+    description: "Phuong phap xay dung san pham, do luong va hoc nhanh trong startup.",
+  },
+  {
+    title: "Nha Gia Kim",
+    author: "Paulo Coelho",
+    category: "van-hoc",
+    price: 79000,
+    stock: 34,
+    sold: 156,
+    rating: 4.8,
+    reviewCount: 29,
+    publisher: "NXB Hoi Nha Van",
+    language: "Vietnamese",
+    tags: ["novel", "classic"],
+    imageUrl: "https://m.media-amazon.com/images/I/71aFt4+OTOL._SY466_.jpg",
+    description: "Cau chuyen ve hanh trinh theo duoi uoc mo va lang nghe trai tim.",
+  },
+  {
+    title: "Designing Data-Intensive Applications",
+    author: "Martin Kleppmann",
+    category: "cong-nghe",
+    price: 520000,
+    stock: 12,
+    sold: 41,
+    rating: 4.9,
+    reviewCount: 11,
+    publisher: "O'Reilly Media",
+    language: "English",
+    tags: ["database", "architecture"],
+    imageUrl: "https://m.media-amazon.com/images/I/91YfNb49PLL._SY466_.jpg",
+    description: "Nen tang ve he thong du lieu, replication, partitioning va distributed systems.",
+  },
+];
+
 const vouchers = [
   {
     code: "WELCOME10",
@@ -99,6 +199,14 @@ async function seed() {
     }
 
     console.log("🎟️  Seeding vouchers...");
+    console.log("Seeding categories...");
+    await Category.insertMany(categories);
+    console.log(`   Created ${categories.length} categories`);
+
+    console.log("Seeding books...");
+    await Book.insertMany(books);
+    console.log(`   Created ${books.length} books`);
+
     await Voucher.insertMany(vouchers);
     console.log(`   ✅ Created ${vouchers.length} vouchers`);
 

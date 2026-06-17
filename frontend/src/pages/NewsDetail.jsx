@@ -42,6 +42,28 @@ function escapeHtml(text = "") {
     .replace(/'/g, "&#39;");
 }
 
+function sanitizeUrl(url = "") {
+  const value = String(url || "").trim();
+  if (/^(https?:|mailto:|tel:|\/|#)/i.test(value)) return value;
+  return "#";
+}
+
+function sanitizeHtml(html = "") {
+  return String(html)
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "")
+    .replace(/<\/?(iframe|object|embed|form|input|button|textarea|select)[^>]*>/gi, "")
+    .replace(/\son[a-z]+\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, "")
+    .replace(
+      /\s(href|src)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+      (match, attr, raw, doubleQuoted, singleQuoted, bare) => {
+        const quote = raw.startsWith("'") ? "'" : '"';
+        const value = sanitizeUrl(doubleQuoted || singleQuoted || bare || "");
+        return ` ${attr}=${quote}${escapeHtml(value)}${quote}`;
+      }
+    );
+}
+
 function markdownToHtml(markdown = "") {
   const lines = markdown.split("\n");
   let inList = false;
@@ -69,7 +91,9 @@ function markdownToHtml(markdown = "") {
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
       .replace(/`(.+?)`/g, "<code>$1</code>")
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, href) => {
+        return `<a href="${escapeHtml(sanitizeUrl(href))}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      });
 
     if (/^###\s+/.test(line)) {
       pushListState(false);
@@ -96,7 +120,7 @@ function markdownToHtml(markdown = "") {
 function renderPostContent(content = "") {
   const hasHtmlTag = /<[^>]+>/.test(content);
   if (hasHtmlTag) {
-    return content;
+    return sanitizeHtml(content);
   }
   return markdownToHtml(content);
 }

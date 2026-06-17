@@ -1,5 +1,6 @@
 import { MapPin, Phone, User, Truck, StickyNote } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { formatDateTimeVN, formatDateVN } from "@/utils/format.js";
 
 function formatFullAddress(addr) {
   if (!addr) return "";
@@ -11,6 +12,9 @@ function formatFullAddress(addr) {
 export default function OrderShippingCard({
   shippingAddress,
   trackingNumber,
+  carrier,
+  estimatedDelivery,
+  trackingEvents = [],
   note,
 }) {
   if (!shippingAddress) return null;
@@ -19,7 +23,7 @@ export default function OrderShippingCard({
     <Card className="p-5">
       <h3 className="font-semibold text-secondary-800 text-sm mb-3 flex items-center gap-2">
         <MapPin className="w-4 h-4 text-primary-500" />
-        Thông tin giao hàng
+        Thong tin giao hang
       </h3>
 
       <dl className="space-y-2.5 text-sm">
@@ -40,15 +44,49 @@ export default function OrderShippingCard({
           </dd>
         </div>
 
-        {trackingNumber && (
+        {(trackingNumber || carrier || estimatedDelivery) && (
           <div className="flex gap-2.5 pt-2.5 border-t border-gray-100">
             <Truck className="w-4 h-4 text-secondary-400 shrink-0 mt-0.5" />
             <div>
-              <dt className="text-xs text-secondary-500">Mã vận đơn</dt>
-              <dd className="font-mono font-semibold text-secondary-800">
-                {trackingNumber}
-              </dd>
+              {carrier && (
+                <>
+                  <dt className="text-xs text-secondary-500">Don vi van chuyen</dt>
+                  <dd className="font-medium text-secondary-800">{carrier}</dd>
+                </>
+              )}
+              {trackingNumber && (
+                <>
+                  <dt className="text-xs text-secondary-500 mt-1">Ma van don</dt>
+                  <dd className="font-mono font-semibold text-secondary-800">
+                    {trackingNumber}
+                  </dd>
+                </>
+              )}
+              {estimatedDelivery && (
+                <p className="mt-1 text-xs text-secondary-500">
+                  Du kien giao: {formatDateVN(estimatedDelivery)}
+                </p>
+              )}
             </div>
+          </div>
+        )}
+
+        {trackingEvents.length > 0 && (
+          <div className="pt-2.5 border-t border-gray-100">
+            <dt className="text-xs text-secondary-500 mb-2">Theo doi van chuyen</dt>
+            <dd className="space-y-2">
+              {trackingEvents.slice().reverse().map((event, idx) => (
+                <div key={`${event.status}-${idx}`} className="text-xs">
+                  <p className="font-semibold text-secondary-800">
+                    {event.description || event.status}
+                  </p>
+                  <p className="text-secondary-500">
+                    {formatDateTimeVN(event.at)}
+                    {event.location ? ` · ${event.location}` : ""}
+                  </p>
+                </div>
+              ))}
+            </dd>
           </div>
         )}
 
@@ -56,7 +94,7 @@ export default function OrderShippingCard({
           <div className="flex gap-2.5 pt-2.5 border-t border-gray-100">
             <StickyNote className="w-4 h-4 text-secondary-400 shrink-0 mt-0.5" />
             <div>
-              <dt className="text-xs text-secondary-500">Ghi chú</dt>
+              <dt className="text-xs text-secondary-500">Ghi chu</dt>
               <dd className="text-secondary-700 italic">{note}</dd>
             </div>
           </div>

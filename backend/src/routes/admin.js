@@ -34,17 +34,25 @@ function toPercentChange(current, previous) {
 router.get("/orders", async (req, res) => {
   try {
     const { status, page, limit } = req.query;
+    const pageNumber = Math.max(1, parseInt(page) || 1);
+    const limitNumber = Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const skip = (pageNumber - 1) * limitNumber;
 
     let query = Order.find()
       .populate("user", "name email")
       .sort({ createdAt: -1 });
+    let countQuery = Order.countDocuments();
 
     if (status) {
       query = query.where("status").equals(status);
+      countQuery = Order.countDocuments({ status });
     }
 
-    const orders = await query;
-    const stats = await Order.getStats();
+    const [orders, total, stats] = await Promise.all([
+      query.skip(skip).limit(limitNumber),
+      countQuery,
+      Order.getStats(),
+    ]);
 
     res.json({
       success: true,
@@ -52,8 +60,10 @@ router.get("/orders", async (req, res) => {
         orders: orders.map((o) => ({ ...o.toObject(), id: o._id })),
         stats,
         pagination: {
-          total: orders.length,
-          page: parseInt(page) || 1,
+          total,
+          page: pageNumber,
+          limit: limitNumber,
+          totalPages: Math.ceil(total / limitNumber),
         },
       },
     });
@@ -116,7 +126,12 @@ router.post("/orders/:id/ship", async (req, res) => {
   try {
     const order = await orderService.adminMarkShipped(
       req.params.id,
-      req.user._id
+      req.user._id,
+      {
+        carrier: req.body?.carrier,
+        trackingNumber: req.body?.trackingNumber,
+        estimatedDelivery: req.body?.estimatedDelivery,
+      }
     );
     res.json({
       success: true,

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { authAPI } from "@/services/api";
+import { disconnectSocket } from "@/services/socket";
 
 const AuthContext = createContext(null);
 
@@ -27,6 +28,7 @@ export function AuthProvider({ children }) {
       const response = await authAPI.login(email, password);
       if (response.success) {
         setUser(response.data.user);
+        window.dispatchEvent(new Event("bookshop:auth-changed"));
         return { success: true };
       }
       return { success: false, error: response.message };
@@ -40,6 +42,7 @@ export function AuthProvider({ children }) {
       const response = await authAPI.register(name, email, password);
       if (response.success) {
         setUser(response.data.user);
+        window.dispatchEvent(new Event("bookshop:auth-changed"));
         return { success: true };
       }
       return { success: false, error: response.message };
@@ -49,8 +52,10 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
+    disconnectSocket();
     authAPI.logout();
     setUser(null);
+    window.dispatchEvent(new Event("bookshop:auth-changed"));
   };
 
   const updateProfile = async (payload) => {

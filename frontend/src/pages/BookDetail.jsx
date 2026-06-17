@@ -13,7 +13,7 @@ import {
   Truck,
   Zap,
 } from "lucide-react";
-import { booksAPI, categoriesAPI } from "@/services/api";
+import { booksAPI, categoriesAPI, eventsAPI } from "@/services/api";
 import { useAuth } from "@/context/AuthContext.jsx";
 import { useCart } from "@/context/CartContext.jsx";
 import { formatVND, getPriceInfo, formatCompact } from "@/utils/format";
@@ -98,6 +98,12 @@ export default function BookDetail() {
           setBook(bk);
           setReviews(bookRes.data.reviews || []);
           addRecent(bk);
+          eventsAPI.track({
+            type: "product_view",
+            bookId: bk._id || bk.id,
+            value: Number(bk.price || 0),
+            metadata: { title: bk.title, category: bk.category },
+          });
 
           try {
             const relatedRes = await booksAPI.getAll({
@@ -210,6 +216,12 @@ export default function BookDetail() {
       description: result.capped
         ? `${book.title} - đã thêm số lượng còn lại`
         : `${book.title} × ${quantity}`,
+    });
+    eventsAPI.track({
+      type: "add_to_cart",
+      bookId: book._id || book.id,
+      value: Number(price || book.price || 0) * result.addedQuantity,
+      metadata: { quantity: result.addedQuantity },
     });
   };
 

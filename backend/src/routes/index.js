@@ -11,6 +11,10 @@ const chatRoutes = require("./chat");
 const userRoutes = require("./users");
 const analyticsRoutes = require("./analytics");
 const postRoutes = require("./posts");
+const cartRoutes = require("./cart");
+const voucherPublicRoutes = require("./voucherPublic");
+const notificationRoutes = require("./notifications");
+const eventRoutes = require("./events");
 
 const router = express.Router();
 
@@ -31,6 +35,10 @@ router.use("/books", bookRoutes);
 router.use("/orders", orderRoutes);
 router.use("/reviews", reviewRoutes);
 router.use("/categories", categoryRoutes);
+router.use("/cart", cartRoutes);
+router.use("/vouchers", voucherPublicRoutes);
+router.use("/notifications", notificationRoutes);
+router.use("/events", eventRoutes);
 
 // Admin-only routes (all nested under /admin/*)
 router.use("/admin", adminRoutes);

@@ -14,6 +14,8 @@ import {
   useSendMessage,
 } from "@/features/admin/chat/hooks";
 import { cn } from "@/lib/utils";
+import { connectSocket } from "@/services/socket";
+import { useQueryClient } from "@tanstack/react-query";
 
 function timeAgo(iso) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -30,6 +32,7 @@ export default function ChatSupport() {
   const [search, setSearch] = useState("");
   const [text, setText] = useState("");
   const listEndRef = useRef(null);
+  const qc = useQueryClient();
 
   const convsQ = useConversations();
   const msgsQ = useMessages(selectedId);
@@ -50,6 +53,26 @@ export default function ChatSupport() {
   useEffect(() => {
     listEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgsQ.data?.length]);
+
+  useEffect(() => {
+    const socket = connectSocket();
+    if (selectedId) socket.emit("chat:join", selectedId);
+    const onMessage = (payload) => {
+      qc.invalidateQueries({ queryKey: ["admin", "conversations"] });
+      if (!payload?.conversationId || payload.conversationId === selectedId) {
+        qc.invalidateQueries({ queryKey: ["admin", "messages", selectedId] });
+      }
+    };
+    const onConversation = () => {
+      qc.invalidateQueries({ queryKey: ["admin", "conversations"] });
+    };
+    socket.on("chat:message", onMessage);
+    socket.on("chat:conversation", onConversation);
+    return () => {
+      socket.off("chat:message", onMessage);
+      socket.off("chat:conversation", onConversation);
+    };
+  }, [qc, selectedId]);
 
   const filteredConvs = (convsQ.data || []).filter((c) =>
     !search ? true : c.customer.name.toLowerCase().includes(search.toLowerCase())

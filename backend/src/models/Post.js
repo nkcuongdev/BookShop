@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { safeRegex } = require("../utils/security");
 
 const postSchema = new mongoose.Schema(
   {
@@ -117,10 +118,13 @@ postSchema.statics.findPublished = function (options = {}) {
   }
 
   if (search) {
+    const regex = safeRegex(search);
+    if (regex) {
     query.$or = [
-      { title: { $regex: search, $options: "i" } },
-      { shortDescription: { $regex: search, $options: "i" } },
+      { title: regex },
+      { shortDescription: regex },
     ];
+    }
   }
 
   const sortOrder = order === "asc" ? 1 : -1;
@@ -144,10 +148,13 @@ postSchema.statics.countPublished = function (options = {}) {
   }
 
   if (search) {
+    const regex = safeRegex(search);
+    if (regex) {
     query.$or = [
-      { title: { $regex: search, $options: "i" } },
-      { shortDescription: { $regex: search, $options: "i" } },
+      { title: regex },
+      { shortDescription: regex },
     ];
+    }
   }
 
   return this.countDocuments(query);

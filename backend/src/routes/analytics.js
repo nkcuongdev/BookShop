@@ -9,6 +9,7 @@ const { auth, adminOnly } = require("../middleware/auth");
 const router = express.Router();
 
 router.use(auth, adminOnly);
+const REVENUE_STATUSES = ["PAID", "PROCESSING", "SHIPPED", "DELIVERED"];
 
 /**
  * GET /api/admin/analytics/revenue-series?days=30
@@ -28,7 +29,7 @@ router.get("/revenue-series", async (req, res) => {
       {
         $match: {
           createdAt: { $gte: start, $lte: end },
-          status: { $ne: "cancelled" },
+          status: { $in: REVENUE_STATUSES },
         },
       },
       {
@@ -84,7 +85,7 @@ router.get("/revenue-series", async (req, res) => {
 router.get("/category-share", async (req, res) => {
   try {
     const rows = await Order.aggregate([
-      { $match: { status: { $ne: "cancelled" } } },
+      { $match: { status: { $in: REVENUE_STATUSES } } },
       { $unwind: "$items" },
       {
         $lookup: {
@@ -214,7 +215,7 @@ router.get("/funnel", async (req, res) => {
         { $group: { _id: null, sold: { $sum: "$sold" } } },
       ]),
       Order.countDocuments(),
-      Order.countDocuments({ status: { $in: ["completed", "delivered"] } }),
+      Order.countDocuments({ status: "DELIVERED" }),
     ]);
     const sold = soldAgg[0]?.sold || 0;
     const stages = [

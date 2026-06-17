@@ -1,5 +1,6 @@
 const express = require("express");
 const Category = require("../models/Category");
+const Book = require("../models/Book");
 const { auth, adminOnly } = require("../middleware/auth");
 
 const router = express.Router();
@@ -89,7 +90,7 @@ router.put("/:id", auth, adminOnly, async (req, res) => {
     const category = await Category.findByIdAndUpdate(
       req.params.id,
       { name, slug: slug?.toLowerCase(), description, image },
-      { new: true }
+      { new: true, runValidators: true }
     );
 
     if (!category) {
@@ -116,6 +117,14 @@ router.put("/:id", auth, adminOnly, async (req, res) => {
 // DELETE /api/categories/:id - Delete category (admin only)
 router.delete("/:id", auth, adminOnly, async (req, res) => {
   try {
+    const bookCount = await Book.countDocuments({ category: req.params.id });
+    if (bookCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Danh muc dang co sach, khong the xoa",
+      });
+    }
+
     const category = await Category.findByIdAndDelete(req.params.id);
 
     if (!category) {

@@ -2,11 +2,37 @@ const express = require("express");
 const User = require("../models/User");
 const Book = require("../models/Book");
 const { auth } = require("../middleware/auth");
+const { createRateLimiter } = require("../utils/security");
 
 const router = express.Router();
+const authLimiter = createRateLimiter({
+  windowMs: 15 * 60_000,
+  max: 30,
+  keyPrefix: "auth",
+  message: "Too many auth attempts, please try again later",
+});
+
+function setAuthCookie(res, token) {
+  res.cookie("bookshop_token", token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: "/",
+  });
+}
+
+function clearAuthCookie(res) {
+  res.clearCookie("bookshop_token", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+  });
+}
 
 // Register
-router.post("/register", async (req, res) => {
+router.post("/register", authLimiter, async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;
 
@@ -14,6 +40,13 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Vui lòng điền đầy đủ thông tin",
+      });
+    }
+
+    if (String(password).length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Mat khau can it nhat 6 ky tu",
       });
     }
 
@@ -32,6 +65,7 @@ router.post("/register", async (req, res) => {
 
     // Generate token
     const token = user.generateToken();
+    setAuthCookie(res, token);
 
     res.status(201).json({
       success: true,
@@ -59,7 +93,7 @@ router.post("/register", async (req, res) => {
 });
 
 // Login
-router.post("/login", async (req, res) => {
+router.post("/login", authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -97,6 +131,7 @@ router.post("/login", async (req, res) => {
 
     // Generate token
     const token = user.generateToken();
+    setAuthCookie(res, token);
 
     res.json({
       success: true,
@@ -121,6 +156,11 @@ router.post("/login", async (req, res) => {
       error: error.message,
     });
   }
+});
+
+router.post("/logout", (req, res) => {
+  clearAuthCookie(res);
+  res.json({ success: true });
 });
 
 // Get current user
@@ -159,7 +199,12 @@ router.put("/me", auth, async (req, res) => {
       }
       user.email = email;
     }
-    if (password) user.password = password;
+    if (password) {
+      return res.status(400).json({
+        success: false,
+        message: "Vui long dung chuc nang doi mat khau",
+      });
+    }
 
     await user.save();
 

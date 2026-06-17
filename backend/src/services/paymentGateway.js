@@ -279,7 +279,7 @@ function verifyMomoPayload(payload = {}) {
 }
 
 function verifyWebhookSignature({ payload, signature, secret }) {
-  if (!secret) return true;
+  if (!secret || !signature) return false;
   const raw =
     typeof payload === "string" ? payload : JSON.stringify(payload || {});
   const expected = crypto

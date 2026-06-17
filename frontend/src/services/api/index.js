@@ -9,3 +9,6 @@ export { promotionsAPI } from "./promotions";
 export { chatAPI } from "./chat";
 export { revenueSeriesAPI } from "./revenueSeries";
 export { postsAPI } from "./posts";
+export { cartAPI } from "./cart";
+export { notificationsAPI } from "./notifications";
+export { eventsAPI } from "./events";

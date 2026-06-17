@@ -136,6 +136,16 @@ const historyEntrySchema = new mongoose.Schema(
   { _id: false }
 );
 
+const trackingEventSchema = new mongoose.Schema(
+  {
+    status: { type: String, required: true },
+    description: { type: String, default: "" },
+    location: { type: String, default: "" },
+    at: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     orderCode: { type: String, unique: true, index: true },
@@ -160,6 +170,10 @@ const orderSchema = new mongoose.Schema(
     // Shipping
     shippingAddress: { type: shippingAddressSchema, required: true },
     note: { type: String, default: "" },
+    carrier: { type: String, default: "" },
+    trackingNumber: { type: String, default: "" },
+    estimatedDelivery: { type: Date, default: null },
+    trackingEvents: { type: [trackingEventSchema], default: [] },
 
     // Payment
     payment: { type: paymentInfoSchema, default: () => ({}) },

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
+import { vouchersAPI } from "@/services/api";
 
 const SHIPPING_FREE_THRESHOLD = 200000;
 const SHIPPING_FEE = 25000;
@@ -15,7 +16,7 @@ export default function OrderSummaryCard({
   itemCount = 0,
   shippingFee,
   onCheckout,
-  checkoutLabel = "Tiến hành thanh toán",
+  checkoutLabel = "Tien hanh thanh toan",
   checkoutDisabled = false,
   showCheckoutButton = true,
   onCouponChange,
@@ -30,24 +31,24 @@ export default function OrderSummaryCard({
   const [appliedCouponCode, setAppliedCouponCode] = useState("");
   const [applying, setApplying] = useState(false);
 
-  const applyCoupon = (e) => {
+  const applyCoupon = async (e) => {
     e?.preventDefault?.();
     if (!coupon.trim()) return;
     setApplying(true);
-    setTimeout(() => {
+    try {
       const code = coupon.trim().toUpperCase();
-      if (code === "WELCOME10") {
-        const d = Math.min(subtotal * 0.1, 50000);
-        setDiscount(d);
-        setAppliedCouponCode(code);
-        toast.success("Áp dụng mã WELCOME10 — giảm 10%");
-      } else {
-        toast.error("Mã giảm giá không hợp lệ");
-        setDiscount(0);
-        setAppliedCouponCode("");
-      }
+      const res = await vouchersAPI.validate(code, subtotal);
+      const d = Number(res?.data?.discountAmount || 0);
+      setDiscount(d);
+      setAppliedCouponCode(code);
+      toast.success(`Ap dung ma ${code} thanh cong`);
+    } catch (error) {
+      toast.error(error.message || "Ma giam gia khong hop le");
+      setDiscount(0);
+      setAppliedCouponCode("");
+    } finally {
       setApplying(false);
-    }, 300);
+    }
   };
 
   const autoShipping =
@@ -57,12 +58,31 @@ export default function OrderSummaryCard({
         ? 0
         : SHIPPING_FEE;
   const shipping = typeof shippingFee === "number" ? shippingFee : autoShipping;
-
   const total = Math.max(0, subtotal + shipping - discount);
 
   useEffect(() => {
     onCouponChange?.(appliedCouponCode);
   }, [appliedCouponCode, onCouponChange]);
+
+  useEffect(() => {
+    if (!appliedCouponCode) return undefined;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await vouchersAPI.validate(appliedCouponCode, subtotal);
+        if (!cancelled) setDiscount(Number(res?.data?.discountAmount || 0));
+      } catch {
+        if (!cancelled) {
+          setDiscount(0);
+          setAppliedCouponCode("");
+        }
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [appliedCouponCode, subtotal]);
 
   useEffect(() => {
     onSummaryChange?.({ total, discount, shipping });
@@ -78,11 +98,11 @@ export default function OrderSummaryCard({
     >
       <div className="p-5">
         <h3 className="font-display font-bold text-lg text-secondary-800">
-          Tóm tắt đơn hàng
+          Tom tat don hang
         </h3>
         {itemCount > 0 && (
           <p className="text-xs text-secondary-500 mt-0.5">
-            {itemCount} sản phẩm
+            {itemCount} san pham
           </p>
         )}
 
@@ -95,7 +115,7 @@ export default function OrderSummaryCard({
               <Input
                 value={coupon}
                 onChange={(e) => setCoupon(e.target.value)}
-                placeholder="Mã giảm giá"
+                placeholder="Ma giam gia"
                 className="pl-9"
               />
             </div>
@@ -104,14 +124,14 @@ export default function OrderSummaryCard({
               variant="outline"
               disabled={!coupon.trim() || applying}
             >
-              Áp dụng
+              {applying ? "Dang ap dung..." : "Ap dung"}
             </Button>
           </form>
         )}
 
         <div className="mt-4 space-y-2.5">
           <div className="flex justify-between text-sm">
-            <span className="text-secondary-500">Tạm tính</span>
+            <span className="text-secondary-500">Tam tinh</span>
             <span className="font-medium text-secondary-800">
               {formatVND(subtotal)}
             </span>
@@ -119,11 +139,11 @@ export default function OrderSummaryCard({
           <div className="flex justify-between text-sm">
             <span className="text-secondary-500 flex items-center gap-1.5">
               <Truck className="w-3.5 h-3.5" />
-              Phí vận chuyển
+              Phi van chuyen
             </span>
             <span className="font-medium text-secondary-800">
               {shipping === 0 ? (
-                <span className="text-emerald-600">Miễn phí</span>
+                <span className="text-emerald-600">Mien phi</span>
               ) : (
                 formatVND(shipping)
               )}
@@ -131,7 +151,7 @@ export default function OrderSummaryCard({
           </div>
           {discount > 0 && (
             <div className="flex justify-between text-sm">
-              <span className="text-secondary-500">Giảm giá</span>
+              <span className="text-secondary-500">Giam gia</span>
               <span className="font-medium text-red-500">
                 -{formatVND(discount)}
               </span>
@@ -139,11 +159,11 @@ export default function OrderSummaryCard({
           )}
           {subtotal > 0 && subtotal < SHIPPING_FREE_THRESHOLD && (
             <div className="text-xs bg-amber-50 text-amber-800 rounded-lg p-2">
-              Mua thêm{" "}
+              Mua them{" "}
               <span className="font-semibold">
                 {formatVND(SHIPPING_FREE_THRESHOLD - subtotal)}
               </span>{" "}
-              để được miễn phí vận chuyển
+              de duoc mien phi van chuyen
             </div>
           )}
         </div>
@@ -152,7 +172,7 @@ export default function OrderSummaryCard({
 
         <div className="flex items-baseline justify-between">
           <span className="text-sm font-medium text-secondary-600">
-            Tổng cộng
+            Tong cong
           </span>
           <span className="text-2xl font-bold text-primary-600">
             {formatVND(total)}
@@ -173,7 +193,7 @@ export default function OrderSummaryCard({
 
         <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-secondary-400">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-          Thanh toán an toàn & bảo mật
+          Thanh toan an toan va bao mat
         </div>
 
         <div className="mt-3 flex items-center justify-center gap-2">

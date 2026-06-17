@@ -3,26 +3,54 @@ const Book = require("../models/Book");
 const Review = require("../models/Review");
 const Order = require("../models/Order");
 const Promotion = require("../models/Promotion");
-const { auth, adminOnly } = require("../middleware/auth");
+const { auth, adminOnly, optionalAuth } = require("../middleware/auth");
+const { parsePositiveInt } = require("../utils/security");
 
 const router = express.Router();
 
 // Get all books (public)
-router.get("/", async (req, res) => {
+router.get("/", optionalAuth, async (req, res) => {
   try {
-    const { category, search, sortBy, order, page, limit } = req.query;
-    const useRaw = String(req.query?.raw || "") === "1";
-
-    const books = await Book.findWithFilters({
+    const {
       category,
       search,
       sortBy,
-      order: order || "desc",
-      page: parseInt(page) || 1,
-      limit: limit ? parseInt(limit) : undefined,
-    });
+      sort,
+      order,
+      page,
+      limit,
+      minPrice,
+      maxPrice,
+      minRating,
+      rating,
+      inStock,
+      stock,
+      tag,
+      publisher,
+    } = req.query;
+    const useRaw = String(req.query?.raw || "") === "1" && req.user?.role === "admin";
+    const pageNumber = parsePositiveInt(page, 1, 10_000);
+    const limitNumber = limit ? parsePositiveInt(limit, 20, 100) : undefined;
 
-    const total = await Book.countDocuments(category ? { category } : {});
+    const options = {
+      category,
+      search,
+      sortBy: sortBy || sort,
+      order: order || "desc",
+      page: pageNumber,
+      limit: limitNumber,
+      minPrice,
+      maxPrice,
+      minRating: minRating || rating,
+      inStock: inStock ?? stock,
+      tag,
+      publisher,
+      includeInactive: useRaw,
+    };
+
+    const books = await Book.findWithFilters(options);
+
+    const total = await Book.countWithFilters(options);
     const decorated = useRaw
       ? books.map((b) => ({ ...b.toObject(), id: b._id }))
       : await Promotion.decorateBooks(books);
@@ -33,8 +61,9 @@ router.get("/", async (req, res) => {
         books: decorated,
         pagination: {
           total,
-          page: parseInt(page) || 1,
-          limit: limit ? parseInt(limit) : total,
+          page: pageNumber,
+          limit: limitNumber || decorated.length,
+          totalPages: limitNumber ? Math.ceil(total / limitNumber) : 1,
         },
       },
     });
@@ -50,7 +79,7 @@ router.get("/", async (req, res) => {
 // Get best sellers (public)
 router.get("/best-sellers", async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 8;
+    const limit = parsePositiveInt(req.query.limit, 8, 50);
     const books = await Book.getBestSellers(limit);
     const decorated = await Promotion.decorateBooks(books);
 
@@ -70,7 +99,7 @@ router.get("/best-sellers", async (req, res) => {
 // Get new arrivals (public)
 router.get("/new-arrivals", async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 8;
+    const limit = parsePositiveInt(req.query.limit, 8, 50);
     const books = await Book.getNewArrivals(limit);
     const decorated = await Promotion.decorateBooks(books);
 
@@ -88,9 +117,12 @@ router.get("/new-arrivals", async (req, res) => {
 });
 
 // Get single book (public)
-router.get("/:id", async (req, res) => {
+router.get("/:id", optionalAuth, async (req, res) => {
   try {
-    const book = await Book.findById(req.params.id);
+    const includeInactive = String(req.query?.raw || "") === "1" && req.user?.role === "admin";
+    const book = includeInactive
+      ? await Book.findById(req.params.id)
+      : await Book.findOne({ _id: req.params.id, status: "active" });
 
     if (!book) {
       return res.status(404).json({
@@ -100,7 +132,7 @@ router.get("/:id", async (req, res) => {
     }
 
     const reviews = await Review.getByBook(req.params.id);
-    const useRaw = String(req.query?.raw || "") === "1";
+    const useRaw = includeInactive;
     const decorated = useRaw
       ? { ...book.toObject(), id: book._id }
       : (await Promotion.decorateBooks([book]))[0];
@@ -373,6 +405,17 @@ router.put("/:id", auth, adminOnly, async (req, res) => {
 // Delete book (admin only)
 router.delete("/:id", auth, adminOnly, async (req, res) => {
   try {
+    const [orderCount, reviewCount] = await Promise.all([
+      Order.countDocuments({ "items.book": req.params.id }),
+      Review.countDocuments({ book: req.params.id }),
+    ]);
+    if (orderCount > 0 || reviewCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Sach da co don hang hoac danh gia, hay chuyen sang inactive",
+      });
+    }
+
     const book = await Book.findByIdAndDelete(req.params.id);
 
     if (!book) {

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/context/AuthContext";
 import { chatAPI } from "@/services/api";
+import { connectSocket } from "@/services/socket";
 import { cn } from "@/lib/utils";
 
 const QUICK_FAQS = [
@@ -52,6 +53,20 @@ export default function ChatSupportWidget() {
   });
 
   const messages = chatQ.data?.messages || [];
+
+  useEffect(() => {
+    if (!user || !open) return;
+    const socket = connectSocket();
+    const conversationId = chatQ.data?.conversation?._id;
+    if (conversationId) socket.emit("chat:join", conversationId);
+    const onMessage = () => {
+      qc.invalidateQueries({ queryKey: ["customer", "chat"] });
+    };
+    socket.on("chat:message", onMessage);
+    return () => {
+      socket.off("chat:message", onMessage);
+    };
+  }, [chatQ.data?.conversation?._id, open, qc, user]);
 
   useEffect(() => {
     if (open) {

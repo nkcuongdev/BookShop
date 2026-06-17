@@ -17,8 +17,15 @@ const addressSchema = new mongoose.Schema(
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
-    email: { type: String, required: true, unique: true, lowercase: true },
-    password: { type: String, required: true },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+      match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+    },
+    password: { type: String, required: true, minlength: 6 },
     phone: { type: String, default: "" },
     addresses: { type: [addressSchema], default: [] },
     wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: "Book" }],
