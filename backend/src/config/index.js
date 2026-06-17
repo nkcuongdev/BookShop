@@ -2,6 +2,11 @@ require("dotenv").config();
 
 const isProduction = process.env.NODE_ENV === "production";
 const jwtSecret = process.env.JWT_SECRET || (isProduction ? "" : "dev_only_fallback_secret");
+const toHttpsUrl = (host) => {
+  if (!host) return "";
+  const value = String(host).trim().replace(/\/$/, "");
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+};
 
 if (isProduction && !jwtSecret) {
   throw new Error("JWT_SECRET is required in production");
@@ -11,9 +16,13 @@ module.exports = {
   port: process.env.PORT || 5000,
   jwtSecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
-  frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",
+  frontendUrl:
+    process.env.FRONTEND_URL ||
+    toHttpsUrl(process.env.FRONTEND_HOST) ||
+    "http://localhost:5173",
   apiPublicUrl:
     process.env.API_PUBLIC_URL ||
+    toHttpsUrl(process.env.API_PUBLIC_HOST) ||
     `http://localhost:${process.env.PORT || 5000}`,
   payment: {
     mockEnabled:

@@ -1,5 +1,8 @@
-export const API_BASE =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+const apiHost = import.meta.env.VITE_API_HOST;
+
+export const API_BASE = apiHost
+  ? `https://${String(apiHost).replace(/^https?:\/\//, "").replace(/\/$/, "")}/api`
+  : import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
 const getToken = () => localStorage.getItem("bookshop_token");
 
