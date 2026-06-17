@@ -300,8 +300,8 @@ async function handlePaymentSuccess({ orderCode, transactionId, rawPayload }) {
   await order.save();
   await notifyUserSafe(order.user, {
     type: "payment",
-    title: "Payment successful",
-    message: `Payment for order ${order.orderCode} was completed.`,
+    title: "Thanh toán thành công",
+    message: `Đơn hàng ${order.orderCode} đã được thanh toán thành công.`,
     link: `/profile/orders/${order._id}`,
     metadata: { orderId: order._id, orderCode: order.orderCode },
   });
@@ -330,8 +330,8 @@ async function handlePaymentFailed({ orderCode, reason, rawPayload }) {
   await order.save();
   await notifyUserSafe(order.user, {
     type: "payment",
-    title: "Payment failed",
-    message: `Payment for order ${order.orderCode} failed.`,
+    title: "Thanh toán thất bại",
+    message: `Thanh toán cho đơn hàng ${order.orderCode} không thành công.`,
     link: `/profile/orders/${order._id}`,
     metadata: { orderId: order._id, orderCode: order.orderCode },
   });
@@ -362,8 +362,8 @@ async function adminApproveOrder(orderId, adminId) {
   await order.save();
   await notifyUserSafe(order.user, {
     type: "order",
-    title: "Order confirmed",
-    message: `Order ${order.orderCode} is being processed.`,
+    title: "Đơn hàng đã xác nhận",
+    message: `Đơn hàng ${order.orderCode} đang được xử lý.`,
     link: `/profile/orders/${order._id}`,
     metadata: { orderId: order._id, orderCode: order.orderCode },
   });
@@ -389,14 +389,14 @@ async function adminMarkShipped(orderId, adminId, tracking = {}) {
   });
   order.trackingEvents.push({
     status: "SHIPPED",
-    description: "Order handed to carrier",
+    description: "Đơn hàng đã bàn giao cho đơn vị vận chuyển",
     at: new Date(),
   });
   await order.save();
   await notifyUserSafe(order.user, {
     type: "shipping",
-    title: "Order shipped",
-    message: `Order ${order.orderCode} is on the way.`,
+    title: "Đơn hàng đang giao",
+    message: `Đơn hàng ${order.orderCode} đang trên đường giao đến bạn.`,
     link: `/profile/orders/${order._id}`,
     metadata: {
       orderId: order._id,
@@ -422,14 +422,14 @@ async function adminMarkDelivered(orderId, adminId) {
   }
   order.trackingEvents.push({
     status: "DELIVERED",
-    description: "Order delivered to customer",
+    description: "Đơn hàng đã giao đến khách hàng",
     at: new Date(),
   });
   await order.save();
   await notifyUserSafe(order.user, {
     type: "shipping",
-    title: "Order delivered",
-    message: `Order ${order.orderCode} has been delivered.`,
+    title: "Đơn hàng đã giao",
+    message: `Đơn hàng ${order.orderCode} đã được giao thành công.`,
     link: `/profile/orders/${order._id}`,
     metadata: { orderId: order._id, orderCode: order.orderCode },
   });
@@ -471,8 +471,8 @@ async function cancelOrder(orderId, userId, reason = "") {
     await order.save();
     await notifyUserSafe(order.user, {
       type: "order",
-      title: "Order cancelled",
-      message: `Order ${order.orderCode} was cancelled.`,
+      title: "Đơn hàng đã hủy",
+      message: `Đơn hàng ${order.orderCode} đã được hủy.`,
       link: `/profile/orders/${order._id}`,
       metadata: { orderId: order._id, orderCode: order.orderCode },
     });
@@ -498,8 +498,8 @@ async function cancelOrder(orderId, userId, reason = "") {
     await order.save();
     await notifyUserSafe(order.user, {
       type: "refund",
-      title: "Refund requested",
-      message: `Refund for order ${order.orderCode} is being processed.`,
+      title: "Đã yêu cầu hoàn tiền",
+      message: `Yêu cầu hoàn tiền cho đơn hàng ${order.orderCode} đang được xử lý.`,
       link: `/profile/orders/${order._id}`,
       metadata: { orderId: order._id, orderCode: order.orderCode },
     });
@@ -541,8 +541,8 @@ async function handleRefundSuccess({
   await order.save();
   await notifyUserSafe(order.user, {
     type: "refund",
-    title: "Refund completed",
-    message: `Refund for order ${order.orderCode} has been completed.`,
+    title: "Hoàn tiền thành công",
+    message: `Đơn hàng ${order.orderCode} đã được hoàn tiền thành công.`,
     link: `/profile/orders/${order._id}`,
     metadata: { orderId: order._id, orderCode: order.orderCode },
   });
@@ -572,8 +572,8 @@ async function expirePendingOrders() {
       await order.save();
       await notifyUserSafe(order.user, {
         type: "order",
-        title: "Order expired",
-        message: `Order ${order.orderCode} was cancelled because payment timed out.`,
+        title: "Đơn hàng đã hết hạn",
+        message: `Đơn hàng ${order.orderCode} đã bị hủy do quá thời gian thanh toán.`,
         link: `/profile/orders/${order._id}`,
         metadata: { orderId: order._id, orderCode: order.orderCode },
       });

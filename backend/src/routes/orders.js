@@ -81,8 +81,8 @@ router.post("/", auth, async (req, res) => {
       req.user._id,
       {
         type: "order",
-        title: "Order placed",
-        message: `Order ${order.orderCode} has been created.`,
+        title: "Đặt hàng thành công",
+        message: `Đơn hàng ${order.orderCode} đã được tạo thành công.`,
         link: `/profile/orders/${order._id}`,
         metadata: { orderId: order._id, orderCode: order.orderCode },
       },
@@ -91,8 +91,8 @@ router.post("/", auth, async (req, res) => {
     await notificationService.notifyAdmins(
       {
         type: "order",
-        title: "New order",
-        message: `Order ${order.orderCode} needs processing.`,
+        title: "Đơn hàng mới",
+        message: `Đơn hàng ${order.orderCode} cần được xử lý.`,
         link: `/admin/orders/${order._id}`,
         metadata: { orderId: order._id, orderCode: order.orderCode },
       },
