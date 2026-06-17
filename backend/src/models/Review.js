@@ -34,5 +34,37 @@ reviewSchema.statics.canUserReview = async function (userId, bookId) {
   return hasPurchased;
 };
 
+reviewSchema.statics.ensureReviewIndexes = async function () {
+  const expectedKey = { book: 1, user: 1 };
+
+  try {
+    const indexes = await this.collection.indexes();
+
+    for (const index of indexes) {
+      if (index.name === "_id_") continue;
+      if (!index.unique) continue;
+
+      const key = index.key || {};
+      const isExpected =
+        Object.keys(key).length === 2 &&
+        key.book === expectedKey.book &&
+        key.user === expectedKey.user;
+      const isStaleReviewIndex = key.book || key.user;
+
+      if (!isExpected && isStaleReviewIndex) {
+        await this.collection.dropIndex(index.name);
+        console.log(`Dropped stale review index: ${index.name}`);
+      }
+    }
+
+    await this.collection.createIndex(expectedKey, {
+      unique: true,
+      name: "book_1_user_1",
+    });
+  } catch (error) {
+    console.error("Failed to ensure review indexes:", error.message);
+  }
+};
+
 const Review = mongoose.model("Review", reviewSchema);
 module.exports = Review;

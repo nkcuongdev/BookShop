@@ -9,6 +9,7 @@ const config = require("./config");
 const routes = require("./routes");
 const orderTTL = require("./jobs/orderTTL");
 const User = require("./models/User");
+const Review = require("./models/Review");
 const Conversation = require("./models/Conversation");
 const { getCookieValue } = require("./middleware/auth");
 
@@ -124,6 +125,7 @@ app.use((err, req, res, next) => {
 
 async function start() {
   await connectDB();
+  await Review.ensureReviewIndexes();
   const PORT = config.port;
   server.listen(PORT, () => {
     console.log(`\nBookShop API Server running on port ${PORT}`);
