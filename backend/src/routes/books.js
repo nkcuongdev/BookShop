@@ -196,7 +196,9 @@ router.get("/:id/reviews", async (req, res) => {
 router.post("/:id/reviews", auth, async (req, res) => {
   try {
     const bookId = req.params.id;
-    const { rating, comment } = req.body;
+    const { rating, comment = "" } = req.body || {};
+    const numericRating = Number(rating);
+    const normalizedComment = String(comment || "").trim();
 
     const book = await Book.findById(bookId);
     if (!book) {
@@ -206,52 +208,85 @@ router.post("/:id/reviews", auth, async (req, res) => {
       });
     }
 
-    if (!rating || rating < 1 || rating > 5) {
+    if (!Number.isFinite(numericRating) || numericRating < 1 || numericRating > 5) {
       return res.status(400).json({
         success: false,
         message: "Đánh giá phải từ 1 đến 5 sao",
       });
     }
 
-    // Check if user can review
-    const canReview = await Review.canUserReview(req.user._id, bookId);
-    if (!canReview) {
-      return res.status(403).json({
+    if (normalizedComment.length < 10 || normalizedComment.length > 500) {
+      return res.status(400).json({
         success: false,
-        message: "Bạn chỉ có thể đánh giá sách đã mua",
+        message: "Nhận xét cần từ 10 đến 500 ký tự",
       });
     }
 
-    // Create review
-    const review = new Review({
+    const existingReview = await Review.findOne({
+      user: req.user._id,
+      book: bookId,
+    });
+
+    if (existingReview) {
+      return res.status(400).json({
+        success: false,
+        message: "Bạn đã đánh giá sách này rồi",
+      });
+    }
+
+    const hasPurchased = await Order.hasUserPurchasedBook(req.user._id, bookId);
+    if (!hasPurchased) {
+      return res.status(403).json({
+        success: false,
+        message: "Bạn chỉ có thể đánh giá sách đã mua và đã giao",
+      });
+    }
+
+    const review = await Review.create({
       book: bookId,
       user: req.user._id,
-      rating: parseInt(rating),
-      comment: comment || "",
+      rating: numericRating,
+      comment: normalizedComment,
     });
-    await review.save();
 
-    // Update book rating
     await Book.updateRating(bookId);
-    const updatedBook = await Book.findById(bookId);
+    const [updatedBook, populatedReview] = await Promise.all([
+      Book.findById(bookId),
+      Review.findById(review._id).populate("user", "name"),
+    ]);
 
     res.status(201).json({
       success: true,
       message: "Đánh giá thành công",
       data: {
         review: {
-          ...review.toObject(),
-          id: review._id,
-          userName: req.user.name,
+          ...populatedReview.toObject(),
+          id: populatedReview._id,
+          userName: populatedReview.user?.name || req.user.name,
+          userId: populatedReview.user?._id || req.user._id,
         },
-        bookRating: updatedBook.rating,
-        bookReviewCount: updatedBook.reviewCount,
+        bookRating: updatedBook?.rating || 0,
+        bookReviewCount: updatedBook?.reviewCount || 0,
       },
     });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Bạn đã đánh giá sách này rồi",
+      });
+    }
+
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Dữ liệu đánh giá không hợp lệ",
+      });
+    }
+
     res.status(500).json({
       success: false,
-      message: "Lỗi server",
+      message: "Không thể gửi đánh giá, vui lòng thử lại",
       error: error.message,
     });
   }
@@ -261,11 +296,13 @@ router.post("/:id/reviews", auth, async (req, res) => {
 router.get("/:id/can-review", auth, async (req, res) => {
   try {
     const bookId = req.params.id;
-    const existingReview = await Review.findOne({
-      user: req.user._id,
-      book: bookId,
-    });
-    const hasPurchased = await Order.hasUserPurchasedBook(req.user._id, bookId);
+    const [existingReview, hasPurchased] = await Promise.all([
+      Review.findOne({
+        user: req.user._id,
+        book: bookId,
+      }),
+      Order.hasUserPurchasedBook(req.user._id, bookId),
+    ]);
 
     res.json({
       success: true,
@@ -273,9 +310,21 @@ router.get("/:id/can-review", auth, async (req, res) => {
         canReview: hasPurchased && !existingReview,
         hasPurchased,
         hasReviewed: !!existingReview,
+        message: existingReview
+          ? "Bạn đã đánh giá sách này rồi"
+          : hasPurchased
+            ? ""
+            : "Bạn chỉ có thể đánh giá sách đã mua và đã giao",
       },
     });
   } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Mã sách không hợp lệ",
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Lỗi server",

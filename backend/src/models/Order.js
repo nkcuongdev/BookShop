@@ -340,12 +340,44 @@ orderSchema.statics.getStats = async function () {
 };
 
 orderSchema.statics.hasUserPurchasedBook = async function (userId, bookId) {
-  const order = await this.findOne({
-    user: userId,
-    status: { $in: [ORDER_STATUS.DELIVERED] },
-    "items.book": bookId,
-  });
-  return !!order;
+  const userKey = String(userId);
+  const bookKey = String(bookId);
+
+  const orders = await this.aggregate([
+    {
+      $match: {
+        status: { $in: [ORDER_STATUS.DELIVERED] },
+      },
+    },
+    {
+      $addFields: {
+        userKey: { $toString: "$user" },
+      },
+    },
+    {
+      $match: {
+        userKey,
+      },
+    },
+    {
+      $unwind: "$items",
+    },
+    {
+      $addFields: {
+        bookKey: { $toString: "$items.book" },
+      },
+    },
+    {
+      $match: {
+        bookKey,
+      },
+    },
+    {
+      $limit: 1,
+    },
+  ]);
+
+  return orders.length > 0;
 };
 
 const Order = mongoose.model("Order", orderSchema);
