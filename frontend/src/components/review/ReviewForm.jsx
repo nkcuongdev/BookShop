@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Send } from "lucide-react";
 import Rating from "@/components/common/Rating";
 import { Button } from "@/components/ui/button";
@@ -8,20 +8,27 @@ export default function ReviewForm({ onSubmit, submitting = false }) {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
+  const submittingRef = useRef(false);
 
   const submit = async (e) => {
     e.preventDefault();
+    if (submitting || submittingRef.current) return;
+
     setError("");
     if (!comment.trim() || comment.trim().length < 10) {
       setError("Nhận xét cần ít nhất 10 ký tự.");
       return;
     }
+
+    submittingRef.current = true;
     try {
       await onSubmit?.(rating, comment.trim());
       setComment("");
       setRating(5);
     } catch (err) {
       setError(err?.message || "Không thể gửi đánh giá, thử lại.");
+    } finally {
+      submittingRef.current = false;
     }
   };
 

@@ -8,6 +8,9 @@ export const authAPI = {
     });
     if (response.success) {
       localStorage.setItem("bookshop_user", JSON.stringify(response.data.user));
+      if (response.data.token) {
+        localStorage.setItem("bookshop_token", response.data.token);
+      }
     }
     return response;
   },
@@ -19,6 +22,9 @@ export const authAPI = {
     });
     if (response.success) {
       localStorage.setItem("bookshop_user", JSON.stringify(response.data.user));
+      if (response.data.token) {
+        localStorage.setItem("bookshop_token", response.data.token);
+      }
     }
     return response;
   },

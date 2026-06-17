@@ -12,11 +12,14 @@ function getCookieValue(reqOrSocket, name) {
 }
 
 function getBearerToken(req) {
+  const cookieToken = getCookieValue(req, "bookshop_token");
+  if (cookieToken) return cookieToken;
+
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
     return authHeader.split(" ")[1];
   }
-  return getCookieValue(req, "bookshop_token");
+  return "";
 }
 
 const auth = async (req, res, next) => {
