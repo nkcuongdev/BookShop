@@ -14,6 +14,7 @@ router.use(auth, adminOnly);
  */
 const toUiRole = (role) => (role === "admin" ? "admin" : "customer");
 const toDbRole = (role) => (role === "admin" ? "admin" : "user");
+const EXCLUDED_SPEND_STATUSES = ["CANCELLED", "FAILED", "REFUNDED"];
 
 const serialize = (u, stats = {}) => {
   const obj = u.toObject ? u.toObject() : u;
@@ -47,15 +48,30 @@ router.get("/", async (req, res) => {
 
     const users = await User.find(query).sort({ createdAt: -1 });
 
-    // Aggregate order counts / spend per user in one pass
+    // Aggregate order counts / spend per user in one pass. String conversion keeps
+    // this working with both ObjectId refs and legacy string user ids.
     const userIds = users.map((u) => u._id);
+    const userIdStrings = userIds.map((id) => String(id));
     const stats = await Order.aggregate([
-      { $match: { user: { $in: userIds } } },
+      {
+        $addFields: {
+          userKey: { $toString: { $ifNull: ["$user", "$userId"] } },
+        },
+      },
+      { $match: { userKey: { $in: userIdStrings } } },
       {
         $group: {
-          _id: "$user",
+          _id: "$userKey",
           ordersCount: { $sum: 1 },
-          totalSpend: { $sum: "$totalAmount" },
+          totalSpend: {
+            $sum: {
+              $cond: [
+                { $in: ["$status", EXCLUDED_SPEND_STATUSES] },
+                0,
+                { $ifNull: ["$totalAmount", 0] },
+              ],
+            },
+          },
         },
       },
     ]);
