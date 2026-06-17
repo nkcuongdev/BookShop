@@ -4,6 +4,7 @@ const reviewSchema = new mongoose.Schema(
   {
     book: { type: mongoose.Schema.Types.ObjectId, ref: "Book", required: true },
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    userName: { type: String, default: "" },
     rating: { type: Number, required: true, min: 1, max: 5 },
     comment: { type: String, default: "" },
   },
@@ -16,7 +17,7 @@ reviewSchema.index({ book: 1, user: 1 }, { unique: true });
 // Static: Get reviews by book
 reviewSchema.statics.getByBook = function (bookId) {
   return this.find({ book: bookId })
-    .populate("user", "name")
+    .populate("user", "name email")
     .sort({ createdAt: -1 });
 };
 

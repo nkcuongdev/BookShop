@@ -11,7 +11,11 @@ function serializeReview(review) {
   return {
     ...obj,
     id: obj._id,
-    userName: obj.user?.name || "Anonymous",
+    userName:
+      obj.userName ||
+      obj.user?.name ||
+      (obj.user?.email ? String(obj.user.email).split("@")[0] : "") ||
+      "Khách hàng",
     userId: obj.user?._id || obj.user,
   };
 }
@@ -83,6 +87,7 @@ router.post("/", auth, async (req, res) => {
     const review = await Review.create({
       book: bookId,
       user: req.user._id,
+      userName: req.user.name || "",
       rating: numericRating,
       comment: String(comment || "").trim(),
     });

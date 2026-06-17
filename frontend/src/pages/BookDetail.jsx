@@ -240,14 +240,25 @@ export default function BookDetail() {
     try {
       const response = await booksAPI.createReview(id, rating, comment);
       if (response.success) {
-        setReviews((prev) => [response.data.review, ...prev]);
+        setReviews((prev) => {
+          const review = response.data.review;
+          const reviewId = String(review?._id || review?.id || "");
+          const withoutCurrent = prev.filter(
+            (item) => String(item?._id || item?.id || "") !== reviewId,
+          );
+          return review ? [review, ...withoutCurrent] : prev;
+        });
         setBook((prev) => ({
           ...prev,
           rating: response.data.bookRating,
           reviewCount: response.data.bookReviewCount,
         }));
         setCanReview(false);
-        toast.success("Cảm ơn bạn đã đánh giá!");
+        toast.success(
+          response.data.alreadyReviewed
+            ? "Đánh giá của bạn đã được hiển thị."
+            : "Cảm ơn bạn đã đánh giá!",
+        );
       }
     } finally {
       setSubmittingReview(false);

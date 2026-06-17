@@ -6,10 +6,15 @@ import { formatDateVN } from "@/utils/format";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 export default function ReviewList({ reviews = [] }) {
   const [filter, setFilter] = useState(0);
+
+  const getDisplayName = (review) =>
+    review.userName ||
+    review.user?.name ||
+    (review.user?.email ? String(review.user.email).split("@")[0] : "") ||
+    "Khách hàng";
 
   if (!reviews.length) {
     return (
@@ -22,7 +27,9 @@ export default function ReviewList({ reviews = [] }) {
   }
 
   const filtered =
-    filter === 0 ? reviews : reviews.filter((r) => Math.floor(r.rating) === filter);
+    filter === 0
+      ? reviews
+      : reviews.filter((r) => Math.floor(r.rating) === filter);
 
   return (
     <div className="space-y-4">
@@ -39,7 +46,7 @@ export default function ReviewList({ reviews = [] }) {
         </Button>
         {[5, 4, 3, 2, 1].map((star) => {
           const count = reviews.filter(
-            (r) => Math.floor(r.rating) === star
+            (r) => Math.floor(r.rating) === star,
           ).length;
           if (count === 0) return null;
           return (
@@ -56,45 +63,47 @@ export default function ReviewList({ reviews = [] }) {
       </div>
 
       <div className="space-y-4">
-        {filtered.map((review) => (
-          <div
-            key={review._id || review.id}
-            className="bg-white border border-gray-100 rounded-2xl p-5"
-          >
-            <div className="flex items-start gap-3">
-              <Avatar className="w-10 h-10">
-                <AvatarFallback>
-                  {(review.userName || review.user?.name || "?")
-                    .charAt(0)
-                    .toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-semibold text-secondary-800 text-sm">
-                    {review.userName || review.user?.name || "Khách hàng"}
-                  </p>
-                  {review.verified && (
-                    <Badge variant="info" className="text-[10px]">
-                      Đã mua hàng
-                    </Badge>
+        {filtered.map((review) => {
+          const displayName = getDisplayName(review);
+
+          return (
+            <div
+              key={review._id || review.id}
+              className="bg-white border border-gray-100 rounded-2xl p-5"
+            >
+              <div className="flex items-start gap-3">
+                <Avatar className="w-10 h-10">
+                  <AvatarFallback>
+                    {displayName.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-secondary-800 text-sm">
+                      {displayName}
+                    </p>
+                    {review.verified && (
+                      <Badge variant="info" className="text-[10px]">
+                        Đã mua hàng
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Rating value={review.rating} size="xs" />
+                    <span className="text-xs text-secondary-400">
+                      {formatDateVN(review.createdAt)}
+                    </span>
+                  </div>
+                  {review.comment && (
+                    <p className="mt-2 text-sm text-secondary-700 leading-relaxed">
+                      {review.comment}
+                    </p>
                   )}
                 </div>
-                <div className="flex items-center gap-2 mt-1">
-                  <Rating value={review.rating} size="xs" />
-                  <span className="text-xs text-secondary-400">
-                    {formatDateVN(review.createdAt)}
-                  </span>
-                </div>
-                {review.comment && (
-                  <p className="mt-2 text-sm text-secondary-700 leading-relaxed">
-                    {review.comment}
-                  </p>
-                )}
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

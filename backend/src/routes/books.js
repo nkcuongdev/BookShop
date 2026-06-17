@@ -8,6 +8,40 @@ const { parsePositiveInt } = require("../utils/security");
 
 const router = express.Router();
 
+function serializeReview(review, fallbackUser = null) {
+  const obj = review.toObject ? review.toObject() : review;
+  const userObj = obj.user && typeof obj.user === "object" ? obj.user : null;
+  const fallbackUserId = fallbackUser?._id || fallbackUser?.id;
+  const reviewUserId = userObj?._id || obj.user;
+  const fallbackName =
+    fallbackUserId && String(reviewUserId) === String(fallbackUserId)
+      ? fallbackUser.name
+      : "";
+  const userName =
+    obj.userName ||
+    userObj?.name ||
+    fallbackName ||
+    (userObj?.email ? String(userObj.email).split("@")[0] : "") ||
+    "Khách hàng";
+
+  return {
+    ...obj,
+    id: obj._id,
+    userName,
+    userId: reviewUserId,
+  };
+}
+
+async function serializeExistingUserReview(review, user) {
+  if (!review.userName && user?.name) {
+    review.userName = user.name;
+    await review.save();
+  }
+
+  await review.populate("user", "name email");
+  return serializeReview(review, user);
+}
+
 // Get all books (public)
 router.get("/", optionalAuth, async (req, res) => {
   try {
@@ -141,12 +175,7 @@ router.get("/:id", optionalAuth, async (req, res) => {
       success: true,
       data: {
         book: decorated,
-        reviews: reviews.map((r) => ({
-          ...r.toObject(),
-          id: r._id,
-          userName: r.user?.name || "Anonymous",
-          userId: r.user?._id,
-        })),
+        reviews: reviews.map((r) => serializeReview(r, req.user)),
       },
     });
   } catch (error) {
@@ -174,11 +203,7 @@ router.get("/:id/reviews", async (req, res) => {
     res.json({
       success: true,
       data: {
-        reviews: reviews.map((r) => ({
-          ...r.toObject(),
-          id: r._id,
-          userName: r.user?.name || "Anonymous",
-        })),
+        reviews: reviews.map((r) => serializeReview(r)),
         averageRating: book.rating,
         reviewCount: book.reviewCount,
       },
@@ -228,9 +253,20 @@ router.post("/:id/reviews", auth, async (req, res) => {
     });
 
     if (existingReview) {
-      return res.status(400).json({
-        success: false,
+      const [updatedBook, reviewData] = await Promise.all([
+        Book.findById(bookId),
+        serializeExistingUserReview(existingReview, req.user),
+      ]);
+
+      return res.json({
+        success: true,
         message: "Bạn đã đánh giá sách này rồi",
+        data: {
+          alreadyReviewed: true,
+          review: reviewData,
+          bookRating: updatedBook?.rating || 0,
+          bookReviewCount: updatedBook?.reviewCount || 0,
+        },
       });
     }
 
@@ -245,6 +281,7 @@ router.post("/:id/reviews", auth, async (req, res) => {
     const review = await Review.create({
       book: bookId,
       user: req.user._id,
+      userName: req.user.name || "",
       rating: numericRating,
       comment: normalizedComment,
     });
@@ -260,10 +297,7 @@ router.post("/:id/reviews", auth, async (req, res) => {
       message: "Đánh giá thành công",
       data: {
         review: {
-          ...populatedReview.toObject(),
-          id: populatedReview._id,
-          userName: populatedReview.user?.name || req.user.name,
-          userId: populatedReview.user?._id || req.user._id,
+          ...serializeReview(populatedReview, req.user),
         },
         bookRating: updatedBook?.rating || 0,
         bookReviewCount: updatedBook?.reviewCount || 0,
@@ -271,9 +305,32 @@ router.post("/:id/reviews", auth, async (req, res) => {
     });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(400).json({
+      const existingReview = await Review.findOne({
+        user: req.user._id,
+        book: req.params.id,
+      });
+
+      if (existingReview) {
+        const [updatedBook, reviewData] = await Promise.all([
+          Book.findById(req.params.id),
+          serializeExistingUserReview(existingReview, req.user),
+        ]);
+
+        return res.json({
+          success: true,
+          message: "Bạn đã đánh giá sách này rồi",
+          data: {
+            alreadyReviewed: true,
+            review: reviewData,
+            bookRating: updatedBook?.rating || 0,
+            bookReviewCount: updatedBook?.reviewCount || 0,
+          },
+        });
+      }
+
+      return res.status(409).json({
         success: false,
-        message: "Bạn đã đánh giá sách này rồi",
+        message: "Đánh giá đã tồn tại",
       });
     }
 
