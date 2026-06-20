@@ -1,20 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/book.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src %VITE_CSP_SCRIPT_SRC%; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: %VITE_CSP_IMG_SRC%; connect-src 'self' http://localhost:5000 ws://localhost:5000; frame-src 'none'; form-action 'self'; manifest-src 'self'; media-src 'self'; worker-src 'self' blob:"
+    />
+    <meta
       name="description"
-      content="BookShop - Your favorite online bookstore"
+      content="BookShop - Nhà sách trực tuyến với sách chính hãng, sách mới và nhiều ưu đãi."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
-    <title>BookShop - Online Bookstore</title>
+    <title>BookShop | Nhà sách trực tuyến</title>
   </head>
   <body>
     <div id="root"></div>

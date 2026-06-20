@@ -1,9 +1,43 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-export default defineConfig({
-  plugins: [react()],
+// Image hosts allowed by the CSP in index.html. Must stay a superset of the
+// backend allowlist in backend/src/utils/imageUrlPolicy.js, otherwise the
+// browser blocks an image the API already accepted.
+const DEFAULT_CSP_IMG_SRC = [
+  "http://localhost:5000",
+  "https://res.cloudinary.com",
+  "https://images.unsplash.com",
+  "https://m.media-amazon.com",
+  "https://via.placeholder.com",
+];
+
+function cspPlugin(env, isDev) {
+  const extra = String(env.VITE_ALLOWED_IMAGE_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const imgSrc = [...new Set([...DEFAULT_CSP_IMG_SRC, ...extra])].join(" ");
+  // The dev server injects the react-refresh preamble and the HMR client as
+  // inline module scripts, so serve mode needs 'unsafe-inline'. The production
+  // build only emits external bundles, so it keeps the strict 'self' policy.
+  const scriptSrc = isDev ? "'self' 'unsafe-inline'" : "'self'";
+  return {
+    name: "bookshop-csp",
+    transformIndexHtml(html) {
+      return html
+        .replaceAll("%VITE_CSP_IMG_SRC%", imgSrc)
+        .replaceAll("%VITE_CSP_SCRIPT_SRC%", scriptSrc);
+    },
+  };
+}
+
+export default defineConfig(({ mode, command }) => ({
+  plugins: [
+    react(),
+    cspPlugin(loadEnv(mode, process.cwd(), ""), command === "serve"),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -14,25 +48,6 @@ export default defineConfig({
     open: true,
   },
   build: {
-    chunkSizeWarningLimit: 900,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          "react-vendor": ["react", "react-dom", "react-router-dom"],
-          "query-vendor": ["@tanstack/react-query", "@tanstack/react-table"],
-          "chart-vendor": ["recharts"],
-          "form-vendor": ["react-hook-form", "@hookform/resolvers", "zod"],
-          "ui-vendor": [
-            "@radix-ui/react-dialog",
-            "@radix-ui/react-dropdown-menu",
-            "@radix-ui/react-popover",
-            "@radix-ui/react-select",
-            "@radix-ui/react-tabs",
-            "@radix-ui/react-tooltip",
-            "lucide-react",
-          ],
-        },
-      },
-    },
+    chunkSizeWarningLimit: 600,
   },
-});
+}));

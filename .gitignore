@@ -9,3 +9,12 @@ yarn-error.log*
 .shared/
 *.log
 backend/data/mongo/
+backend/data/*.json
+backend/data/uploads/
+
+# Local MongoDB Compass package metadata is not part of this application.
+/package.json
+
+# Local AI agent instructions are not part of the application repository.
+/AGENTS.md
+/CLAUDE.md

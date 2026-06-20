@@ -1,32 +1,58 @@
 {
   "name": "bookshop-backend",
   "version": "1.0.0",
-  "description": "BookShop Backend API with Express and lowdb",
+  "description": "BookShop backend API with Express and MongoDB",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "seed": "node src/seed.js"
+    "maintenance": "node src/jobs/runMaintenance.js",
+    "reconcile:reviews": "node src/jobs/reconcileReviewRatings.js",
+    "reconcile:stock": "node src/jobs/reconcileStock.js",
+    "backfill:stock-ledger": "node src/jobs/backfillStockLedger.js",
+    "backfill:order-cost": "node src/jobs/backfillOrderCostPrice.js",
+    "backfill:reserved-stock": "node src/jobs/backfillReservedStock.js",
+    "reset:stock-ledger": "node src/jobs/resetStockLedger.js",
+    "backfill:book-status": "node src/jobs/backfillBookStatus.js",
+    "seed:cost-price": "node src/jobs/seedEstimatedCostPrice.js",
+    "seed": "node src/seed.js",
+    "test": "node --test",
+    "test:unit": "node scripts/run-unit-tests.js",
+    "test:watch": "node --test --watch",
+    "lint": "eslint src test"
   },
   "keywords": [
     "bookshop",
     "api",
     "express",
-    "lowdb"
+    "mongodb"
   ],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "cors": "^2.8.5",
+    "cloudinary": "^2.10.0",
+    "cors": "^2.8.6",
     "dotenv": "^16.3.1",
-    "express": "^4.18.2",
+    "express": "^4.22.2",
+    "express-rate-limit": "^8.6.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^9.1.0",
-    "socket.io": "^4.8.3",
-    "uuid": "^9.0.1"
+    "mongoose": "^9.7.4",
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.3",
+    "rate-limit-redis": "^6.0.0",
+    "redis": "^6.1.0",
+    "sanitize-html": "^2.17.6",
+    "sharp": "^0.35.3",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
+    "globals": "^17.7.0",
+    "mongodb-memory-server": "^11.2.0",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2"
   }
 }

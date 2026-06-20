@@ -6,32 +6,93 @@ services:
     region: singapore
     branch: main
     autoDeploy: true
-    buildCommand: cd backend && npm ci
+    buildCommand: npm ci --prefix backend && npm ci --prefix frontend && npm run build --prefix frontend
     startCommand: cd backend && npm start
-    healthCheckPath: /api/health
+    healthCheckPath: /api/health/ready
+    envVars:
+      - fromGroup: bookshop-shared
+      - key: VITE_SOCIAL_FACEBOOK_URL
+        sync: false
+      - key: VITE_SOCIAL_INSTAGRAM_URL
+        sync: false
+      - key: VITE_SOCIAL_ZALO_URL
+        sync: false
+      - key: VITE_SOCIAL_YOUTUBE_URL
+        sync: false
+
+  - type: cron
+    name: bookshop-maintenance
+    runtime: node
+    plan: starter
+    region: singapore
+    branch: main
+    schedule: "*/5 * * * *"
+    buildCommand: cd backend && npm ci
+    startCommand: cd backend && npm run maintenance
+    envVars:
+      - fromGroup: bookshop-shared
+
+envVarGroups:
+  - name: bookshop-shared
     envVars:
       - key: NODE_ENV
         value: production
       - key: JWT_SECRET
         generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
       - key: JWT_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
         value: 7d
       - key: MONGO_URI
         sync: false
-      - key: FRONTEND_URL
+      - key: APP_PUBLIC_URL
         sync: false
-      - key: FRONTEND_HOST
-        fromService:
-          name: bookshop-web
-          type: web
-          property: host
-      - key: API_PUBLIC_URL
+      - key: RATE_LIMIT_REDIS_URL
         sync: false
-      - key: API_PUBLIC_HOST
-        fromService:
-          name: bookshop-api
-          type: web
-          property: host
+      - key: ANALYTICS_RETENTION_DAYS
+        value: 365
+      - key: COD_PENDING_TTL_MINUTES
+        value: 1440
+      - key: MAX_PENDING_COD_PER_USER
+        value: 3
+      - key: ONLINE_PAYMENT_TTL_MINUTES
+        value: 15
+      - key: MAX_PENDING_ONLINE_PER_USER
+        value: 3
+      - key: MAX_PAYMENT_ATTEMPTS_PER_ORDER
+        value: 3
+      - key: PAYMENT_RETRY_COOLDOWN_SECONDS
+        value: 30
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: MAIL_REQUEST_TIMEOUT_MS
+        value: 8000
+      - key: GHN_SANDBOX_TOKEN
+        sync: false
+      - key: GHN_SANDBOX_SHOP_ID
+        sync: false
+      - key: GHN_SANDBOX_FROM_DISTRICT_ID
+        sync: false
+      - key: GHN_SANDBOX_FROM_WARD_CODE
+        sync: false
+      - key: GHN_SANDBOX_REQUEST_TIMEOUT_MS
+        value: 8000
+      - key: GHN_SANDBOX_SIMULATION_ENABLED
+        value: true
+      - key: GHN_SANDBOX_SIMULATION_STEP_MS
+        value: 10000
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_FOLDER
+        value: bookshop/books
       - key: PAYMENT_MOCK_ENABLED
         value: false
       - key: VNPAY_TMN_CODE
@@ -40,6 +101,10 @@ services:
         sync: false
       - key: VNPAY_PAYMENT_URL
         value: https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
+      - key: VNPAY_API_URL
+        sync: false
+      - key: VNPAY_REFUND_IP
+        sync: false
       - key: VNPAY_RETURN_URL
         sync: false
       - key: MOMO_PARTNER_CODE
@@ -50,27 +115,11 @@ services:
         sync: false
       - key: MOMO_ENDPOINT
         value: https://test-payment.momo.vn/v2/gateway/api/create
+      - key: MOMO_REFUND_ENDPOINT
+        sync: false
       - key: MOMO_REDIRECT_URL
         sync: false
       - key: MOMO_IPN_URL
         sync: false
-
-  - type: web
-    name: bookshop-web
-    runtime: static
-    branch: main
-    autoDeploy: true
-    buildCommand: cd frontend && npm ci && npm run build
-    staticPublishPath: frontend/dist
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: VITE_API_HOST
-        fromService:
-          name: bookshop-api
-          type: web
-          property: host
-      - key: VITE_API_BASE_URL
-        sync: false
+      - key: PAYMENT_WEBHOOK_SECRET
+        generateValue: true
