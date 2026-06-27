@@ -9,16 +9,24 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
     const handleSessionExpired = () => setUser(null);
     window.addEventListener("bookshop:session-expired", handleSessionExpired);
 
-    const storedUser = authAPI.getCurrentUser();
-    if (storedUser) {
-      setUser(storedUser);
-    }
-    setLoading(false);
+    const restoreSession = async () => {
+      try {
+        const response = await authAPI.getMe({ silent: true });
+        if (active) setUser(response.data.user);
+      } catch {
+        if (active) setUser(null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    restoreSession();
 
     return () => {
+      active = false;
       window.removeEventListener("bookshop:session-expired", handleSessionExpired);
     };
   }, []);
@@ -43,7 +51,7 @@ export function AuthProvider({ children }) {
       if (response.success) {
         setUser(response.data.user);
         window.dispatchEvent(new Event("bookshop:auth-changed"));
-        return { success: true };
+        return { success: true, data: response.data };
       }
       return { success: false, error: response.message };
     } catch (error) {
@@ -51,9 +59,9 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
     disconnectSocket();
-    authAPI.logout();
+    await authAPI.logout().catch(() => null);
     setUser(null);
     window.dispatchEvent(new Event("bookshop:auth-changed"));
   };
@@ -63,7 +71,11 @@ export function AuthProvider({ children }) {
       const response = await authAPI.updateMe(payload);
       if (response.success) {
         setUser(response.data.user);
-        return { success: true, user: response.data.user };
+        return {
+          success: true,
+          message: response.message,
+          ...response.data,
+        };
       }
       return { success: false, error: response.message };
     } catch (error) {
@@ -71,9 +83,22 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const refreshUser = async () => {
+    try {
+      const response = await authAPI.getMe({ silent: true });
+      if (response.success) {
+        setUser(response.data.user);
+        return response.data.user;
+      }
+    } catch {
+      // Verification can also be completed from a signed-out browser.
+    }
+    return null;
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, register, logout, updateProfile }}
+      value={{ user, loading, login, register, logout, updateProfile, refreshUser }}
     >
       {children}
     </AuthContext.Provider>

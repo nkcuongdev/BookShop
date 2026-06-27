@@ -5,7 +5,12 @@ import { usersAPI } from "@/services/api";
 export function useUsers(params = {}) {
   return useQuery({
     queryKey: ["admin", "users", params],
-    queryFn: () => usersAPI.getAll(params).then((r) => r.data?.users || []),
+    queryFn: () =>
+      usersAPI.getAll(params).then((r) => ({
+        users: r.data?.users || [],
+        pagination: r.data?.pagination || { total: 0, page: 1, limit: 20, totalPages: 1 },
+      })),
+    placeholderData: (previous) => previous,
   });
 }
 

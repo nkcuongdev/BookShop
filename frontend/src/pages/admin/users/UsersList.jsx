@@ -6,7 +6,6 @@ import {
   Search,
   ShieldCheck,
   Trash2,
-  UserRound,
   Users,
 } from "lucide-react";
 import { PageHeader } from "@/components/admin/common/PageHeader";
@@ -30,6 +29,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -41,25 +41,48 @@ import {
 } from "@/features/admin/users/hooks";
 import { useConfirm } from "@/hooks/useConfirm";
 import { useAuth } from "@/context/AuthContext.jsx";
+import { useRoles } from "@/features/admin/roles/hooks";
+import { can } from "@/lib/rbac";
 import useDebounce from "@/hooks/useDebounce";
 import { formatDateVN, formatVND } from "@/utils/format";
 
+// The DB stores the customer role as 'user' while the API reports 'customer';
+// every other role uses the same key on both sides.
+const CUSTOMER_ROLE_KEY = "user";
+const toOptionValue = (key) => (key === CUSTOMER_ROLE_KEY ? "customer" : key);
+
 export default function UsersList() {
   const { user: me } = useAuth();
+  const canAssignRole = can(me, "user.role.assign") && can(me, "role.read");
   const confirm = useConfirm();
+
+  // Roles are defined at runtime, so the picker is driven by the API rather
+  // than a fixed list. Only admins may read it, which is also who may assign.
+  const rolesQ = useRoles({ enabled: canAssignRole });
+  const roleOptions = useMemo(
+    () =>
+      (rolesQ.data || []).map((r) => ({ value: toOptionValue(r.key), label: r.label })),
+    [rolesQ.data]
+  );
+  const roleLabelOf = (value) =>
+    roleOptions.find((option) => option.value === value)?.label || value;
 
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("all");
   const [status, setStatus] = useState("all");
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 20 });
   const debounced = useDebounce(search, 250);
 
   const params = useMemo(() => {
-    const p = {};
+    const p = {
+      page: pagination.pageIndex + 1,
+      limit: pagination.pageSize,
+    };
     if (debounced) p.search = debounced;
     if (role !== "all") p.role = role;
     if (status !== "all") p.status = status;
     return p;
-  }, [debounced, role, status]);
+  }, [debounced, role, status, pagination]);
 
   const usersQ = useUsers(params);
   const updateRole = useUpdateUserRole();
@@ -84,6 +107,16 @@ export default function UsersList() {
     }
   };
 
+  const handleChangeRole = async (u, nextRole) => {
+    if (nextRole === u.role) return;
+    const ok = await confirm({
+      title: "Đổi vai trò?",
+      description: `"${u.name}" sẽ chuyển sang vai trò ${roleLabelOf(nextRole)}. Tài khoản này sẽ bị đăng xuất khỏi mọi thiết bị và cần đăng nhập lại.`,
+      confirmText: "Đổi vai trò",
+    });
+    if (ok) updateRole.mutate({ id: u._id, role: nextRole });
+  };
+
   const handleDelete = async (u) => {
     const ok = await confirm({
       title: "Xoá người dùng?",
@@ -103,12 +136,12 @@ export default function UsersList() {
         const initial = (u.name || "?").charAt(0).toUpperCase();
         return (
           <div className="flex items-center gap-3">
-            <Avatar className="h-9 w-9">
+            <Avatar className="size-9">
               <AvatarFallback className="text-xs">{initial}</AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <p className="truncate font-medium text-secondary-800">{u.name}</p>
-              <p className="truncate text-xs text-secondary-500">{u.email}</p>
+              <p className="truncate font-medium text-foreground">{u.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{u.email}</p>
             </div>
           </div>
         );
@@ -119,7 +152,7 @@ export default function UsersList() {
       header: "Số điện thoại",
       accessorKey: "phone",
       cell: ({ row }) => (
-        <span className="text-sm text-secondary-700">
+        <span className="text-sm text-foreground">
           {row.original.phone || "Chưa cập nhật"}
         </span>
       ),
@@ -128,7 +161,12 @@ export default function UsersList() {
       id: "role",
       header: "Vai trò",
       accessorKey: "role",
-      cell: ({ row }) => <StatusBadge status={row.original.role} />,
+      cell: ({ row }) => (
+        <StatusBadge
+          status={row.original.role}
+          label={row.original.roleLabel || roleLabelOf(row.original.role)}
+        />
+      ),
     },
     {
       id: "status",
@@ -141,7 +179,7 @@ export default function UsersList() {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Đơn" />,
       accessorKey: "ordersCount",
       cell: ({ row }) => (
-        <span className="tabular-nums font-semibold text-secondary-700">
+        <span className="tabular-nums font-semibold text-foreground">
           {row.original.ordersCount || 0}
         </span>
       ),
@@ -151,7 +189,7 @@ export default function UsersList() {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Chi tiêu" />,
       accessorKey: "totalSpend",
       cell: ({ row }) => (
-        <span className="font-semibold text-primary-600">
+        <span className="font-semibold text-primary">
           {formatVND(row.original.totalSpend || 0)}
         </span>
       ),
@@ -160,7 +198,7 @@ export default function UsersList() {
       id: "createdAt",
       header: "Tạo lúc",
       cell: ({ row }) => (
-        <span className="text-xs text-secondary-500">
+        <span className="text-xs text-muted-foreground">
           {formatDateVN(row.original.createdAt)}
         </span>
       ),
@@ -173,44 +211,51 @@ export default function UsersList() {
         const isSelf = u._id === me?._id || u.email === me?.email;
         return (
           <div className="flex justify-end">
-            <PermissionGate action="user.ban">
+            <PermissionGate permission="user.manage">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Khác" disabled={isSelf}>
-                    <MoreHorizontal className="h-4 w-4" />
+                  <Button variant="ghost" size="icon" className="size-8" aria-label="Khác" disabled={isSelf}>
+                    <MoreHorizontal className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onClick={() =>
-                      updateRole.mutate({
-                        id: u._id,
-                        role: u.role === "admin" ? "customer" : "admin",
-                      })
-                    }
-                  >
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    {u.role === "admin" ? "Hạ xuống khách hàng" : "Nâng lên admin"}
-                  </DropdownMenuItem>
+                  {canAssignRole && (
+                    <>
+                      <DropdownMenuLabel className="flex items-center gap-2">
+                        <ShieldCheck className="size-4" />
+                        Đổi vai trò
+                      </DropdownMenuLabel>
+                      {roleOptions.map((option) => (
+                        <DropdownMenuItem
+                          key={option.value}
+                          disabled={option.value === u.role}
+                          onClick={() => handleChangeRole(u, option.value)}
+                        >
+                          {option.label}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
                   <DropdownMenuItem onClick={() => handleToggleBan(u)}>
                     {u.status === "banned" ? (
                       <>
-                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        <CheckCircle2 className="size-4" />
                         Bỏ cấm
                       </>
                     ) : (
                       <>
-                        <Ban className="h-3.5 w-3.5" />
+                        <Ban className="size-4" />
                         Cấm tài khoản
                       </>
                     )}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    className="text-rose-600 focus:bg-rose-50 focus:text-rose-700"
+                    className="text-danger-strong focus:bg-danger-muted focus:text-danger-strong"
                     onClick={() => handleDelete(u)}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="size-4" />
                     Xoá
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -226,25 +271,43 @@ export default function UsersList() {
     <DataTableToolbar>
       <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative w-full sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-secondary-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
           <Input
             placeholder="Tìm tên, email, SĐT..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPagination((current) => ({ ...current, pageIndex: 0 }));
+            }}
             className="h-9 pl-8"
           />
         </div>
-        <Select value={role} onValueChange={setRole}>
+        <Select
+          value={role}
+          onValueChange={(value) => {
+            setRole(value);
+            setPagination((current) => ({ ...current, pageIndex: 0 }));
+          }}
+        >
           <SelectTrigger className="h-9 w-[160px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tất cả vai trò</SelectItem>
-            <SelectItem value="admin">Quản trị</SelectItem>
-            <SelectItem value="customer">Khách hàng</SelectItem>
+            {roleOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
-        <Select value={status} onValueChange={setStatus}>
+        <Select
+          value={status}
+          onValueChange={(value) => {
+            setStatus(value);
+            setPagination((current) => ({ ...current, pageIndex: 0 }));
+          }}
+        >
           <SelectTrigger className="h-9 w-[160px]">
             <SelectValue />
           </SelectTrigger>
@@ -262,17 +325,21 @@ export default function UsersList() {
     <div className="space-y-6">
       <PageHeader
         title="Người dùng"
-        description={`${usersQ.data?.length || 0} tài khoản`}
+        description={`${usersQ.data?.pagination?.total || 0} tài khoản`}
       />
 
       <DataTable
         columns={columns}
-        data={usersQ.data || []}
+        data={usersQ.data?.users || []}
         isLoading={usersQ.isLoading}
         isError={usersQ.isError}
         onRetry={() => usersQ.refetch()}
         toolbar={toolbar}
         totalLabel="người dùng"
+        pagination={pagination}
+        onPaginationChange={setPagination}
+        pageCount={usersQ.data?.pagination?.totalPages || 1}
+        totalRows={usersQ.data?.pagination?.total || 0}
         getRowId={(r) => r._id}
         emptyState={
           <EmptyState

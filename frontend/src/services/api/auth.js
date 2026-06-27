@@ -8,9 +8,8 @@ export const authAPI = {
     });
     if (response.success) {
       localStorage.setItem("bookshop_user", JSON.stringify(response.data.user));
-      if (response.data.token) {
-        localStorage.setItem("bookshop_token", response.data.token);
-      }
+      localStorage.setItem("bookshop_csrf", response.data.csrfToken);
+      localStorage.removeItem("bookshop_token");
     }
     return response;
   },
@@ -22,25 +21,72 @@ export const authAPI = {
     });
     if (response.success) {
       localStorage.setItem("bookshop_user", JSON.stringify(response.data.user));
-      if (response.data.token) {
-        localStorage.setItem("bookshop_token", response.data.token);
-      }
+      localStorage.setItem("bookshop_csrf", response.data.csrfToken);
+      localStorage.removeItem("bookshop_token");
     }
     return response;
   },
 
-  logout: () => {
-    request("/auth/logout", { method: "POST" }).catch(() => null);
-    localStorage.removeItem("bookshop_token");
-    localStorage.removeItem("bookshop_user");
+  logout: async () => {
+    try {
+      await request("/auth/logout", { method: "POST" });
+    } finally {
+      localStorage.removeItem("bookshop_token");
+      localStorage.removeItem("bookshop_csrf");
+      localStorage.removeItem("bookshop_user");
+    }
   },
 
   getCurrentUser: () => {
     const user = localStorage.getItem("bookshop_user");
-    return user ? JSON.parse(user) : null;
+    if (!user) return null;
+    try {
+      return JSON.parse(user);
+    } catch {
+      localStorage.removeItem("bookshop_user");
+      return null;
+    }
   },
 
-  getMe: async () => request("/auth/me"),
+  getMe: async ({ silent = false } = {}) => {
+    const response = await request("/auth/me", {}, {
+      redirectOnUnauthorized: !silent,
+      logErrors: !silent,
+    });
+    if (response.success && response.data?.user) {
+      localStorage.setItem("bookshop_user", JSON.stringify(response.data.user));
+    }
+    return response;
+  },
+
+  forgotPassword: async (email) =>
+    request("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: async (token, password) =>
+    request("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    }),
+
+  requestEmailVerification: async () =>
+    request("/auth/email-verification/request", { method: "POST" }),
+
+  verifyEmail: async (token) => {
+    const response = await request("/auth/email-verification/verify", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+    if (response.data?.reauthRequired) {
+      localStorage.removeItem("bookshop_token");
+      localStorage.removeItem("bookshop_csrf");
+      localStorage.removeItem("bookshop_user");
+      window.dispatchEvent(new Event("bookshop:session-expired"));
+    }
+    return response;
+  },
 
   updateMe: async (payload) => {
     const response = await request("/auth/me", {
@@ -55,11 +101,19 @@ export const authAPI = {
     return response;
   },
 
-  changePassword: async (currentPassword, newPassword) =>
-    request("/auth/me/password", {
+  changePassword: async (currentPassword, newPassword) => {
+    const response = await request("/auth/me/password", {
       method: "PATCH",
       body: JSON.stringify({ currentPassword, newPassword }),
-    }),
+    });
+    if (response.data?.reauthRequired) {
+      localStorage.removeItem("bookshop_token");
+      localStorage.removeItem("bookshop_csrf");
+      localStorage.removeItem("bookshop_user");
+      window.dispatchEvent(new Event("bookshop:session-expired"));
+    }
+    return response;
+  },
 
   getAddresses: async () => request("/auth/me/addresses"),
   addAddress: async (payload) =>
