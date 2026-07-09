@@ -38,6 +38,7 @@ import {
   useDeletePostCategory,
 } from "@/features/admin/posts/hooks";
 import { useConfirm } from "@/hooks/useConfirm";
+import Switch from "@/components/ui/switch";
 
 const EMPTY_CATEGORY = {
   name: "",
@@ -108,8 +109,8 @@ export default function PostCategoriesList() {
       accessorKey: "name",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium text-secondary-800">{row.original.name}</p>
-          <p className="text-xs text-secondary-500">{row.original.slug}</p>
+          <p className="font-medium text-foreground">{row.original.name}</p>
+          <p className="text-xs text-muted-foreground">{row.original.slug}</p>
         </div>
       ),
     },
@@ -118,7 +119,7 @@ export default function PostCategoriesList() {
       header: "Mô tả",
       accessorKey: "description",
       cell: ({ row }) => (
-        <span className="text-secondary-600 line-clamp-2">
+        <span className="text-muted-foreground line-clamp-2">
           {row.original.description || "—"}
         </span>
       ),
@@ -138,7 +139,7 @@ export default function PostCategoriesList() {
       header: "Thứ tự",
       accessorKey: "order",
       cell: ({ row }) => (
-        <span className="tabular-nums text-secondary-700">{row.original.order || 0}</span>
+        <span className="tabular-nums text-foreground">{row.original.order || 0}</span>
       ),
     },
     {
@@ -151,29 +152,29 @@ export default function PostCategoriesList() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="size-8"
               onClick={() => handleOpenEdit(c)}
               aria-label="Sửa"
             >
-              <Pencil className="h-3.5 w-3.5" />
+              <Pencil className="size-4" />
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                  <MoreHorizontal className="h-4 w-4" />
+                <Button variant="ghost" size="icon" className="size-8">
+                  <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => handleOpenEdit(c)}>
-                  <Pencil className="h-3.5 w-3.5" />
+                  <Pencil className="size-4" />
                   Chỉnh sửa
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  className="text-rose-600 focus:bg-rose-50 focus:text-rose-700"
+                  className="text-danger-strong focus:bg-danger-muted focus:text-danger-strong"
                   onClick={() => handleDelete(c)}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="size-4" />
                   Xóa
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -188,7 +189,7 @@ export default function PostCategoriesList() {
     <DataTableToolbar>
       <div className="flex flex-1" />
       <Button variant="outline" size="sm" onClick={() => categoriesQ.refetch()}>
-        <RotateCw className="h-3.5 w-3.5" />
+        <RotateCw className="size-4" />
         Tải lại
       </Button>
     </DataTableToolbar>
@@ -203,7 +204,7 @@ export default function PostCategoriesList() {
         description={`${categories.length} danh mục`}
         actions={
           <Button onClick={handleOpenCreate}>
-            <Plus className="h-4 w-4" />
+            <Plus className="size-4" />
             Thêm danh mục
           </Button>
         }
@@ -226,7 +227,7 @@ export default function PostCategoriesList() {
               description="Tạo danh mục để phân loại bài viết."
               action={
                 <Button onClick={handleOpenCreate}>
-                  <Plus className="h-4 w-4" />
+                  <Plus className="size-4" />
                   Thêm danh mục
                 </Button>
               }
@@ -245,7 +246,7 @@ export default function PostCategoriesList() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="cat-name">
-                Tên danh mục <span className="text-rose-500">*</span>
+                Tên danh mục <span className="text-danger-strong">*</span>
               </Label>
               <Input
                 id="cat-name"
@@ -279,12 +280,10 @@ export default function PostCategoriesList() {
                 />
               </div>
               <div className="flex items-center gap-3 pt-6">
-                <input
-                  type="checkbox"
+                <Switch
                   id="cat-active"
                   checked={form.isActive}
-                  onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
-                  className="h-4 w-4 rounded border-gray-300"
+                  onCheckedChange={(next) => setForm({ ...form, isActive: next })}
                 />
                 <Label htmlFor="cat-active" className="cursor-pointer">
                   Hoạt động
@@ -296,7 +295,7 @@ export default function PostCategoriesList() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Hủy
               </Button>
-              <Button type="submit" disabled={isSaving}>
+              <Button type="submit" loading={isSaving}>
                 {isSaving ? "Đang lưu..." : editingCategory ? "Cập nhật" : "Tạo mới"}
               </Button>
             </DialogFooter>

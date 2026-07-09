@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import BookCard from "./BookCard";
 import { cn } from "@/lib/utils";
+import SectionHeader from "@/components/common/SectionHeader";
 
 export default function RecommendationRail({
   title,
@@ -22,39 +23,31 @@ export default function RecommendationRail({
   if (!books.length) return null;
 
   return (
-    <section className={cn("py-8", className)}>
-      <div className="flex items-end justify-between mb-4 gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-1 h-7 bg-primary-500 rounded-full" />
-            <h2 className="text-xl lg:text-2xl font-display font-bold text-secondary-800">
-              {title}
-            </h2>
-          </div>
-          {subtitle && (
-            <p className="text-sm text-secondary-500 mt-1.5 ml-3.5">
-              {subtitle}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {action}
-          <button
-            onClick={() => scroll("left")}
-            aria-label="Scroll left"
-            className="hidden sm:flex w-9 h-9 rounded-full border border-gray-200 bg-white items-center justify-center text-secondary-600 hover:border-primary-500 hover:text-primary-600 transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => scroll("right")}
-            aria-label="Scroll right"
-            className="hidden sm:flex w-9 h-9 rounded-full border border-gray-200 bg-white items-center justify-center text-secondary-600 hover:border-primary-500 hover:text-primary-600 transition-colors"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+    <section className={cn(className)}>
+      <SectionHeader
+        title={title}
+        subtitle={subtitle}
+        size="lg"
+        action={
+          <>
+            {action}
+            <button
+              onClick={() => scroll("left")}
+              aria-label="Cuộn sang trái"
+              className="hidden size-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors duration-fast ease-out-soft hover:border-primary hover:text-primary sm:flex"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <button
+              onClick={() => scroll("right")}
+              aria-label="Cuộn sang phải"
+              className="hidden size-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors duration-fast ease-out-soft hover:border-primary hover:text-primary sm:flex"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </>
+        }
+      />
 
       <div
         ref={scrollRef}

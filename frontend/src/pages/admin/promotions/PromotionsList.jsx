@@ -38,10 +38,15 @@ export default function PromotionsList() {
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 20 });
   const debounced = useDebounce(search, 250);
   const confirm = useConfirm();
 
-  const promosQ = usePromotions(debounced ? { search: debounced } : {});
+  const promosQ = usePromotions({
+    ...(debounced ? { search: debounced } : {}),
+    page: pagination.pageIndex + 1,
+    limit: pagination.pageSize,
+  });
   const toggleMut = useTogglePromotion();
   const deleteMut = useDeletePromotion();
 
@@ -64,7 +69,7 @@ export default function PromotionsList() {
   };
 
   const data = useMemo(() => {
-    return (promosQ.data || []).map((p) => ({
+    return (promosQ.data?.promotions || []).map((p) => ({
       ...p,
       _status: promotionStatus(p),
     }));
@@ -78,16 +83,16 @@ export default function PromotionsList() {
         const p = row.original;
         return (
           <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 text-rose-600">
-              <Tag className="h-4 w-4" />
+            <div className="flex size-9 items-center justify-center rounded-lg bg-danger-muted text-danger-strong">
+              <Tag className="size-4" />
             </div>
             <div className="min-w-0">
-              <p className="font-semibold text-secondary-900 line-clamp-1">
+              <p className="font-semibold text-foreground line-clamp-1">
                 {p.name}
               </p>
-              <p className="text-xs text-secondary-500 line-clamp-1">
+              <p className="text-xs text-muted-foreground line-clamp-1">
                 {p.description || (
-                  <span className="italic text-secondary-400">Không mô tả</span>
+                  <span className="italic text-muted-foreground/70">Không mô tả</span>
                 )}
               </p>
             </div>
@@ -101,8 +106,8 @@ export default function PromotionsList() {
       cell: ({ row }) => {
         const p = row.original;
         return (
-          <div className="flex items-center gap-1.5 font-semibold text-rose-600">
-            <Percent className="h-3.5 w-3.5" />
+          <div className="flex items-center gap-1.5 font-semibold text-danger-strong">
+            <Percent className="size-4" />
             {p.type === "percent" ? `${p.value}%` : formatVND(p.value)}
           </div>
         );
@@ -115,14 +120,14 @@ export default function PromotionsList() {
         const p = row.original;
         if (p.scope === "category") {
           return (
-            <span className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 ring-1 ring-inset ring-sky-200">
+            <span className="inline-flex items-center rounded-full bg-info-muted px-2 py-0.5 text-xs font-medium text-info-strong ring-1 ring-inset ring-info/30">
               Danh mục: {p.category || "—"}
             </span>
           );
         }
         const count = p.books?.length || 0;
         return (
-          <span className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-200">
+          <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-300">
             {count} sản phẩm
           </span>
         );
@@ -133,10 +138,10 @@ export default function PromotionsList() {
       header: "Thời gian",
       cell: ({ row }) => (
         <div className="text-xs">
-          <p className="text-secondary-700">
+          <p className="text-foreground">
             {formatDateVN(row.original.startDate)}
           </p>
-          <p className="text-secondary-500">
+          <p className="text-muted-foreground">
             → {formatDateVN(row.original.endDate)}
           </p>
         </div>
@@ -159,27 +164,27 @@ export default function PromotionsList() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8"
+                  className="size-8"
                   aria-label="Khác"
                 >
-                  <MoreHorizontal className="h-4 w-4" />
+                  <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => handleEdit(p)}>
-                  <Pencil className="h-3.5 w-3.5" />
+                  <Pencil className="size-4" />
                   Chỉnh sửa
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => toggleMut.mutate(p._id)}>
-                  <Power className="h-3.5 w-3.5" />
+                  <Power className="size-4" />
                   {p.active ? "Tạm ngừng" : "Kích hoạt"}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  className="text-rose-600 focus:bg-rose-50 focus:text-rose-700"
+                  className="text-danger-strong focus:bg-danger-muted focus:text-danger-strong"
                   onClick={() => handleDelete(p)}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="size-4" />
                   Xoá
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -193,11 +198,14 @@ export default function PromotionsList() {
   const toolbar = (
     <DataTableToolbar>
       <div className="relative w-full sm:max-w-xs">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-secondary-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
         <Input
           placeholder="Tìm chương trình..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPagination((current) => ({ ...current, pageIndex: 0 }));
+          }}
           className="h-9 pl-8"
         />
       </div>
@@ -208,10 +216,10 @@ export default function PromotionsList() {
     <div className="space-y-6">
       <PageHeader
         title="Khuyến mãi sản phẩm"
-        description={`${data.length} chương trình`}
+        description={`${promosQ.data?.pagination?.total ?? data.length} chương trình`}
         actions={
           <Button onClick={handleCreate}>
-            <Plus className="h-4 w-4" />
+            <Plus className="size-4" />
             Tạo khuyến mãi
           </Button>
         }
@@ -225,6 +233,10 @@ export default function PromotionsList() {
         onRetry={() => promosQ.refetch()}
         toolbar={toolbar}
         totalLabel="chương trình"
+        pagination={pagination}
+        onPaginationChange={setPagination}
+        pageCount={promosQ.data?.pagination?.totalPages || 0}
+        totalRows={promosQ.data?.pagination?.total || 0}
         getRowId={(r) => r._id}
         emptyState={
           <EmptyState
@@ -233,7 +245,7 @@ export default function PromotionsList() {
             description="Tạo chương trình giảm giá đầu tiên cho sản phẩm của bạn."
             action={
               <Button onClick={handleCreate}>
-                <Plus className="h-4 w-4" />
+                <Plus className="size-4" />
                 Tạo khuyến mãi
               </Button>
             }

@@ -1,12 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
+import DOMPurify from "dompurify";
 import {
   Calendar,
   User,
   Eye,
   ArrowLeft,
   Tag,
-  Share2,
   Link2,
 } from "lucide-react";
 
@@ -32,7 +32,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { formatRelativeDate, formatDate } from "@/utils/format";
+import useDocumentMetadata, { getSiteUrl } from "@/hooks/useDocumentMetadata";
+import { toast } from "@/components/ui/sonner";
 
+import useCopyToClipboard from "@/hooks/useCopyToClipboard";
 function escapeHtml(text = "") {
   return text
     .replace(/&/g, "&amp;")
@@ -49,19 +52,20 @@ function sanitizeUrl(url = "") {
 }
 
 function sanitizeHtml(html = "") {
-  return String(html)
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "")
-    .replace(/<\/?(iframe|object|embed|form|input|button|textarea|select)[^>]*>/gi, "")
-    .replace(/\son[a-z]+\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, "")
-    .replace(
-      /\s(href|src)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-      (match, attr, raw, doubleQuoted, singleQuoted, bare) => {
-        const quote = raw.startsWith("'") ? "'" : '"';
-        const value = sanitizeUrl(doubleQuoted || singleQuoted || bare || "");
-        return ` ${attr}=${quote}${escapeHtml(value)}${quote}`;
-      }
-    );
+  return DOMPurify.sanitize(String(html), {
+    ALLOWED_TAGS: [
+      "p", "br", "h1", "h2", "h3", "h4", "ul", "ol", "li",
+      "strong", "b", "em", "i", "u", "s", "blockquote", "code",
+      "pre", "a", "img", "figure", "figcaption", "hr", "table",
+      "thead", "tbody", "tr", "th", "td",
+    ],
+    ALLOWED_ATTR: [
+      "href", "title", "target", "rel", "src", "alt", "width",
+      "height", "loading", "colspan", "rowspan",
+    ],
+    ALLOW_DATA_ATTR: false,
+    FORBID_ATTR: ["style"],
+  });
 }
 
 function markdownToHtml(markdown = "") {
@@ -144,8 +148,8 @@ function PostDetailSkeleton() {
 function RelatedPostCard({ post }) {
   return (
     <Link to={`/news/${post.slug}`} className="group block">
-      <Card className="overflow-hidden transition-shadow hover:shadow-md">
-        <div className="aspect-video overflow-hidden bg-gray-100">
+      <Card interactive className="overflow-hidden">
+        <div className="aspect-video overflow-hidden bg-muted">
           {post.thumbnail ? (
             <img
               src={post.thumbnail}
@@ -162,10 +166,10 @@ function RelatedPostCard({ post }) {
           )}
         </div>
         <CardContent className="p-4">
-          <h4 className="font-medium text-secondary-800 line-clamp-2 group-hover:text-primary-600 transition-colors">
+          <h4 className="text-base font-medium text-foreground line-clamp-2 group-hover:text-primary transition-colors">
             {post.title}
           </h4>
-          <p className="text-xs text-secondary-500 mt-2">
+          <p className="text-xs text-muted-foreground mt-2">
             {formatRelativeDate(post.publishedAt || post.createdAt)}
           </p>
         </CardContent>
@@ -175,6 +179,7 @@ function RelatedPostCard({ post }) {
 }
 
 export default function NewsDetail() {
+  const { copy } = useCopyToClipboard();
   const { slug } = useParams();
   const navigate = useNavigate();
 
@@ -183,21 +188,33 @@ export default function NewsDetail() {
   const post = data?.post;
   const relatedPosts = data?.relatedPosts || [];
 
-  useEffect(() => {
-    if (post) {
-      document.title = post.metaTitle || post.title;
-      const metaDesc = document.querySelector('meta[name="description"]');
-      if (metaDesc) {
-        metaDesc.setAttribute(
-          "content",
-          post.metaDescription || post.shortDescription || ""
-        );
-      }
-    }
-    return () => {
-      document.title = "BookShop";
+  const articleStructuredData = useMemo(() => {
+    if (!post) return null;
+    const url = `${getSiteUrl()}/news/${post.slug}`;
+    return {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      headline: post.title,
+      description: post.metaDescription || post.shortDescription || "",
+      image: post.thumbnail || undefined,
+      datePublished: post.publishedAt || post.createdAt,
+      dateModified: post.updatedAt || post.publishedAt || post.createdAt,
+      author: post.author?.name
+        ? { "@type": "Person", name: post.author.name }
+        : { "@type": "Organization", name: "BookShop" },
+      mainEntityOfPage: url,
+      url,
     };
   }, [post]);
+
+  useDocumentMetadata({
+    title: post ? `${post.metaTitle || post.title} | BookShop` : "Bài viết | BookShop",
+    description: post?.metaDescription || post?.shortDescription || "Tin tức và bài viết từ BookShop.",
+    canonicalPath: `/news/${slug}`,
+    image: post?.thumbnail,
+    type: "article",
+    structuredData: articleStructuredData,
+  });
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -210,9 +227,10 @@ export default function NewsDetail() {
     const shareUrls = {
       facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
       twitter: `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(title)}`,
-      copy: () => {
-        navigator.clipboard.writeText(url);
-        alert("Đã copy link!");
+      copy: async () => {
+        const ok = await copy(url);
+        if (ok) toast.success("Đã copy link bài viết");
+        else toast.error("Không thể copy link");
       },
     };
 
@@ -225,8 +243,8 @@ export default function NewsDetail() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <div className="min-h-screen bg-muted">
+        <div className="page-container section-tight max-w-3xl">
           <PostDetailSkeleton />
         </div>
       </div>
@@ -235,17 +253,17 @@ export default function NewsDetail() {
 
   if (isError || !post) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-muted flex items-center justify-center">
         <div className="text-center">
           <div className="text-6xl mb-4">📰</div>
-          <h2 className="text-2xl font-bold text-secondary-800 mb-2">
+          <h2 className="text-h2 font-bold text-foreground mb-2">
             Không tìm thấy bài viết
           </h2>
-          <p className="text-secondary-600 mb-6">
+          <p className="text-muted-foreground mb-6">
             Bài viết này có thể đã bị xóa hoặc không tồn tại
           </p>
           <Button onClick={() => navigate("/news")}>
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="size-4" />
             Quay lại danh sách
           </Button>
         </div>
@@ -254,38 +272,38 @@ export default function NewsDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-muted">
       {/* Breadcrumb */}
-      <div className="bg-white border-b">
-        <div className="container mx-auto px-4 py-4">
+      <div className="bg-card border-b">
+        <div className="page-container py-4">
           <nav className="flex items-center gap-2 text-sm">
-            <Link to="/" className="text-secondary-500 hover:text-primary-600">
+            <Link to="/" className="text-muted-foreground hover:text-primary">
               Trang chủ
             </Link>
-            <span className="text-secondary-400">/</span>
-            <Link to="/news" className="text-secondary-500 hover:text-primary-600">
+            <span className="text-muted-foreground/70">/</span>
+            <Link to="/news" className="text-muted-foreground hover:text-primary">
               Tin tức
             </Link>
             {post.category && (
               <>
-                <span className="text-secondary-400">/</span>
+                <span className="text-muted-foreground/70">/</span>
                 <Link
                   to={`/news?category=${post.category._id || post.category}`}
-                  className="text-secondary-500 hover:text-primary-600"
+                  className="text-muted-foreground hover:text-primary"
                 >
                   {post.category.name}
                 </Link>
               </>
             )}
-            <span className="text-secondary-400">/</span>
-            <span className="text-secondary-800 font-medium line-clamp-1">
+            <span className="text-muted-foreground/70">/</span>
+            <span className="text-foreground font-medium line-clamp-1">
               {post.title}
             </span>
           </nav>
         </div>
       </div>
 
-      <article className="container mx-auto px-4 py-8">
+      <article className="page-container section-tight">
         <div className="max-w-4xl mx-auto">
           {/* Back button */}
           <Button
@@ -293,7 +311,7 @@ export default function NewsDetail() {
             className="mb-6"
             onClick={() => navigate("/news")}
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="size-4" />
             Quay lại
           </Button>
 
@@ -305,29 +323,29 @@ export default function NewsDetail() {
               </Badge>
             )}
 
-            <h1 className="text-3xl md:text-4xl font-bold text-secondary-900 mb-4">
+            <h1 className="mb-4 text-h1 font-display font-bold text-foreground lg:text-display">
               {post.title}
             </h1>
 
             {post.shortDescription && (
-              <p className="text-lg text-secondary-600 mb-6">
+              <p className="text-lg text-muted-foreground mb-6">
                 {post.shortDescription}
               </p>
             )}
 
-            <div className="flex flex-wrap items-center gap-4 text-sm text-secondary-500">
+            <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
               {post.author && (
                 <span className="flex items-center gap-1.5">
-                  <User className="h-4 w-4" />
+                  <User className="size-4" />
                   {post.author.name}
                 </span>
               )}
               <span className="flex items-center gap-1.5">
-                <Calendar className="h-4 w-4" />
+                <Calendar className="size-4" />
                 {formatDate(post.publishedAt || post.createdAt)}
               </span>
               <span className="flex items-center gap-1.5">
-                <Eye className="h-4 w-4" />
+                <Eye className="size-4" />
                 {post.viewCount || 0} lượt xem
               </span>
             </div>
@@ -346,14 +364,14 @@ export default function NewsDetail() {
 
           {/* Content */}
           <div
-            className="prose prose-lg max-w-none mb-8"
+            className="prose-content mb-8"
             dangerouslySetInnerHTML={{ __html: renderPostContent(post.content || "") }}
           />
 
           {/* Tags */}
           {post.tags && post.tags.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 mb-8">
-              <Tag className="h-4 w-4 text-secondary-500" />
+              <Tag className="size-4 text-muted-foreground" />
               {post.tags.map((tag) => (
                 <Badge key={tag} variant="outline">
                   {tag}
@@ -364,14 +382,14 @@ export default function NewsDetail() {
 
           {/* Share */}
           <div className="flex items-center gap-4 py-6 border-t border-b">
-            <span className="text-secondary-600 font-medium">Chia sẻ:</span>
+            <span className="text-muted-foreground font-medium">Chia sẻ:</span>
             <Button
               variant="outline"
               size="icon"
               onClick={() => handleShare("facebook")}
               aria-label="Share on Facebook"
             >
-              <FacebookIcon className="h-4 w-4" />
+              <FacebookIcon className="size-4" />
             </Button>
             <Button
               variant="outline"
@@ -379,7 +397,7 @@ export default function NewsDetail() {
               onClick={() => handleShare("twitter")}
               aria-label="Share on Twitter"
             >
-              <TwitterIcon className="h-4 w-4" />
+              <TwitterIcon className="size-4" />
             </Button>
             <Button
               variant="outline"
@@ -387,7 +405,7 @@ export default function NewsDetail() {
               onClick={() => handleShare("copy")}
               aria-label="Copy link"
             >
-              <Link2 className="h-4 w-4" />
+              <Link2 className="size-4" />
             </Button>
           </div>
         </div>
@@ -396,7 +414,7 @@ export default function NewsDetail() {
         {relatedPosts.length > 0 && (
           <div className="max-w-6xl mx-auto mt-12">
             <Separator className="mb-8" />
-            <h2 className="text-2xl font-bold text-secondary-800 mb-6">
+            <h2 className="text-h2 font-bold text-foreground mb-6">
               Bài viết liên quan
             </h2>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">

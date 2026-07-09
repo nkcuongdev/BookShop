@@ -5,7 +5,7 @@ export const promotionSchema = z
     name: z.string().min(2, "Tên tối thiểu 2 ký tự"),
     description: z.string().optional().default(""),
     type: z.enum(["percent", "fixed"]),
-    value: z.coerce.number().min(0, "Giá trị không hợp lệ"),
+    value: z.coerce.number().positive("Giá trị phải lớn hơn 0"),
     startDate: z.string().min(1, "Chọn ngày bắt đầu"),
     endDate: z.string().min(1, "Chọn ngày kết thúc"),
     scope: z.enum(["products", "category"]),

@@ -2,60 +2,24 @@ const express = require("express");
 const mongoose = require("mongoose");
 const Post = require("../models/Post");
 const PostCategory = require("../models/PostCategory");
-const { auth, adminOnly } = require("../middleware/auth");
+const postViewService = require("../services/postViewService");
+const { auth, requirePermission } = require("../middleware/auth");
+const roleRegistry = require("../services/roleRegistry");
+const {
+  queueManagedAssetsForDeletion,
+  syncManagedAssets,
+} = require("../services/assetLifecycleService");
+const {
+  parsePositiveInt,
+  safeRegex,
+} = require("../utils/security");
+const {
+  normalizePostSort,
+  normalizeQueryValue,
+  pickPostPayload,
+} = require("../validators/postValidator");
 
 const router = express.Router();
-
-function normalizeQueryValue(value) {
-  if (value === undefined || value === null) return undefined;
-  if (value === "" || value === "undefined" || value === "null") return undefined;
-  return value;
-}
-
-const ALLOWED_POST_FIELDS = [
-  "title",
-  "slug",
-  "thumbnail",
-  "shortDescription",
-  "content",
-  "category",
-  "status",
-  "metaTitle",
-  "metaDescription",
-  "tags",
-];
-
-function pickPostPayload(body = {}) {
-  const payload = {};
-  for (const key of ALLOWED_POST_FIELDS) {
-    if (body[key] !== undefined) payload[key] = body[key];
-  }
-
-  if (Array.isArray(payload.tags)) {
-    payload.tags = payload.tags.map((t) => String(t).trim()).filter(Boolean);
-  }
-
-  if (
-    payload.category === "" ||
-    payload.category === null ||
-    payload.category === "__none__"
-  ) {
-    payload.category = null;
-  }
-
-  if (typeof payload.title === "string") payload.title = payload.title.trim();
-  if (typeof payload.slug === "string") payload.slug = payload.slug.trim().toLowerCase();
-  if (typeof payload.shortDescription === "string") {
-    payload.shortDescription = payload.shortDescription.trim();
-  }
-  if (typeof payload.metaTitle === "string") payload.metaTitle = payload.metaTitle.trim();
-  if (typeof payload.metaDescription === "string") {
-    payload.metaDescription = payload.metaDescription.trim();
-  }
-
-  return payload;
-}
-
 // =====================
 // PUBLIC ROUTES
 // =====================
@@ -63,17 +27,19 @@ function pickPostPayload(body = {}) {
 // GET /api/posts - Get published posts (public)
 router.get("/", async (req, res) => {
   try {
-    const { page = 1, limit = 10, sortBy, order } = req.query;
+    const { sortBy, order } = req.query;
+    const page = parsePositiveInt(req.query.page, 1, 10_000);
+    const limit = parsePositiveInt(req.query.limit, 10, 50);
     const category = normalizeQueryValue(req.query.category);
     const search = normalizeQueryValue(req.query.search);
 
     const options = {
       category,
       search,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      sortBy,
-      order,
+      page,
+      limit,
+      sortBy: normalizePostSort(sortBy, "publishedAt"),
+      order: order === "asc" ? "asc" : "desc",
     };
 
     const [posts, total] = await Promise.all([
@@ -90,9 +56,9 @@ router.get("/", async (req, res) => {
         })),
         pagination: {
           total,
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalPages: Math.ceil(total / parseInt(limit)),
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
         },
       },
     });
@@ -108,7 +74,7 @@ router.get("/", async (req, res) => {
 // GET /api/posts/latest - Get latest posts
 router.get("/latest", async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 5;
+    const limit = parsePositiveInt(req.query.limit, 5, 20);
     const posts = await Post.getLatestPosts(limit);
 
     res.json({
@@ -164,8 +130,7 @@ router.get("/:slug", async (req, res) => {
       });
     }
 
-    await Post.incrementViewCount(post._id);
-
+    const countedView = postViewService.record(post._id, req);
     const relatedPosts = await Post.getRelatedPosts(post._id, post.category?._id);
 
     res.json({
@@ -174,7 +139,7 @@ router.get("/:slug", async (req, res) => {
         post: {
           ...post.toObject(),
           id: post._id,
-          viewCount: post.viewCount + 1,
+          viewCount: post.viewCount + (countedView ? 1 : 0),
         },
         relatedPosts: relatedPosts.map((p) => ({
           ...p.toObject(),
@@ -196,9 +161,12 @@ router.get("/:slug", async (req, res) => {
 // =====================
 
 // GET /api/posts/admin/all - Get all posts for admin
-router.get("/admin/all", auth, adminOnly, async (req, res) => {
+router.get("/admin/all", auth, requirePermission("post.read"), async (req, res) => {
   try {
-    const { page = 1, limit = 20, sortBy = "createdAt", order = "desc" } = req.query;
+    const page = parsePositiveInt(req.query.page, 1, 10_000);
+    const limit = parsePositiveInt(req.query.limit, 20, 100);
+    const sortBy = normalizePostSort(req.query.sortBy, "createdAt");
+    const order = req.query.order === "asc" ? "asc" : "desc";
     const status = normalizeQueryValue(req.query.status);
     const search = normalizeQueryValue(req.query.search);
 
@@ -209,22 +177,25 @@ router.get("/admin/all", auth, adminOnly, async (req, res) => {
     }
 
     if (search) {
+      const regex = safeRegex(search);
+      if (regex) {
       query.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { shortDescription: { $regex: search, $options: "i" } },
+        { title: regex },
+        { shortDescription: regex },
       ];
+      }
     }
 
     const sortOrder = order === "asc" ? 1 : -1;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (page - 1) * limit;
 
     const [posts, total] = await Promise.all([
       Post.find(query)
         .populate("category", "name slug")
         .populate("author", "name email")
-        .sort({ [sortBy]: sortOrder })
+        .sort({ [sortBy]: sortOrder, _id: sortOrder })
         .skip(skip)
-        .limit(parseInt(limit)),
+        .limit(limit),
       Post.countDocuments(query),
     ]);
 
@@ -237,9 +208,9 @@ router.get("/admin/all", auth, adminOnly, async (req, res) => {
         })),
         pagination: {
           total,
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalPages: Math.ceil(total / parseInt(limit)),
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
         },
       },
     });
@@ -253,7 +224,7 @@ router.get("/admin/all", auth, adminOnly, async (req, res) => {
 });
 
 // GET /api/posts/admin/:id - Get single post for admin (by ID)
-router.get("/admin/:id", auth, adminOnly, async (req, res) => {
+router.get("/admin/:id", auth, requirePermission("post.read"), async (req, res) => {
   try {
     const post = await Post.findById(req.params.id)
       .populate("category", "name slug")
@@ -284,10 +255,31 @@ router.get("/admin/:id", auth, adminOnly, async (req, res) => {
   }
 });
 
+/**
+ * `post.write` covers drafting; putting a post live (or pulling it down) is
+ * gated separately on `post.publish`. The status field travels in the same
+ * create/update payload as the body text, so both routes have to check it here
+ * as well - the dedicated publish/unpublish endpoints alone would leave this
+ * as an open side door.
+ */
+async function assertPublishTransitionAllowed(user, nextStatus, currentStatus) {
+  if (nextStatus === undefined || nextStatus === currentStatus) return;
+  const allowed = await roleRegistry.roleHasPermission(user.role, "post.publish");
+  if (allowed) return;
+  const error = new Error(
+    nextStatus === "published"
+      ? "Bạn không có quyền xuất bản bài viết"
+      : "Bạn không có quyền hủy xuất bản bài viết"
+  );
+  error.statusCode = 403;
+  throw error;
+}
+
 // POST /api/posts/admin - Create post (admin)
-router.post("/admin", auth, adminOnly, async (req, res) => {
+router.post("/admin", auth, requirePermission("post.write"), async (req, res) => {
   try {
     const payload = pickPostPayload(req.body);
+    await assertPublishTransitionAllowed(req.user, payload.status, "draft");
 
     if (!payload.title) {
       return res.status(400).json({
@@ -340,8 +332,25 @@ router.post("/admin", auth, adminOnly, async (req, res) => {
       payload.publishedAt = new Date();
     }
 
-    const post = new Post(payload);
-    await post.save();
+    const postId = new mongoose.Types.ObjectId();
+    const session = await mongoose.startSession();
+    let post;
+    try {
+      await session.withTransaction(async () => {
+        [post] = await Post.create([{ ...payload, _id: postId }], { session });
+        await syncManagedAssets({
+          entityType: "post",
+          purpose: "post",
+          entityLabel: "bài viết",
+          entityId: postId,
+          ownerId: req.user._id,
+          urls: [post.thumbnail],
+          session,
+        });
+      });
+    } finally {
+      await session.endSession();
+    }
 
     await post.populate("category", "name slug");
     await post.populate("author", "name email");
@@ -357,6 +366,13 @@ router.post("/admin", auth, adminOnly, async (req, res) => {
       },
     });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+      });
+    }
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
@@ -379,7 +395,7 @@ router.post("/admin", auth, adminOnly, async (req, res) => {
 });
 
 // PUT /api/posts/admin/:id - Update post (admin)
-router.put("/admin/:id", auth, adminOnly, async (req, res) => {
+router.put("/admin/:id", auth, requirePermission("post.write"), async (req, res) => {
   try {
     const payload = pickPostPayload(req.body);
     const postId = req.params.id;
@@ -391,6 +407,12 @@ router.put("/admin/:id", auth, adminOnly, async (req, res) => {
         message: "Không tìm thấy bài viết",
       });
     }
+
+    await assertPublishTransitionAllowed(
+      req.user,
+      payload.status,
+      existingPost.status
+    );
 
     if (payload.slug && payload.slug !== existingPost.slug) {
       const slugExists = await Post.findOne({ slug: payload.slug, _id: { $ne: postId } });
@@ -422,12 +444,33 @@ router.put("/admin/:id", auth, adminOnly, async (req, res) => {
       payload.publishedAt = new Date();
     }
 
-    const post = await Post.findByIdAndUpdate(postId, payload, {
-      new: true,
-      runValidators: true,
-    })
-      .populate("category", "name slug")
-      .populate("author", "name email");
+    const session = await mongoose.startSession();
+    let post;
+    try {
+      await session.withTransaction(async () => {
+        post = await Post.findByIdAndUpdate(postId, payload, {
+          returnDocument: "after",
+          runValidators: true,
+          session,
+        });
+        if (post) {
+          await syncManagedAssets({
+            entityType: "post",
+            purpose: "post",
+            entityLabel: "bài viết",
+            entityId: post._id,
+            ownerId: req.user._id,
+            urls: [post.thumbnail],
+            session,
+            retainedLegacyUrls: [existingPost.thumbnail],
+          });
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
+    await post.populate("category", "name slug");
+    await post.populate("author", "name email");
 
     res.json({
       success: true,
@@ -440,6 +483,13 @@ router.put("/admin/:id", auth, adminOnly, async (req, res) => {
       },
     });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+      });
+    }
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
@@ -462,9 +512,20 @@ router.put("/admin/:id", auth, adminOnly, async (req, res) => {
 });
 
 // DELETE /api/posts/admin/:id - Delete post (admin)
-router.delete("/admin/:id", auth, adminOnly, async (req, res) => {
+router.delete("/admin/:id", auth, requirePermission("post.write"), async (req, res) => {
   try {
-    const post = await Post.findByIdAndDelete(req.params.id);
+    const session = await mongoose.startSession();
+    let post;
+    try {
+      await session.withTransaction(async () => {
+        post = await Post.findByIdAndDelete(req.params.id, { session });
+        if (post) {
+          await queueManagedAssetsForDeletion("post", post._id, session);
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
 
     if (!post) {
       return res.status(404).json({
@@ -484,6 +545,13 @@ router.delete("/admin/:id", auth, adminOnly, async (req, res) => {
       },
     });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+      });
+    }
     res.status(500).json({
       success: false,
       message: "Lỗi server",
@@ -493,7 +561,7 @@ router.delete("/admin/:id", auth, adminOnly, async (req, res) => {
 });
 
 // PATCH /api/posts/admin/:id/publish - Publish post
-router.patch("/admin/:id/publish", auth, adminOnly, async (req, res) => {
+router.patch("/admin/:id/publish", auth, requirePermission("post.publish"), async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
 
@@ -531,7 +599,7 @@ router.patch("/admin/:id/publish", auth, adminOnly, async (req, res) => {
 });
 
 // PATCH /api/posts/admin/:id/unpublish - Unpublish post
-router.patch("/admin/:id/unpublish", auth, adminOnly, async (req, res) => {
+router.patch("/admin/:id/unpublish", auth, requirePermission("post.publish"), async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
 
@@ -572,7 +640,7 @@ router.patch("/admin/:id/unpublish", auth, adminOnly, async (req, res) => {
 // =====================
 
 // GET /api/posts/admin/categories/all - Get all categories for admin
-router.get("/admin/categories/all", auth, adminOnly, async (req, res) => {
+router.get("/admin/categories/all", auth, requirePermission("postCategory.manage"), async (req, res) => {
   try {
     const categories = await PostCategory.find().sort({ order: 1, name: 1 });
 
@@ -595,7 +663,7 @@ router.get("/admin/categories/all", auth, adminOnly, async (req, res) => {
 });
 
 // POST /api/posts/admin/categories - Create category
-router.post("/admin/categories", auth, adminOnly, async (req, res) => {
+router.post("/admin/categories", auth, requirePermission("postCategory.manage"), async (req, res) => {
   try {
     const { name, description, isActive, order } = req.body;
 
@@ -644,7 +712,7 @@ router.post("/admin/categories", auth, adminOnly, async (req, res) => {
 });
 
 // PUT /api/posts/admin/categories/:id - Update category
-router.put("/admin/categories/:id", auth, adminOnly, async (req, res) => {
+router.put("/admin/categories/:id", auth, requirePermission("postCategory.manage"), async (req, res) => {
   try {
     const { name, slug, description, isActive, order } = req.body;
     const categoryId = req.params.id;
@@ -674,7 +742,7 @@ router.put("/admin/categories/:id", auth, adminOnly, async (req, res) => {
     if (order !== undefined) updateData.order = order;
 
     const category = await PostCategory.findByIdAndUpdate(categoryId, updateData, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     });
 
@@ -698,7 +766,7 @@ router.put("/admin/categories/:id", auth, adminOnly, async (req, res) => {
 });
 
 // DELETE /api/posts/admin/categories/:id - Delete category
-router.delete("/admin/categories/:id", auth, adminOnly, async (req, res) => {
+router.delete("/admin/categories/:id", auth, requirePermission("postCategory.manage"), async (req, res) => {
   try {
     const postsUsingCategory = await Post.countDocuments({ category: req.params.id });
 

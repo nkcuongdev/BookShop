@@ -6,7 +6,11 @@ export function useBooks(params = {}) {
   return useQuery({
     queryKey: ["admin", "books", params],
     queryFn: () =>
-      booksAPI.getAll({ ...params, raw: 1 }).then((r) => r.data?.books || []),
+      booksAPI.getAll({ ...params, raw: 1 }).then((r) => ({
+        books: r.data?.books || [],
+        pagination: r.data?.pagination || { total: 0, page: 1, limit: 20, totalPages: 1 },
+      })),
+    placeholderData: (previous) => previous,
   });
 }
 

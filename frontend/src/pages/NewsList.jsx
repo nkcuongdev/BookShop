@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Calendar, User, ArrowRight, Search, Filter } from "lucide-react";
+import { Calendar, User, Search, Filter } from "lucide-react";
 import { usePublishedPosts, usePublicPostCategories } from "@/features/admin/posts/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import useDebounce from "@/hooks/useDebounce";
 import { formatRelativeDate } from "@/utils/format";
+import Pagination from "@/components/ui/pagination";
 
 function PostCardSkeleton() {
   return (
@@ -30,9 +31,9 @@ function PostCardSkeleton() {
 
 function PostCard({ post }) {
   return (
-    <Card className="group overflow-hidden transition-all hover:shadow-lg">
+    <Card interactive className="group overflow-hidden">
       <Link to={`/news/${post.slug}`} className="block">
-        <div className="aspect-video overflow-hidden bg-gray-100">
+        <div className="aspect-video overflow-hidden bg-muted">
           {post.thumbnail ? (
             <img
               src={post.thumbnail}
@@ -56,21 +57,21 @@ function PostCard({ post }) {
           </Badge>
         )}
         <Link to={`/news/${post.slug}`}>
-          <h3 className="font-semibold text-lg text-secondary-800 line-clamp-2 group-hover:text-primary-600 transition-colors">
+          <h3 className="font-semibold text-h3 text-foreground line-clamp-2 group-hover:text-primary transition-colors">
             {post.title}
           </h3>
         </Link>
-        <p className="text-secondary-600 text-sm line-clamp-2">
+        <p className="text-muted-foreground text-sm line-clamp-2">
           {post.shortDescription || "Không có mô tả"}
         </p>
-        <div className="flex items-center gap-4 text-xs text-secondary-500 pt-2">
+        <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2">
           <span className="flex items-center gap-1">
-            <Calendar className="h-3.5 w-3.5" />
+            <Calendar className="size-4" />
             {formatRelativeDate(post.publishedAt || post.createdAt)}
           </span>
           {post.author && (
             <span className="flex items-center gap-1">
-              <User className="h-3.5 w-3.5" />
+              <User className="size-4" />
               {post.author.name}
             </span>
           )}
@@ -109,20 +110,17 @@ export default function NewsList() {
     setSearchParams(params, { replace: true });
   }, [search, selectedCategory, setSearchParams]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, selectedCategory]);
-
   const handleCategoryChange = (catId) => {
     setSelectedCategory(catId);
+    setPage(1);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-muted">
       {/* Hero Section */}
-      <div className="bg-gradient-to-br from-primary-600 to-primary-800 py-12 md:py-16">
-        <div className="container mx-auto px-4">
-          <h1 className="text-3xl md:text-4xl font-bold text-white text-center mb-4">
+      <div className="bg-gradient-to-br from-primary-800 to-deep-soft section-base">
+        <div className="page-container">
+          <h1 className="mb-4 text-center text-h1 font-display font-bold text-white lg:text-display">
             Tin tức & Blog
           </h1>
           <p className="text-primary-100 text-center max-w-2xl mx-auto mb-8">
@@ -133,22 +131,25 @@ export default function NewsList() {
           {/* Search */}
           <div className="max-w-xl mx-auto">
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-5 text-muted-foreground/70" />
               <Input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
                 placeholder="Tìm kiếm bài viết..."
-                className="pl-12 h-12 bg-white border-0 shadow-lg"
+                className="pl-12 h-12 bg-card border-0 shadow-float"
               />
             </div>
           </div>
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-8">
+      <div className="page-container section-tight">
         {/* Category Filter */}
         <div className="flex flex-wrap items-center gap-2 mb-8">
-          <Filter className="h-4 w-4 text-secondary-500" />
+          <Filter className="size-4 text-muted-foreground" />
           <Button
             variant={selectedCategory === "all" ? "default" : "outline"}
             size="sm"
@@ -176,12 +177,12 @@ export default function NewsList() {
             ))}
           </div>
         ) : posts.length === 0 ? (
-          <div className="text-center py-16">
+          <div className="text-center section-base">
             <div className="text-6xl mb-4">📰</div>
-            <h3 className="text-xl font-semibold text-secondary-800 mb-2">
+            <h3 className="text-h3 font-semibold text-foreground mb-2">
               Không tìm thấy bài viết
             </h3>
-            <p className="text-secondary-600 mb-4">
+            <p className="text-muted-foreground mb-4">
               {search
                 ? `Không có bài viết nào phù hợp với "${search}"`
                 : "Chưa có bài viết nào trong danh mục này"}
@@ -191,6 +192,7 @@ export default function NewsList() {
                 variant="outline"
                 onClick={() => {
                   setSearch("");
+                  setPage(1);
                   setSelectedCategory("all");
                 }}
               >
@@ -207,27 +209,12 @@ export default function NewsList() {
             </div>
 
             {/* Pagination */}
-            {pagination.totalPages > 1 && (
-              <div className="flex justify-center items-center gap-2 mt-10">
-                <Button
-                  variant="outline"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                >
-                  Trang trước
-                </Button>
-                <span className="px-4 py-2 text-sm text-secondary-600">
-                  Trang {page} / {pagination.totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
-                  disabled={page === pagination.totalPages}
-                >
-                  Trang sau
-                </Button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={pagination.totalPages}
+              onChange={setPage}
+              className="mt-10"
+            />
           </>
         )}
       </div>

@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
-const { safeRegex } = require("../utils/security");
+const { parsePositiveInt } = require("../utils/security");
+
+const ALLOWED_SORT_FIELDS = new Set(["publishedAt", "createdAt", "viewCount"]);
 
 const postSchema = new mongoose.Schema(
   {
@@ -75,8 +77,9 @@ const postSchema = new mongoose.Schema(
   }
 );
 
-postSchema.index({ slug: 1 });
 postSchema.index({ status: 1, publishedAt: -1 });
+postSchema.index({ status: 1, createdAt: -1 });
+postSchema.index({ status: 1, viewCount: -1 });
 postSchema.index({ category: 1 });
 postSchema.index({ title: "text", shortDescription: "text" });
 
@@ -110,6 +113,9 @@ postSchema.statics.generateSlug = async function (title, excludeId = null) {
 
 postSchema.statics.findPublished = function (options = {}) {
   const { category, search, page = 1, limit = 10, sortBy = "publishedAt", order = "desc" } = options;
+  const safePage = parsePositiveInt(page, 1, 10_000);
+  const safeLimit = parsePositiveInt(limit, 10, 50);
+  const safeSortBy = ALLOWED_SORT_FIELDS.has(sortBy) ? sortBy : "publishedAt";
 
   const query = { status: "published" };
 
@@ -117,25 +123,17 @@ postSchema.statics.findPublished = function (options = {}) {
     query.category = category;
   }
 
-  if (search) {
-    const regex = safeRegex(search);
-    if (regex) {
-    query.$or = [
-      { title: regex },
-      { shortDescription: regex },
-    ];
-    }
-  }
+  if (search) query.$text = { $search: String(search).slice(0, 100) };
 
   const sortOrder = order === "asc" ? 1 : -1;
-  const skip = (page - 1) * limit;
+  const skip = (safePage - 1) * safeLimit;
 
   return this.find(query)
     .populate("category", "name slug")
     .populate("author", "name")
-    .sort({ [sortBy]: sortOrder })
+    .sort({ [safeSortBy]: sortOrder, _id: sortOrder })
     .skip(skip)
-    .limit(limit)
+    .limit(safeLimit)
     .select("-content");
 };
 
@@ -147,15 +145,7 @@ postSchema.statics.countPublished = function (options = {}) {
     query.category = category;
   }
 
-  if (search) {
-    const regex = safeRegex(search);
-    if (regex) {
-    query.$or = [
-      { title: regex },
-      { shortDescription: regex },
-    ];
-    }
-  }
+  if (search) query.$text = { $search: String(search).slice(0, 100) };
 
   return this.countDocuments(query);
 };
@@ -171,6 +161,7 @@ postSchema.statics.incrementViewCount = function (id) {
 };
 
 postSchema.statics.getRelatedPosts = async function (postId, categoryId, limit = 4) {
+  const safeLimit = parsePositiveInt(limit, 4, 20);
   const query = {
     _id: { $ne: postId },
     status: "published",
@@ -184,16 +175,17 @@ postSchema.statics.getRelatedPosts = async function (postId, categoryId, limit =
     .populate("category", "name slug")
     .populate("author", "name")
     .sort({ publishedAt: -1 })
-    .limit(limit)
+    .limit(safeLimit)
     .select("-content");
 };
 
 postSchema.statics.getLatestPosts = function (limit = 5) {
+  const safeLimit = parsePositiveInt(limit, 5, 20);
   return this.find({ status: "published" })
     .populate("category", "name slug")
     .populate("author", "name")
     .sort({ publishedAt: -1 })
-    .limit(limit)
+    .limit(safeLimit)
     .select("-content");
 };
 

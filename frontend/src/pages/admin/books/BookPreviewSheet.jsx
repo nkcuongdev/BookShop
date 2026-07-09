@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   Pencil,
@@ -33,11 +33,11 @@ function stockStatus(n = 0) {
   return "in_stock";
 }
 
-function formatDate(d) {
+function formatYear(d) {
   if (!d) return null;
   const date = new Date(d);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString("vi-VN");
+  return date.getUTCFullYear();
 }
 
 function isPdfUrl(url = "") {
@@ -49,10 +49,10 @@ function InfoRow({ icon: Icon, label, value }) {
   return (
     <div className="flex items-start gap-2 py-1.5 text-sm">
       {Icon && (
-        <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-secondary-400" />
+        <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground/70" />
       )}
-      <span className="w-28 shrink-0 text-secondary-500">{label}</span>
-      <span className="font-medium text-secondary-800">{value}</span>
+      <span className="w-28 shrink-0 text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }
@@ -75,10 +75,8 @@ export function BookPreviewSheet({
     return Array.from(new Set(list));
   }, [book]);
 
-  const [activeImg, setActiveImg] = useState(0);
-  useEffect(() => {
-    setActiveImg(0);
-  }, [bookId, open]);
+  const [imageSelection, setImageSelection] = useState({ bookId: null, index: 0 });
+  const activeImg = imageSelection.bookId === bookId ? imageSelection.index : 0;
 
   const cat = book ? categoryByKey?.get(book.category) : null;
   const loading = bookQ.isLoading && !fallbackBook;
@@ -87,27 +85,28 @@ export function BookPreviewSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full overflow-y-auto sm:max-w-xl"
+        className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
       >
-        <SheetHeader className="pr-8">
+        <SheetHeader className="shrink-0 px-6 pb-5 pt-6 pr-12">
           <SheetTitle>Xem nhanh sách</SheetTitle>
           <SheetDescription>
             Thông tin chi tiết sản phẩm ở chế độ chỉ đọc.
           </SheetDescription>
         </SheetHeader>
 
-        {loading || !book ? (
-          <div className="mt-6 space-y-4">
-            <Skeleton className="h-64 w-full" />
-            <Skeleton className="h-6 w-3/4" />
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="h-40 w-full" />
-          </div>
-        ) : (
-          <div className="mt-6 space-y-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+          {loading || !book ? (
+            <div className="space-y-4">
+              <Skeleton className="h-64 w-full" />
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-40 w-full" />
+            </div>
+          ) : (
+            <div className="space-y-6">
             {/* Gallery */}
             <div className="space-y-2">
-              <div className="flex aspect-[3/4] items-center justify-center overflow-hidden rounded-xl border border-gray-100 bg-gray-50">
+              <div className="flex aspect-[3/4] items-center justify-center overflow-hidden rounded-xl border border-border bg-muted">
                 {images[activeImg] ? (
                   <img
                     src={images[activeImg]}
@@ -118,7 +117,7 @@ export function BookPreviewSheet({
                     }}
                   />
                 ) : (
-                  <BookOpen className="h-10 w-10 text-secondary-300" />
+                  <BookOpen className="size-10 text-muted-foreground/60" />
                 )}
               </div>
               {images.length > 1 && (
@@ -127,10 +126,10 @@ export function BookPreviewSheet({
                     <button
                       key={src + idx}
                       type="button"
-                      onClick={() => setActiveImg(idx)}
-                      className={`h-16 w-12 shrink-0 overflow-hidden rounded border-2 transition ${
+                      onClick={() => setImageSelection({ bookId, index: idx })}
+                      className={`h-16 w-12 shrink-0 overflow-hidden rounded-lg border-2 transition ${
                         idx === activeImg
-                          ? "border-primary-500"
+                          ? "border-primary"
                           : "border-transparent opacity-70 hover:opacity-100"
                       }`}
                     >
@@ -147,22 +146,22 @@ export function BookPreviewSheet({
 
             {/* Title block */}
             <div>
-              <h3 className="text-lg font-semibold text-secondary-900">
+              <h3 className="text-h3 font-semibold text-foreground">
                 {book.title}
               </h3>
-              <p className="text-sm text-secondary-500">{book.author}</p>
+              <p className="text-sm text-muted-foreground">{book.author}</p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="text-xl font-bold text-primary-600">
+                <span className="text-xl font-bold text-primary">
                   {formatVND(book.price)}
                 </span>
                 {cat && (
-                  <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+                  <span className="inline-flex items-center rounded-full bg-info-muted px-2.5 py-0.5 text-xs font-medium text-info-strong">
                     {cat.name}
                   </span>
                 )}
                 <StatusBadge status={stockStatus(book.stock || 0)} />
                 {book.status === "inactive" && (
-                  <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                     Ngừng bán
                   </span>
                 )}
@@ -191,21 +190,21 @@ export function BookPreviewSheet({
             {/* Description */}
             {book.description && (
               <section>
-                <h4 className="mb-2 text-sm font-semibold text-secondary-800">
+                <h4 className="mb-2 text-sm font-semibold text-foreground">
                   Mô tả
                 </h4>
-                <p className="whitespace-pre-line text-sm leading-relaxed text-secondary-600">
+                <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
                   {book.description}
                 </p>
               </section>
             )}
 
             {/* Publishing / physical details */}
-            <section className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
-              <h4 className="mb-2 text-sm font-semibold text-secondary-800">
+            <section className="rounded-xl border border-border bg-muted/50 p-4">
+              <h4 className="mb-2 text-sm font-semibold text-foreground">
                 Thông tin chi tiết
               </h4>
-              <div className="divide-y divide-gray-100">
+              <div className="divide-y divide-border">
                 <InfoRow
                   icon={BookOpen}
                   label="Nhà xuất bản"
@@ -213,8 +212,8 @@ export function BookPreviewSheet({
                 />
                 <InfoRow
                   icon={Calendar}
-                  label="Ngày XB"
-                  value={formatDate(book.publishedDate)}
+                  label="Năm XB"
+                  value={formatYear(book.publishedDate)}
                 />
                 <InfoRow icon={Hash} label="ISBN" value={book.isbn} />
                 <InfoRow icon={FileText} label="Số trang" value={book.pages} />
@@ -239,14 +238,14 @@ export function BookPreviewSheet({
             {/* Tags */}
             {Array.isArray(book.tags) && book.tags.length > 0 && (
               <section>
-                <h4 className="mb-2 text-sm font-semibold text-secondary-800">
+                <h4 className="mb-2 text-sm font-semibold text-foreground">
                   Tags
                 </h4>
                 <div className="flex flex-wrap gap-1.5">
                   {book.tags.map((t) => (
                     <span
                       key={t}
-                      className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-secondary-700"
+                      className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs text-foreground"
                     >
                       {t}
                     </span>
@@ -258,18 +257,18 @@ export function BookPreviewSheet({
             {/* Custom attributes */}
             {Array.isArray(book.attributes) && book.attributes.length > 0 && (
               <section>
-                <h4 className="mb-2 text-sm font-semibold text-secondary-800">
+                <h4 className="mb-2 text-sm font-semibold text-foreground">
                   Thuộc tính tuỳ chỉnh
                 </h4>
-                <div className="overflow-hidden rounded-xl border border-gray-100">
+                <div className="overflow-hidden rounded-xl border border-border">
                   <table className="w-full text-sm">
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-border">
                       {book.attributes.map((a, i) => (
                         <tr key={(a.key || "") + i}>
-                          <td className="w-1/3 bg-gray-50/60 px-3 py-2 text-secondary-500">
+                          <td className="w-1/3 bg-muted/60 px-3 py-2 text-muted-foreground">
                             {a.key}
                           </td>
-                          <td className="px-3 py-2 text-secondary-800">
+                          <td className="px-3 py-2 text-foreground">
                             {a.value || "—"}
                           </td>
                         </tr>
@@ -283,41 +282,44 @@ export function BookPreviewSheet({
             {/* Optional content preview (PDF) */}
             {book.contentUrl && (
               <section>
-                <h4 className="mb-2 text-sm font-semibold text-secondary-800">
+                <h4 className="mb-2 text-sm font-semibold text-foreground">
                   Xem trước nội dung
                 </h4>
                 {isPdfUrl(book.contentUrl) ? (
                   <iframe
                     title="Content preview"
                     src={book.contentUrl}
-                    className="h-72 w-full rounded-xl border border-gray-100"
+                    className="h-72 w-full rounded-xl border border-border"
                   />
                 ) : (
                   <a
                     href={book.contentUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-sm text-primary-600 hover:underline"
+                    className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
                   >
-                    <ExternalLink className="h-3.5 w-3.5" />
+                    <ExternalLink className="size-4" />
                     Mở nội dung trong tab mới
                   </a>
                 )}
               </section>
             )}
 
-            {/* Footer actions */}
-            <div className="sticky bottom-0 -mx-6 flex items-center justify-end gap-2 border-t border-gray-100 bg-white/95 px-6 py-3 backdrop-blur">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Đóng
-              </Button>
-              <Button asChild>
-                <Link to={`/admin/books/${book._id || book.id}/edit`}>
-                  <Pencil className="h-4 w-4" />
-                  Chỉnh sửa
-                </Link>
-              </Button>
             </div>
+          )}
+        </div>
+
+        {!loading && book && (
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-card px-6 py-4">
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              Đóng
+            </Button>
+            <Button asChild>
+              <Link to={`/admin/books/${book._id || book.id}/edit`}>
+                <Pencil className="size-4" />
+                Chỉnh sửa
+              </Link>
+            </Button>
           </div>
         )}
       </SheetContent>
@@ -327,12 +329,12 @@ export function BookPreviewSheet({
 
 function StatTile({ icon: Icon, label, value }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-white px-3 py-2">
-      <div className="flex items-center gap-1.5 text-xs text-secondary-500">
-        {Icon && <Icon className="h-3.5 w-3.5" />}
+    <div className="rounded-xl bg-card px-3 py-2 ring-1 ring-foreground/[0.08]">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {Icon && <Icon className="size-4" />}
         {label}
       </div>
-      <div className="mt-1 text-sm font-semibold text-secondary-900">
+      <div className="mt-1 text-sm font-semibold text-foreground">
         {value}
       </div>
     </div>

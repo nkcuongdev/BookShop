@@ -39,6 +39,7 @@ import { useCategories } from "@/features/admin/categories/hooks";
 import useDebounce from "@/hooks/useDebounce";
 import { formatVND } from "@/utils/format";
 import { cn } from "@/lib/utils";
+import BookCover from "@/components/book/BookCover";
 
 function BookPicker({ value = [], onChange }) {
   const [search, setSearch] = useState("");
@@ -62,35 +63,35 @@ function BookPicker({ value = [], onChange }) {
     <div className="space-y-2">
       {/* Selected chips */}
       {value.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-2">
-          <span className="text-xs text-secondary-500 self-center mr-1">
+        <div className="flex flex-wrap gap-1.5 rounded-lg border border-dashed border-border bg-muted p-2">
+          <span className="text-xs text-muted-foreground self-center mr-1">
             Đã chọn {value.length}:
           </span>
           {selectedBooks.slice(0, 6).map((b) => (
             <span
               key={b._id}
-              className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-xs ring-1 ring-inset ring-gray-200"
+              className="inline-flex items-center gap-1 rounded-full bg-card px-2 py-0.5 text-xs ring-1 ring-inset ring-border"
             >
               <span className="max-w-[160px] truncate">{b.title}</span>
               <button
                 type="button"
                 onClick={() => toggle(b._id)}
-                className="text-secondary-400 hover:text-rose-600"
+                className="text-muted-foreground/70 hover:text-danger-strong"
                 aria-label="Bỏ chọn"
               >
-                <X className="h-3 w-3" />
+                <X className="size-3" />
               </button>
             </span>
           ))}
           {selectedBooks.length > 6 && (
-            <span className="text-xs text-secondary-500 self-center">
+            <span className="text-xs text-muted-foreground self-center">
               +{selectedBooks.length - 6}
             </span>
           )}
           <button
             type="button"
             onClick={clearAll}
-            className="ml-auto text-xs text-rose-600 hover:underline self-center"
+            className="ml-auto text-xs text-danger-strong hover:underline self-center"
           >
             Xoá tất cả
           </button>
@@ -99,7 +100,7 @@ function BookPicker({ value = [], onChange }) {
 
       {/* Search */}
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-secondary-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
         <Input
           placeholder="Tìm sách theo tên hoặc tác giả..."
           value={search}
@@ -109,24 +110,24 @@ function BookPicker({ value = [], onChange }) {
       </div>
 
       {/* Result list */}
-      <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white">
+      <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-card">
         {booksQ.isLoading ? (
-          <div className="p-6 text-center text-xs text-secondary-500">
+          <div className="p-6 text-center text-xs text-muted-foreground">
             Đang tải...
           </div>
         ) : (booksQ.data || []).length === 0 ? (
-          <div className="p-6 text-center text-xs text-secondary-500">
+          <div className="p-6 text-center text-xs text-muted-foreground">
             Không có sách phù hợp
           </div>
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-y divide-border">
             {(booksQ.data || []).map((b) => {
               const checked = selectedIds.has(b._id);
               return (
                 <li
                   key={b._id}
                   className={cn(
-                    "flex items-center gap-3 p-2 hover:bg-gray-50 cursor-pointer transition-colors",
+                    "flex items-center gap-3 p-2 hover:bg-muted cursor-pointer transition-colors",
                     checked && "bg-primary-50/60"
                   )}
                   onClick={() => toggle(b._id)}
@@ -136,24 +137,21 @@ function BookPicker({ value = [], onChange }) {
                     onCheckedChange={() => toggle(b._id)}
                     onClick={(e) => e.stopPropagation()}
                   />
-                  {b.imageUrl ? (
-                    <img
-                      src={b.imageUrl}
-                      alt=""
-                      className="h-10 w-8 rounded object-cover bg-gray-100"
-                    />
-                  ) : (
-                    <div className="h-10 w-8 rounded bg-gray-100" />
-                  )}
+                  <BookCover
+                    src={b.imageUrl}
+                    title={b.title}
+                    size="xs"
+                    className="w-8 shrink-0"
+                  />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-secondary-800 line-clamp-1">
+                    <p className="text-sm font-medium text-foreground line-clamp-1">
                       {b.title}
                     </p>
-                    <p className="text-xs text-secondary-500 line-clamp-1">
+                    <p className="text-xs text-muted-foreground line-clamp-1">
                       {b.author} · {b.category}
                     </p>
                   </div>
-                  <span className="text-xs font-semibold text-primary-600 shrink-0">
+                  <span className="text-xs font-semibold text-primary shrink-0">
                     {formatVND(b.price)}
                   </span>
                 </li>
@@ -298,12 +296,12 @@ export function PromotionFormDialog({ open, onOpenChange, promotion }) {
             </div>
 
             {/* Scope */}
-            <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4 space-y-3">
+            <div className="rounded-xl border border-border bg-muted/50 p-4 space-y-3">
               <div>
-                <p className="text-sm font-semibold text-secondary-900">
+                <p className="text-sm font-semibold text-foreground">
                   Áp dụng cho
                 </p>
-                <p className="text-xs text-secondary-500">
+                <p className="text-xs text-muted-foreground">
                   Chọn phạm vi sản phẩm được giảm giá
                 </p>
               </div>
@@ -343,7 +341,7 @@ export function PromotionFormDialog({ open, onOpenChange, promotion }) {
                       </SelectTrigger>
                       <SelectContent>
                         {categories.map((c) => (
-                          <SelectItem key={c._id} value={c.name}>
+                          <SelectItem key={c._id} value={c.slug}>
                             {c.name}
                           </SelectItem>
                         ))}
@@ -362,7 +360,7 @@ export function PromotionFormDialog({ open, onOpenChange, promotion }) {
                     checked={!!field.value}
                     onCheckedChange={(v) => field.onChange(!!v)}
                   />
-                  <span className="text-sm text-secondary-800">
+                  <span className="text-sm text-foreground">
                     Kích hoạt ngay sau khi lưu
                   </span>
                 </label>
@@ -379,7 +377,7 @@ export function PromotionFormDialog({ open, onOpenChange, promotion }) {
               </Button>
               <Button
                 type="submit"
-                disabled={createMut.isPending || updateMut.isPending}
+                loading={createMut.isPending || updateMut.isPending}
               >
                 {isEdit ? "Cập nhật" : "Tạo mới"}
               </Button>

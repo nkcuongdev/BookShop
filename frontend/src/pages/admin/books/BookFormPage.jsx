@@ -14,6 +14,7 @@ import {
   Tags as TagsIcon,
   Ruler,
   Settings2,
+  Warehouse,
 } from "lucide-react";
 import { PageHeader } from "@/components/admin/common/PageHeader";
 import { SectionCard } from "@/components/admin/common/SectionCard";
@@ -21,6 +22,7 @@ import { FormField } from "@/components/admin/common/FormField";
 import { ImageUploader } from "@/components/admin/common/ImageUploader";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -30,13 +32,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { bookSchema, bookDefaults } from "@/features/admin/books/schema";
+import {
+  bookSchemaFor,
+  bookDefaults,
+  publishedDateToYear,
+  publishedYearToDate,
+} from "@/features/admin/books/schema";
 import {
   useBook,
   useCreateBook,
   useUpdateBook,
 } from "@/features/admin/books/hooks";
 import { useCategories } from "@/features/admin/categories/hooks";
+import { useSuppliers } from "@/features/admin/suppliers/hooks";
+import { useAuth } from "@/context/AuthContext.jsx";
+import { can } from "@/lib/rbac";
 
 // Map legacy status values into the new active/inactive world.
 function normalizeStatus(v) {
@@ -44,25 +54,23 @@ function normalizeStatus(v) {
   return "active";
 }
 
-function toDateInput(v) {
-  if (!v) return "";
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
-}
-
 export default function BookFormPage({ mode = "create" }) {
+  const { user } = useAuth();
+  const canUpload = can(user, "upload.admin");
   const { id } = useParams();
   const navigate = useNavigate();
   const isEdit = mode === "edit";
 
   const bookQ = useBook(isEdit ? id : null);
   const categoriesQ = useCategories();
+  const suppliersQ = useSuppliers({ status: "active", limit: 100 });
   const createMut = useCreateBook();
   const updateMut = useUpdateBook();
 
   const methods = useForm({
-    resolver: zodResolver(bookSchema),
+    // Editing omits `stock` entirely — the server rejects it, because stock is
+    // owned by the inventory ledger once the book exists.
+    resolver: zodResolver(bookSchemaFor(mode)),
     defaultValues: bookDefaults,
     mode: "onBlur",
   });
@@ -71,6 +79,10 @@ export default function BookFormPage({ mode = "create" }) {
   const attributesArr = useFieldArray({
     control: methods.control,
     name: "attributes",
+  });
+  const contributorsArr = useFieldArray({
+    control: methods.control,
+    name: "contributors",
   });
 
   useEffect(() => {
@@ -82,16 +94,25 @@ export default function BookFormPage({ mode = "create" }) {
       methods.reset({
         title: b.title || "",
         author: b.author || "",
-        price: b.price || 0,
-        stock: b.stock || 0,
+        contributors: (b.contributors || []).filter((entry, index) =>
+          !(index === 0 && entry.role === "author" && entry.name === b.author)
+        ),
+        price: b.price ?? "",
+        stock: b.stock ?? "",
         categoryId: cat?.slug || b.category || "",
         description: b.description || "",
         imageUrl: b.imageUrl || "",
         status: normalizeStatus(b.status),
 
         publisher: b.publisher || "",
-        publishedDate: toDateInput(b.publishedDate),
+        publishedYear: publishedDateToYear(b.publishedDate),
         isbn: b.isbn || "",
+        editionGroup: String(b.editionGroup?._id || b.editionGroup || ""),
+        edition: {
+          number: b.edition?.number ?? 1,
+          label: b.edition?.label || "",
+          format: b.edition?.format || "paperback",
+        },
         pages: b.pages ?? null,
         language: b.language || "",
 
@@ -101,6 +122,10 @@ export default function BookFormPage({ mode = "create" }) {
           width: b.dimensions?.width ?? null,
           height: b.dimensions?.height ?? null,
         },
+
+        reorderPoint: b.reorderPoint ?? 0,
+        reorderQuantity: b.reorderQuantity ?? 0,
+        defaultSupplier: String(b.defaultSupplier?._id || b.defaultSupplier || ""),
 
         tags: Array.isArray(b.tags) ? b.tags : [],
         gallery: Array.isArray(b.gallery) ? b.gallery : [],
@@ -113,21 +138,27 @@ export default function BookFormPage({ mode = "create" }) {
     const payload = {
       title: values.title,
       author: values.author,
+      contributors: values.contributors,
       price: values.price,
-      stock: values.stock,
       category: values.categoryId,
       description: values.description,
       imageUrl: values.imageUrl,
       status: values.status,
 
       publisher: values.publisher,
-      publishedDate: values.publishedDate || null,
+      publishedDate: publishedYearToDate(values.publishedYear),
       isbn: values.isbn,
+      editionGroup: values.editionGroup || null,
+      edition: values.edition,
       pages: values.pages,
       language: values.language,
 
       weight: values.weight,
       dimensions: values.dimensions,
+
+      reorderPoint: values.reorderPoint,
+      reorderQuantity: values.reorderQuantity,
+      defaultSupplier: values.defaultSupplier || null,
 
       tags: values.tags,
       gallery: values.gallery,
@@ -137,12 +168,15 @@ export default function BookFormPage({ mode = "create" }) {
     if (isEdit) {
       await updateMut.mutateAsync({ id, data: payload });
     } else {
-      await createMut.mutateAsync(payload);
+      // Opening stock is set once, at creation.
+      await createMut.mutateAsync({ ...payload, stock: values.stock });
     }
     navigate("/admin/books");
   });
 
   const submitting = createMut.isPending || updateMut.isPending;
+  // React Hook Form owns this subscription and returns non-memoizable APIs.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const imageUrl = methods.watch("imageUrl");
 
   return (
@@ -158,9 +192,9 @@ export default function BookFormPage({ mode = "create" }) {
           breadcrumb={
             <Link
               to="/admin/books"
-              className="inline-flex items-center gap-1 text-xs text-secondary-500 hover:text-secondary-800"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
-              <ArrowLeft className="h-3 w-3" />
+              <ArrowLeft className="size-3" />
               Quay lại danh sách
             </Link>
           }
@@ -171,11 +205,11 @@ export default function BookFormPage({ mode = "create" }) {
                 variant="outline"
                 onClick={() => navigate("/admin/books")}
               >
-                <X className="h-4 w-4" />
+                <X className="size-4" />
                 Huỷ
               </Button>
-              <Button type="submit" disabled={submitting}>
-                <Save className="h-4 w-4" />
+              <Button type="submit" loading={submitting}>
+                <Save className="size-4" />
                 {submitting ? "Đang lưu..." : "Lưu"}
               </Button>
             </div>
@@ -188,7 +222,7 @@ export default function BookFormPage({ mode = "create" }) {
             <Skeleton className="h-40 w-full" />
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* LEFT COLUMN */}
             <div className="space-y-6 xl:col-span-2">
               <SectionCard
@@ -207,6 +241,54 @@ export default function BookFormPage({ mode = "create" }) {
                       <Input placeholder="Ví dụ: Dale Carnegie" {...field} />
                     )}
                   </FormField>
+                </div>
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Đồng tác giả và vai trò khác</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Thêm đồng tác giả, dịch giả, biên tập viên hoặc họa sĩ minh họa.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => contributorsArr.append({ name: "", role: "author" })}
+                    >
+                      <Plus className="size-4" /> Thêm người
+                    </Button>
+                  </div>
+                  {contributorsArr.fields.map((entry, index) => (
+                    <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_160px_auto] gap-2">
+                      <FormField name={`contributors.${index}.name`} label="Tên" className="space-y-1">
+                        {(field) => <Input placeholder="Họ và tên" {...field} />}
+                      </FormField>
+                      <FormField name={`contributors.${index}.role`} label="Vai trò" className="space-y-1">
+                        {(field) => (
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="author">Đồng tác giả</SelectItem>
+                              <SelectItem value="translator">Dịch giả</SelectItem>
+                              <SelectItem value="editor">Biên tập</SelectItem>
+                              <SelectItem value="illustrator">Minh họa</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </FormField>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="mt-6 text-danger-strong"
+                        onClick={() => contributorsArr.remove(index)}
+                        aria-label="Xóa người đóng góp"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
                 <FormField
                   name="description"
@@ -229,9 +311,38 @@ export default function BookFormPage({ mode = "create" }) {
                   <FormField name="price" label="Giá (VNĐ)" required>
                     {(field) => <Input type="number" min={0} {...field} />}
                   </FormField>
-                  <FormField name="stock" label="Tồn kho" required>
-                    {(field) => <Input type="number" min={0} {...field} />}
-                  </FormField>
+                  {isEdit ? (
+                    // Read-only on purpose: stock moves through goods receipts,
+                    // issues, stocktakes and adjustments so every change lands
+                    // in the ledger.
+                    <div className="space-y-1.5">
+                      <Label>Tồn kho</Label>
+                      <div className="flex h-10 items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3">
+                        <span className="text-sm font-semibold tabular-nums text-foreground">
+                          {bookQ.data?.stock ?? 0}
+                        </span>
+                        <Link
+                          to={`/admin/inventory/ledger`}
+                          className="text-xs font-medium text-primary hover:underline"
+                        >
+                          Lịch sử tồn
+                        </Link>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Thay đổi tồn kho qua phiếu nhập, phiếu xuất, kiểm kho
+                        hoặc điều chỉnh tồn.
+                      </p>
+                    </div>
+                  ) : (
+                    <FormField
+                      name="stock"
+                      label="Tồn kho ban đầu"
+                      required
+                      description="Sau khi tạo, tồn kho chỉ đổi qua chứng từ kho."
+                    >
+                      {(field) => <Input type="number" min={0} {...field} />}
+                    </FormField>
+                  )}
                   <FormField name="status" label="Trạng thái">
                     {(field) => (
                       <Select value={field.value} onValueChange={field.onChange}>
@@ -249,6 +360,85 @@ export default function BookFormPage({ mode = "create" }) {
               </SectionCard>
 
               <SectionCard
+                title="Cài đặt kho"
+                description="Ngưỡng cảnh báo và nhà cung cấp mặc định."
+                icon={Warehouse}
+              >
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <FormField
+                    name="reorderPoint"
+                    label="Ngưỡng tồn tối thiểu"
+                    description="Để 0 để dùng ngưỡng mặc định của hệ thống."
+                  >
+                    {(field) => (
+                      <Input
+                        type="number"
+                        min={0}
+                        step={1}
+                        placeholder="vd: 10"
+                        {...field}
+                        value={field.value ?? 0}
+                      />
+                    )}
+                  </FormField>
+                  <FormField
+                    name="reorderQuantity"
+                    label="Số lượng đặt lại"
+                    description="Số lượng đề nghị nhập khi tồn xuống thấp."
+                  >
+                    {(field) => (
+                      <Input
+                        type="number"
+                        min={0}
+                        step={1}
+                        placeholder="vd: 30"
+                        {...field}
+                        value={field.value ?? 0}
+                      />
+                    )}
+                  </FormField>
+                  <FormField
+                    name="defaultSupplier"
+                    label="Nhà cung cấp mặc định"
+                    description="Dùng để gợi ý khi tạo phiếu nhập."
+                  >
+                    {(field) => (
+                      <Select
+                        value={field.value || "none"}
+                        onValueChange={(value) =>
+                          field.onChange(value === "none" ? "" : value)
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Chưa chọn" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Chưa chọn</SelectItem>
+                          {(suppliersQ.data?.suppliers || []).map((supplier) => (
+                            <SelectItem
+                              key={supplier._id}
+                              value={String(supplier._id)}
+                            >
+                              {supplier.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </FormField>
+                </div>
+                {isEdit && bookQ.data?.costPrice > 0 && (
+                  <p className="mt-4 text-xs text-muted-foreground">
+                    Giá vốn bình quân hiện tại:{" "}
+                    <strong className="text-foreground">
+                      {new Intl.NumberFormat("vi-VN").format(bookQ.data.costPrice)} đ
+                    </strong>
+                    . Giá vốn được tính tự động từ các phiếu nhập đã xác nhận.
+                  </p>
+                )}
+              </SectionCard>
+
+              <SectionCard
                 title="Thông tin xuất bản"
                 description="Không bắt buộc – điền nếu có."
                 icon={BookOpen}
@@ -259,15 +449,51 @@ export default function BookFormPage({ mode = "create" }) {
                       <Input placeholder="Ví dụ: NXB Trẻ" {...field} />
                     )}
                   </FormField>
-                  <FormField name="publishedDate" label="Ngày xuất bản">
+                  <FormField name="publishedYear" label="Năm xuất bản">
                     {(field) => (
-                      <Input type="date" {...field} value={field.value || ""} />
+                      <Input
+                        type="number"
+                        min={1000}
+                        max={new Date().getFullYear()}
+                        step={1}
+                        placeholder="vd: 2024"
+                        {...field}
+                        value={field.value || ""}
+                      />
                     )}
                   </FormField>
                   <FormField name="isbn" label="ISBN">
                     {(field) => (
                       <Input placeholder="978-604-..." {...field} />
                     )}
+                  </FormField>
+                  <FormField name="editionGroup" label="Mã nhóm ấn bản">
+                    {(field) => (
+                      <Input
+                        placeholder="Để trống nếu đây là tác phẩm mới"
+                        {...field}
+                      />
+                    )}
+                  </FormField>
+                  <FormField name="edition.number" label="Lần xuất bản">
+                    {(field) => <Input type="number" min={1} {...field} />}
+                  </FormField>
+                  <FormField name="edition.format" label="Định dạng">
+                    {(field) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="paperback">Bìa mềm</SelectItem>
+                          <SelectItem value="hardcover">Bìa cứng</SelectItem>
+                          <SelectItem value="ebook">Sách điện tử</SelectItem>
+                          <SelectItem value="audiobook">Sách nói</SelectItem>
+                          <SelectItem value="other">Khác</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </FormField>
+                  <FormField name="edition.label" label="Tên ấn bản">
+                    {(field) => <Input placeholder="Ví dụ: Bản kỷ niệm" {...field} />}
                   </FormField>
                   <FormField name="pages" label="Số trang">
                     {(field) => (
@@ -286,6 +512,10 @@ export default function BookFormPage({ mode = "create" }) {
                     )}
                   </FormField>
                 </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Khi tạo một ấn bản khác của cùng tác phẩm, nhập mã nhóm ấn bản
+                  của bản gốc. Để trống để hệ thống tự tạo nhóm mới.
+                </p>
               </SectionCard>
 
               <SectionCard
@@ -352,13 +582,13 @@ export default function BookFormPage({ mode = "create" }) {
                     variant="outline"
                     onClick={() => attributesArr.append({ key: "", value: "" })}
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="size-4" />
                     Thêm thuộc tính
                   </Button>
                 }
               >
                 {attributesArr.fields.length === 0 ? (
-                  <p className="text-sm text-secondary-500">
+                  <p className="text-sm text-muted-foreground">
                     Chưa có thuộc tính nào. Nhấn "Thêm thuộc tính" để bắt đầu.
                   </p>
                 ) : (
@@ -392,7 +622,7 @@ export default function BookFormPage({ mode = "create" }) {
                             onClick={() => attributesArr.remove(index)}
                             aria-label="Xoá thuộc tính"
                           >
-                            <Trash2 className="h-4 w-4 text-rose-500" />
+                            <Trash2 className="size-4 text-danger-strong" />
                           </Button>
                         </div>
                       </div>
@@ -405,11 +635,12 @@ export default function BookFormPage({ mode = "create" }) {
             {/* RIGHT COLUMN */}
             <div className="space-y-6">
               <SectionCard title="Ảnh bìa" icon={ImageIcon}>
-                <FormField name="imageUrl" label="Thumbnail">
+                <FormField name="imageUrl" label="Ảnh bìa" required>
                   {(field) => (
                     <ImageUploader
                       value={field.value || imageUrl}
                       onChange={(v) => field.onChange(v)}
+                      disabled={!canUpload}
                     />
                   )}
                 </FormField>
@@ -426,13 +657,13 @@ export default function BookFormPage({ mode = "create" }) {
                     variant="outline"
                     onClick={() => galleryArr.append("")}
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="size-4" />
                     Thêm ảnh
                   </Button>
                 }
               >
                 {galleryArr.fields.length === 0 ? (
-                  <p className="text-sm text-secondary-500">
+                  <p className="text-sm text-muted-foreground">
                     Chưa có ảnh phụ nào.
                   </p>
                 ) : (
@@ -444,6 +675,7 @@ export default function BookFormPage({ mode = "create" }) {
                             <ImageUploader
                               value={field.value}
                               onChange={(v) => field.onChange(v)}
+                              disabled={!canUpload}
                             />
                           )}
                         </FormField>
@@ -451,10 +683,10 @@ export default function BookFormPage({ mode = "create" }) {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="w-full text-rose-600 hover:text-rose-700"
+                          className="w-full text-danger-strong hover:text-danger-strong"
                           onClick={() => galleryArr.remove(index)}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="size-4" />
                           Xoá
                         </Button>
                       </div>

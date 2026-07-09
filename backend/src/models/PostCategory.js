@@ -36,7 +36,6 @@ const postCategorySchema = new mongoose.Schema(
   }
 );
 
-postCategorySchema.index({ slug: 1 });
 postCategorySchema.index({ isActive: 1, order: 1 });
 
 postCategorySchema.statics.generateSlug = async function (name, excludeId = null) {

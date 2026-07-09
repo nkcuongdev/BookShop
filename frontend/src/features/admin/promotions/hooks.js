@@ -8,7 +8,8 @@ export function usePromotions(params = {}) {
   return useQuery({
     queryKey: [...KEY, params],
     queryFn: () =>
-      promotionsAPI.getAll(params).then((r) => r.data?.promotions || []),
+      promotionsAPI.getAll(params).then((r) => r.data || { promotions: [], pagination: null }),
+    placeholderData: (previous) => previous,
   });
 }
 

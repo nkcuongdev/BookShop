@@ -13,10 +13,9 @@ const readStore = () => {
 };
 
 export default function useRecentlyViewed() {
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState(readStore);
 
   useEffect(() => {
-    setItems(readStore());
     const onStorage = (e) => {
       if (e.key === STORAGE_KEY) setItems(readStore());
     };

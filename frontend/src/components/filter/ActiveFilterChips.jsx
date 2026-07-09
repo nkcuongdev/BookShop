@@ -1,5 +1,4 @@
 import { X } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 
 export default function ActiveFilterChips({
   chips = [],
@@ -17,13 +16,13 @@ export default function ActiveFilterChips({
           className="inline-flex items-center gap-1.5 bg-primary-50 text-primary-700 rounded-full px-3 py-1 text-xs font-medium hover:bg-primary-100 transition-colors"
         >
           {chip.label}
-          <X className="w-3 h-3" />
+          <X className="size-3" />
         </button>
       ))}
       {onClear && (
         <button
           onClick={onClear}
-          className="text-xs text-secondary-500 hover:text-red-500 font-medium underline underline-offset-2"
+          className="text-xs text-muted-foreground hover:text-danger-strong font-medium underline underline-offset-2"
         >
           Xóa tất cả
         </button>

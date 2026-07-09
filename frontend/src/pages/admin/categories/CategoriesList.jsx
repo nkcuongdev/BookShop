@@ -14,6 +14,7 @@ import { DataTable } from "@/components/admin/common/DataTable";
 import { DataTableToolbar } from "@/components/admin/common/DataTableToolbar";
 import { EmptyState } from "@/components/admin/common/EmptyState";
 import { FormField } from "@/components/admin/common/FormField";
+import { ImageUploader } from "@/components/admin/common/ImageUploader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,8 +35,12 @@ import { categorySchema, generateSlug } from "@/features/admin/categories/schema
 import { useConfirm } from "@/hooks/useConfirm";
 import useDebounce from "@/hooks/useDebounce";
 import { formatDateVN } from "@/utils/format";
+import { useAuth } from "@/context/AuthContext.jsx";
+import { can } from "@/lib/rbac";
 
 export default function CategoriesList() {
+  const { user } = useAuth();
+  const canUpload = can(user, "upload.admin");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -107,15 +112,15 @@ export default function CategoriesList() {
             <img
               src={row.original.image}
               alt={row.original.name}
-              className="h-10 w-10 shrink-0 rounded-lg object-cover"
+              className="size-10 shrink-0 rounded-lg object-cover"
               onError={(e) => { e.currentTarget.style.display = "none"; }}
             />
           ) : (
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600">
-              <FolderTree className="h-4 w-4" />
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary">
+              <FolderTree className="size-4" />
             </div>
           )}
-          <span className="font-medium text-secondary-800">{row.original.name}</span>
+          <span className="font-medium text-foreground">{row.original.name}</span>
         </div>
       ),
     },
@@ -123,7 +128,7 @@ export default function CategoriesList() {
       id: "slug",
       header: "Slug",
       cell: ({ row }) => (
-        <code className="rounded bg-gray-100 px-2 py-0.5 text-xs text-secondary-700">
+        <code className="rounded bg-muted px-2 py-0.5 text-xs text-foreground">
           {row.original.slug}
         </code>
       ),
@@ -132,7 +137,7 @@ export default function CategoriesList() {
       id: "description",
       header: "Mô tả",
       cell: ({ row }) => (
-        <p className="line-clamp-1 text-secondary-600 max-w-md">
+        <p className="line-clamp-1 text-muted-foreground max-w-md">
           {row.original.description || "—"}
         </p>
       ),
@@ -141,7 +146,7 @@ export default function CategoriesList() {
       id: "createdAt",
       header: "Ngày tạo",
       cell: ({ row }) => (
-        <span className="text-xs text-secondary-500">
+        <span className="text-xs text-muted-foreground">
           {formatDateVN(row.original.createdAt)}
         </span>
       ),
@@ -154,20 +159,20 @@ export default function CategoriesList() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="size-8"
             onClick={() => openEdit(row.original)}
             aria-label="Sửa"
           >
-            <Pencil className="h-3.5 w-3.5" />
+            <Pencil className="size-4" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+            className="size-8 text-danger-strong hover:text-danger-strong hover:bg-danger-muted"
             onClick={() => handleDelete(row.original)}
             aria-label="Xoá"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <Trash2 className="size-4" />
           </Button>
         </div>
       ),
@@ -177,7 +182,7 @@ export default function CategoriesList() {
   const toolbar = (
     <DataTableToolbar>
       <div className="relative w-full sm:max-w-xs">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-secondary-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
         <Input
           placeholder="Tìm tên hoặc slug..."
           value={search}
@@ -186,7 +191,7 @@ export default function CategoriesList() {
         />
       </div>
       <Button variant="outline" size="sm" onClick={() => categoriesQ.refetch()}>
-        <RotateCw className="h-3.5 w-3.5" />
+        <RotateCw className="size-4" />
         Tải lại
       </Button>
     </DataTableToolbar>
@@ -199,7 +204,7 @@ export default function CategoriesList() {
         description={`${categoriesQ.data?.length || 0} danh mục`}
         actions={
           <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" />
+            <Plus className="size-4" />
             Thêm danh mục
           </Button>
         }
@@ -219,7 +224,7 @@ export default function CategoriesList() {
             description="Hãy thêm danh mục đầu tiên."
             action={
               <Button onClick={openCreate}>
-                <Plus className="h-4 w-4" />
+                <Plus className="size-4" />
                 Thêm danh mục
               </Button>
             }
@@ -255,8 +260,16 @@ export default function CategoriesList() {
               <FormField name="slug" label="Slug" required description="Dùng trong URL">
                 {(field) => <Input placeholder="van-hoc" {...field} />}
               </FormField>
-              <FormField name="image" label="Ảnh (URL)">
-                {(field) => <Input placeholder="https://..." {...field} />}
+              <FormField name="image" label="Ảnh danh mục">
+                {(field) => (
+                  <ImageUploader
+                    value={field.value}
+                    onChange={field.onChange}
+                    purpose="category"
+                    ratio="16/9"
+                    disabled={!canUpload}
+                  />
+                )}
               </FormField>
               <FormField name="description" label="Mô tả">
                 {(field) => <Textarea rows={3} placeholder="Mô tả ngắn..." {...field} />}
@@ -271,7 +284,7 @@ export default function CategoriesList() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={createMut.isPending || updateMut.isPending}
+                  loading={createMut.isPending || updateMut.isPending}
                 >
                   {editing ? "Cập nhật" : "Thêm mới"}
                 </Button>

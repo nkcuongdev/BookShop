@@ -47,8 +47,13 @@ import { POST_STATUS_OPTIONS, getPostStatusConfig } from "@/features/admin/posts
 import { useConfirm } from "@/hooks/useConfirm";
 import useDebounce from "@/hooks/useDebounce";
 import { formatRelativeDate } from "@/utils/format";
+import { useAuth } from "@/context/AuthContext.jsx";
+import { can } from "@/lib/rbac";
 
 export default function PostsList() {
+  const { user } = useAuth();
+  const canWrite = can(user, "post.write");
+  const canPublish = can(user, "post.publish");
   const navigate = useNavigate();
   const confirm = useConfirm();
 
@@ -66,7 +71,7 @@ export default function PostsList() {
   const publishPost = usePublishPost();
   const unpublishPost = useUnpublishPost();
 
-  const categories = categoriesQ.data || [];
+  const categories = useMemo(() => categoriesQ.data || [], [categoriesQ.data]);
   const categoryById = useMemo(() => {
     const map = new Map();
     categories.forEach((c) => {
@@ -76,9 +81,8 @@ export default function PostsList() {
     return map;
   }, [categories]);
 
-  const posts = postsQ.data?.posts || [];
   const filtered = useMemo(() => {
-    let list = posts;
+    let list = postsQ.data?.posts || [];
     if (categoryFilter !== "all") {
       list = list.filter((p) => {
         const catId = p.category?._id || p.category;
@@ -86,7 +90,7 @@ export default function PostsList() {
       });
     }
     return list;
-  }, [posts, categoryFilter]);
+  }, [postsQ.data?.posts, categoryFilter]);
 
   const handleDelete = async (post) => {
     const ok = await confirm({
@@ -122,19 +126,19 @@ export default function PostsList() {
               <img
                 src={p.thumbnail}
                 alt={p.title}
-                className="h-14 w-20 shrink-0 rounded bg-gray-100 object-cover"
+                className="h-14 w-20 shrink-0 rounded-lg bg-muted object-cover"
                 onError={(e) => {
                   e.currentTarget.style.visibility = "hidden";
                 }}
               />
             ) : (
-              <div className="flex h-14 w-20 shrink-0 items-center justify-center rounded bg-gray-100">
-                <FileText className="h-6 w-6 text-gray-400" />
+              <div className="flex h-14 w-20 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <FileText className="size-6 text-muted-foreground/70" />
               </div>
             )}
             <div className="min-w-0">
-              <p className="font-medium text-secondary-800 line-clamp-1">{p.title}</p>
-              <p className="text-xs text-secondary-500 line-clamp-1">
+              <p className="font-medium text-foreground line-clamp-1">{p.title}</p>
+              <p className="text-xs text-muted-foreground line-clamp-1">
                 {p.shortDescription || "Không có mô tả"}
               </p>
             </div>
@@ -152,7 +156,7 @@ export default function PostsList() {
         return catObj?.name ? (
           <Badge variant="outline">{catObj.name}</Badge>
         ) : (
-          <span className="text-secondary-400">—</span>
+          <span className="text-muted-foreground/70">—</span>
         );
       },
     },
@@ -163,7 +167,7 @@ export default function PostsList() {
       cell: ({ row }) => {
         const author = row.original.author;
         return (
-          <span className="text-secondary-700">{author?.name || "—"}</span>
+          <span className="text-foreground">{author?.name || "—"}</span>
         );
       },
     },
@@ -181,7 +185,7 @@ export default function PostsList() {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Lượt xem" />,
       accessorKey: "viewCount",
       cell: ({ row }) => (
-        <span className="tabular-nums text-secondary-700">{row.original.viewCount || 0}</span>
+        <span className="tabular-nums text-foreground">{row.original.viewCount || 0}</span>
       ),
     },
     {
@@ -189,7 +193,7 @@ export default function PostsList() {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Ngày tạo" />,
       accessorKey: "createdAt",
       cell: ({ row }) => (
-        <span className="text-sm text-secondary-600">
+        <span className="text-sm text-muted-foreground">
           {formatRelativeDate(row.original.createdAt)}
         </span>
       ),
@@ -203,56 +207,68 @@ export default function PostsList() {
         const isPublished = p.status === "published";
         return (
           <div className="flex items-center justify-end gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => navigate(`/admin/posts/${id}/edit`)}
-              aria-label="Sửa"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-            <DropdownMenu>
+            {canWrite && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                onClick={() => navigate(`/admin/posts/${id}/edit`)}
+                aria-label="Sửa"
+              >
+                <Pencil className="size-4" />
+              </Button>
+            )}
+            {(canWrite || canPublish || p.status === "published") && <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Khác">
-                  <MoreHorizontal className="h-4 w-4" />
+                <Button variant="ghost" size="icon" className="size-8" aria-label="Khác">
+                  <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => navigate(`/admin/posts/${id}/edit`)}>
-                  <Pencil className="h-3.5 w-3.5" />
-                  Chỉnh sửa
-                </DropdownMenuItem>
+                {canWrite && (
+                  <DropdownMenuItem onClick={() => navigate(`/admin/posts/${id}/edit`)}>
+                    <Pencil className="size-4" />
+                    Chỉnh sửa
+                  </DropdownMenuItem>
+                )}
                 {p.status === "published" && (
                   <DropdownMenuItem asChild>
                     <a href={`/news/${p.slug}`} target="_blank" rel="noopener noreferrer">
-                      <Eye className="h-3.5 w-3.5" />
+                      <Eye className="size-4" />
                       Xem trang
                     </a>
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuSeparator />
-                {isPublished ? (
-                  <DropdownMenuItem onClick={() => handleUnpublish(p)}>
-                    <EyeOff className="h-3.5 w-3.5" />
-                    Hủy xuất bản
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem onClick={() => handlePublish(p)}>
-                    <Globe className="h-3.5 w-3.5" />
-                    Xuất bản
-                  </DropdownMenuItem>
+                {canPublish && (
+                  <>
+                    <DropdownMenuSeparator />
+                    {isPublished ? (
+                      <DropdownMenuItem onClick={() => handleUnpublish(p)}>
+                        <EyeOff className="size-4" />
+                        Hủy xuất bản
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem onClick={() => handlePublish(p)}>
+                        <Globe className="size-4" />
+                        Xuất bản
+                      </DropdownMenuItem>
+                    )}
+                  </>
                 )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-rose-600 focus:bg-rose-50 focus:text-rose-700"
-                  onClick={() => handleDelete(p)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Xóa
-                </DropdownMenuItem>
+                {canWrite && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-danger-strong focus:bg-danger-muted focus:text-danger-strong"
+                      onClick={() => handleDelete(p)}
+                    >
+                      <Trash2 className="size-4" />
+                      Xóa
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
-            </DropdownMenu>
+            </DropdownMenu>}
           </div>
         );
       },
@@ -263,7 +279,7 @@ export default function PostsList() {
     <DataTableToolbar>
       <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative w-full sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-secondary-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
           <Input
             placeholder="Tìm theo tiêu đề..."
             value={search}
@@ -299,7 +315,7 @@ export default function PostsList() {
       </div>
       <div className="flex items-center gap-2">
         <Button variant="outline" size="sm" onClick={() => postsQ.refetch()}>
-          <RotateCw className="h-3.5 w-3.5" />
+          <RotateCw className="size-4" />
           Tải lại
         </Button>
       </div>
@@ -311,14 +327,14 @@ export default function PostsList() {
       <PageHeader
         title="Quản lý bài viết"
         description={`${filtered.length} bài viết`}
-        actions={
+        actions={canWrite ? (
           <Button asChild>
             <Link to="/admin/posts/new">
-              <Plus className="h-4 w-4" />
+              <Plus className="size-4" />
               Thêm bài viết
             </Link>
           </Button>
-        }
+        ) : null}
       />
 
       {postsQ.isError ? (
@@ -336,14 +352,14 @@ export default function PostsList() {
               icon={FileText}
               title="Chưa có bài viết nào"
               description="Hãy tạo bài viết đầu tiên cho blog."
-              action={
+              action={canWrite ? (
                 <Button asChild>
                   <Link to="/admin/posts/new">
-                    <Plus className="h-4 w-4" />
+                    <Plus className="size-4" />
                     Thêm bài viết
                   </Link>
                 </Button>
-              }
+              ) : null}
             />
           }
         />

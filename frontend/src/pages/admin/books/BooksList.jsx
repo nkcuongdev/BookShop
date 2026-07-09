@@ -17,6 +17,7 @@ import { DataTableToolbar } from "@/components/admin/common/DataTableToolbar";
 import { DataTableColumnHeader } from "@/components/admin/common/DataTableColumnHeader";
 import { StatusBadge } from "@/components/admin/common/StatusBadge";
 import { EmptyState } from "@/components/admin/common/EmptyState";
+import { PermissionGate } from "@/components/admin/common/PermissionGate";
 import { ErrorState } from "@/components/admin/common/ErrorState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,7 +48,7 @@ function stockStatus(n) {
   return "in_stock";
 }
 
-function toCSV(rows) {
+export function toCSV(rows) {
   const headers = ["title", "author", "category", "price", "stock", "sold"];
   const lines = [headers.join(",")];
   for (const r of rows) {
@@ -57,7 +58,8 @@ function toCSV(rows) {
         .join(",")
     );
   }
-  return lines.join("\n");
+  // Excel on Windows needs the UTF-8 BOM to reliably detect Vietnamese text.
+  return `\uFEFF${lines.join("\r\n")}`;
 }
 
 function downloadCSV(name, content) {
@@ -78,13 +80,24 @@ export default function BooksList() {
   const [category, setCategory] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
   const [previewBook, setPreviewBook] = useState(null);
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 20 });
   const debouncedSearch = useDebounce(search, 250);
 
-  const booksQ = useBooks();
+  const bookParams = useMemo(
+    () => ({
+      page: pagination.pageIndex + 1,
+      limit: pagination.pageSize,
+      search: debouncedSearch || undefined,
+      category: category === "all" ? undefined : category,
+      stockStatus: stockFilter === "all" ? undefined : stockFilter,
+    }),
+    [pagination, debouncedSearch, category, stockFilter]
+  );
+  const booksQ = useBooks(bookParams);
   const categoriesQ = useCategories();
   const deleteBook = useDeleteBook();
 
-  const categories = categoriesQ.data || [];
+  const categories = useMemo(() => categoriesQ.data || [], [categoriesQ.data]);
   const categoryByKey = useMemo(() => {
     const m = new Map();
     categories.forEach((c) => {
@@ -94,24 +107,7 @@ export default function BooksList() {
     return m;
   }, [categories]);
 
-  const filtered = useMemo(() => {
-    let list = booksQ.data || [];
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      list = list.filter(
-        (b) =>
-          b.title?.toLowerCase().includes(q) ||
-          b.author?.toLowerCase().includes(q)
-      );
-    }
-    if (category !== "all") {
-      list = list.filter((b) => b.category === category);
-    }
-    if (stockFilter !== "all") {
-      list = list.filter((b) => stockStatus(b.stock || 0) === stockFilter);
-    }
-    return list;
-  }, [booksQ.data, debouncedSearch, category, stockFilter]);
+  const filtered = booksQ.data?.books || [];
 
   const handleDelete = async (book) => {
     const ok = await confirm({
@@ -141,14 +137,14 @@ export default function BooksList() {
             <img
               src={b.imageUrl}
               alt={b.title}
-              className="h-14 w-10 shrink-0 rounded bg-gray-100 object-cover"
+              className="h-14 w-10 shrink-0 rounded-lg bg-muted object-cover"
               onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
             />
             <div className="min-w-0">
-              <p className="font-medium text-secondary-800 line-clamp-1 group-hover:text-primary-600">
+              <p className="font-medium text-foreground line-clamp-1 group-hover:text-primary">
                 {b.title}
               </p>
-              <p className="text-xs text-secondary-500">{b.author}</p>
+              <p className="text-xs text-muted-foreground">{b.author}</p>
             </div>
           </button>
         );
@@ -162,7 +158,7 @@ export default function BooksList() {
         const cat = row.original.category;
         const found = categoryByKey.get(cat);
         return (
-          <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+          <span className="inline-flex items-center rounded-full bg-info-muted px-2.5 py-0.5 text-xs font-medium text-info-strong">
             {found?.name || cat || "—"}
           </span>
         );
@@ -173,7 +169,7 @@ export default function BooksList() {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Giá" />,
       accessorKey: "price",
       cell: ({ row }) => (
-        <span className="font-semibold text-secondary-800">
+        <span className="font-semibold text-foreground">
           {formatVND(row.original.price)}
         </span>
       ),
@@ -186,7 +182,7 @@ export default function BooksList() {
         const s = row.original.stock || 0;
         return (
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-secondary-800 tabular-nums">{s}</span>
+            <span className="font-semibold text-foreground tabular-nums">{s}</span>
             <StatusBadge status={stockStatus(s)} />
           </div>
         );
@@ -197,7 +193,7 @@ export default function BooksList() {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Đã bán" />,
       accessorKey: "sold",
       cell: ({ row }) => (
-        <span className="tabular-nums text-secondary-700">{row.original.sold || 0}</span>
+        <span className="tabular-nums text-foreground">{row.original.sold || 0}</span>
       ),
     },
     {
@@ -206,7 +202,7 @@ export default function BooksList() {
       accessorKey: "rating",
       cell: ({ row }) => (
         <div className="flex items-center gap-1 text-xs">
-          <span className="text-amber-500">★</span>
+          <span className="text-warning-strong">★</span>
           <span className="font-semibold">{row.original.rating || 0}</span>
         </div>
       ),
@@ -222,44 +218,50 @@ export default function BooksList() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="size-8"
               onClick={() => setPreviewBook(b)}
               aria-label="Xem nhanh"
             >
-              <Eye className="h-3.5 w-3.5" />
+              <Eye className="size-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => navigate(`/admin/books/${id}/edit`)}
-              aria-label="Sửa"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
+            <PermissionGate permission="book.write">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                onClick={() => navigate(`/admin/books/${id}/edit`)}
+                aria-label="Sửa"
+              >
+                <Pencil className="size-4" />
+              </Button>
+            </PermissionGate>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Khác">
-                  <MoreHorizontal className="h-4 w-4" />
+                <Button variant="ghost" size="icon" className="size-8" aria-label="Khác">
+                  <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => setPreviewBook(b)}>
-                  <Eye className="h-3.5 w-3.5" />
+                  <Eye className="size-4" />
                   Xem nhanh
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate(`/admin/books/${id}/edit`)}>
-                  <Pencil className="h-3.5 w-3.5" />
-                  Chỉnh sửa
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-rose-600 focus:bg-rose-50 focus:text-rose-700"
-                  onClick={() => handleDelete(b)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Xoá
-                </DropdownMenuItem>
+                <PermissionGate permission="book.write">
+                  <DropdownMenuItem onClick={() => navigate(`/admin/books/${id}/edit`)}>
+                    <Pencil className="size-4" />
+                    Chỉnh sửa
+                  </DropdownMenuItem>
+                </PermissionGate>
+                <PermissionGate permission="book.delete">
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-danger-strong focus:bg-danger-muted focus:text-danger-strong"
+                    onClick={() => handleDelete(b)}
+                  >
+                    <Trash2 className="size-4" />
+                    Xoá
+                  </DropdownMenuItem>
+                </PermissionGate>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -272,15 +274,24 @@ export default function BooksList() {
     <DataTableToolbar>
       <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative w-full sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-secondary-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
           <Input
             placeholder="Tìm theo tên, tác giả..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPagination((current) => ({ ...current, pageIndex: 0 }));
+            }}
             className="h-9 pl-8"
           />
         </div>
-        <Select value={category} onValueChange={setCategory}>
+        <Select
+          value={category}
+          onValueChange={(value) => {
+            setCategory(value);
+            setPagination((current) => ({ ...current, pageIndex: 0 }));
+          }}
+        >
           <SelectTrigger className="h-9 w-[180px]">
             <SelectValue placeholder="Danh mục" />
           </SelectTrigger>
@@ -293,7 +304,13 @@ export default function BooksList() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={stockFilter} onValueChange={setStockFilter}>
+        <Select
+          value={stockFilter}
+          onValueChange={(value) => {
+            setStockFilter(value);
+            setPagination((current) => ({ ...current, pageIndex: 0 }));
+          }}
+        >
           <SelectTrigger className="h-9 w-[160px]">
             <SelectValue placeholder="Tồn kho" />
           </SelectTrigger>
@@ -311,11 +328,11 @@ export default function BooksList() {
           size="sm"
           onClick={() => downloadCSV("books.csv", toCSV(filtered))}
         >
-          <Download className="h-3.5 w-3.5" />
+          <Download className="size-4" />
           Xuất CSV
         </Button>
         <Button variant="outline" size="sm" onClick={() => booksQ.refetch()}>
-          <RotateCw className="h-3.5 w-3.5" />
+          <RotateCw className="size-4" />
           Tải lại
         </Button>
       </div>
@@ -326,14 +343,16 @@ export default function BooksList() {
     <div className="space-y-6">
       <PageHeader
         title="Quản lý sách"
-        description={`${filtered.length} sản phẩm`}
+        description={`${booksQ.data?.pagination?.total || 0} sản phẩm`}
         actions={
-          <Button asChild>
-            <Link to="/admin/books/new">
-              <Plus className="h-4 w-4" />
-              Thêm sách
-            </Link>
-          </Button>
+          <PermissionGate permission="book.write">
+            <Button asChild>
+              <Link to="/admin/books/new">
+                <Plus className="size-4" />
+                Thêm sách
+              </Link>
+            </Button>
+          </PermissionGate>
         }
       />
 
@@ -346,6 +365,10 @@ export default function BooksList() {
           isLoading={booksQ.isLoading}
           toolbar={toolbar}
           totalLabel="sách"
+          pagination={pagination}
+          onPaginationChange={setPagination}
+          pageCount={booksQ.data?.pagination?.totalPages || 1}
+          totalRows={booksQ.data?.pagination?.total || 0}
           getRowId={(r) => r._id || r.id}
           emptyState={
             <EmptyState
@@ -355,7 +378,7 @@ export default function BooksList() {
               action={
                 <Button asChild>
                   <Link to="/admin/books/new">
-                    <Plus className="h-4 w-4" />
+                    <Plus className="size-4" />
                     Thêm sách
                   </Link>
                 </Button>

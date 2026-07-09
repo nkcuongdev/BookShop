@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/admin/common/PageHeader";
 import { SectionCard } from "@/components/admin/common/SectionCard";
+import { ImageUploader } from "@/components/admin/common/ImageUploader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,10 +33,31 @@ import {
   usePostCategories,
 } from "@/features/admin/posts/hooks";
 import { EMPTY_POST, generateSlug } from "@/features/admin/posts/schema";
+import { useAuth } from "@/context/AuthContext.jsx";
+import { can } from "@/lib/rbac";
 
 const NO_CATEGORY_VALUE = "__none__";
 
+function postToForm(post) {
+  if (!post) return EMPTY_POST;
+  return {
+    title: post.title || "",
+    slug: post.slug || "",
+    thumbnail: post.thumbnail || "",
+    shortDescription: post.shortDescription || "",
+    content: post.content || "",
+    category: post.category?._id || post.category || NO_CATEGORY_VALUE,
+    status: post.status || "draft",
+    metaTitle: post.metaTitle || "",
+    metaDescription: post.metaDescription || "",
+    tags: post.tags || [],
+  };
+}
+
 export default function PostFormPage({ mode = "create" }) {
+  const { user } = useAuth();
+  const canPublish = can(user, "post.publish");
+  const canUpload = can(user, "upload.admin");
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = mode === "edit";
@@ -47,28 +69,34 @@ export default function PostFormPage({ mode = "create" }) {
   const publishPost = usePublishPost();
   const unpublishPost = useUnpublishPost();
 
-  const [form, setForm] = useState(EMPTY_POST);
-  const [slugManual, setSlugManual] = useState(false);
+  const formVersion = isEdit
+    ? `${id}:${postQ.data?.updatedAt || "loading"}`
+    : "create";
+  const initialDraft = {
+    version: formVersion,
+    form: isEdit ? postToForm(postQ.data) : EMPTY_POST,
+    slugManual: isEdit && Boolean(postQ.data),
+  };
+  const [draft, setDraft] = useState(initialDraft);
+  const currentDraft = draft.version === formVersion ? draft : initialDraft;
+  const form = currentDraft.form;
+  const slugManual = currentDraft.slugManual;
+  const setForm = (updater) => {
+    setDraft((current) => {
+      const base = current.version === formVersion ? current : initialDraft;
+      return {
+        ...base,
+        form: typeof updater === "function" ? updater(base.form) : updater,
+      };
+    });
+  };
+  const setSlugManual = (value) => {
+    setDraft((current) => {
+      const base = current.version === formVersion ? current : initialDraft;
+      return { ...base, slugManual: value };
+    });
+  };
   const [tagInput, setTagInput] = useState("");
-
-  useEffect(() => {
-    if (isEdit && postQ.data) {
-      const p = postQ.data;
-      setForm({
-        title: p.title || "",
-        slug: p.slug || "",
-        thumbnail: p.thumbnail || "",
-        shortDescription: p.shortDescription || "",
-        content: p.content || "",
-        category: p.category?._id || p.category || NO_CATEGORY_VALUE,
-        status: p.status || "draft",
-        metaTitle: p.metaTitle || "",
-        metaDescription: p.metaDescription || "",
-        tags: p.tags || [],
-      });
-      setSlugManual(true);
-    }
-  }, [isEdit, postQ.data]);
 
   const categories = categoriesQ.data || [];
 
@@ -152,26 +180,26 @@ export default function PostFormPage({ mode = "create" }) {
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={() => navigate("/admin/posts")}>
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="size-4" />
               Quay lại
             </Button>
-            {isEdit && form.status === "draft" && (
+            {canPublish && isEdit && form.status === "draft" && (
               <Button
                 variant="outline"
                 onClick={handlePublish}
-                disabled={publishPost.isPending}
+                loading={publishPost.isPending}
               >
-                <Globe className="h-4 w-4" />
+                <Globe className="size-4" />
                 Xuất bản
               </Button>
             )}
-            {isEdit && form.status === "published" && (
+            {canPublish && isEdit && form.status === "published" && (
               <Button
                 variant="outline"
                 onClick={handleUnpublish}
-                disabled={unpublishPost.isPending}
+                loading={unpublishPost.isPending}
               >
-                <EyeOff className="h-4 w-4" />
+                <EyeOff className="size-4" />
                 Hủy xuất bản
               </Button>
             )}
@@ -186,7 +214,7 @@ export default function PostFormPage({ mode = "create" }) {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="title">
-                    Tiêu đề <span className="text-rose-500">*</span>
+                    Tiêu đề <span className="text-danger-strong">*</span>
                   </Label>
                   <Input
                     id="title"
@@ -205,7 +233,7 @@ export default function PostFormPage({ mode = "create" }) {
                     onChange={(e) => handleSlugChange(e.target.value)}
                     placeholder="url-bai-viet"
                   />
-                  <p className="text-xs text-secondary-500">
+                  <p className="text-xs text-muted-foreground">
                     URL: /news/{form.slug || "..."}
                   </p>
                 </div>
@@ -223,7 +251,7 @@ export default function PostFormPage({ mode = "create" }) {
 
                 <div className="space-y-2">
                   <Label htmlFor="content">
-                    Nội dung <span className="text-rose-500">*</span>
+                    Nội dung <span className="text-danger-strong">*</span>
                   </Label>
                   <Textarea
                     id="content"
@@ -234,7 +262,7 @@ export default function PostFormPage({ mode = "create" }) {
                     className="font-mono text-sm"
                     required
                   />
-                  <p className="text-xs text-secondary-500">
+                  <p className="text-xs text-muted-foreground">
                     Bạn có thể sử dụng HTML để định dạng nội dung
                   </p>
                 </div>
@@ -251,6 +279,7 @@ export default function PostFormPage({ mode = "create" }) {
                   <Select
                     value={form.status}
                     onValueChange={(v) => handleChange("status", v)}
+                    disabled={!canPublish}
                   >
                     <SelectTrigger id="status">
                       <SelectValue />
@@ -282,37 +311,21 @@ export default function PostFormPage({ mode = "create" }) {
                   </Select>
                 </div>
 
-                <Button type="submit" className="w-full" disabled={isSaving}>
-                  <Save className="h-4 w-4" />
+                <Button type="submit" className="w-full" loading={isSaving}>
+                  <Save className="size-4" />
                   {isSaving ? "Đang lưu..." : isEdit ? "Lưu thay đổi" : "Tạo bài viết"}
                 </Button>
               </div>
             </SectionCard>
 
             <SectionCard title="Ảnh đại diện" icon={ImageIcon}>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="thumbnail">URL ảnh</Label>
-                  <Input
-                    id="thumbnail"
-                    value={form.thumbnail}
-                    onChange={(e) => handleChange("thumbnail", e.target.value)}
-                    placeholder="https://example.com/image.jpg"
-                  />
-                </div>
-                {form.thumbnail && (
-                  <div className="overflow-hidden rounded-lg border">
-                    <img
-                      src={form.thumbnail}
-                      alt="Thumbnail preview"
-                      className="aspect-video w-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.style.display = "none";
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
+              <ImageUploader
+                value={form.thumbnail}
+                onChange={(value) => handleChange("thumbnail", value)}
+                purpose="post"
+                ratio="16/9"
+                disabled={!canUpload}
+              />
             </SectionCard>
 
             <SectionCard title="Tags">
