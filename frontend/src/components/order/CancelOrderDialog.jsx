@@ -49,7 +49,7 @@ export default function CancelOrderDialog({
                 key={r}
                 type="button"
                 onClick={() => setReason(r)}
-                className="text-xs px-3 py-1.5 rounded-full border border-gray-200 text-secondary-700 hover:bg-gray-50 hover:border-primary-300 transition-colors"
+                className="text-xs px-3 py-1.5 rounded-full border border-border text-foreground hover:bg-muted hover:border-primary-300 transition-colors"
               >
                 {r}
               </button>

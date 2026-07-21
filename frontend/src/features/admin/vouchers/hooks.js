@@ -6,7 +6,8 @@ export function useVouchers(params = {}) {
   return useQuery({
     queryKey: ["admin", "vouchers", params],
     queryFn: () =>
-      vouchersAPI.getAll(params).then((r) => r.data?.vouchers || []),
+      vouchersAPI.getAll(params).then((r) => r.data || { vouchers: [], pagination: null }),
+    placeholderData: (previous) => previous,
   });
 }
 

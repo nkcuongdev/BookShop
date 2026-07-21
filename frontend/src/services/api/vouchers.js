@@ -35,9 +35,12 @@ export const vouchersAPI = {
       method: "PATCH",
     }),
 
-  validate: (code, subtotal) =>
+  validate: (code, subtotal, shippingFee) =>
     request(`/vouchers/validate`, {
       method: "POST",
-      body: JSON.stringify({ code, subtotal }),
+      body: JSON.stringify({ code, subtotal, shippingFee }),
     }),
+
+  getAvailable: (subtotal, shippingFee = 0) =>
+    request(`/vouchers/available${buildQuery({ subtotal, shippingFee })}`),
 };

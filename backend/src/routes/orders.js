@@ -3,12 +3,58 @@ const Order = require("../models/Order");
 const config = require("../config");
 const orderService = require("../services/orderService");
 const paymentGateway = require("../services/paymentGateway");
-const Cart = require("../models/Cart");
 const AnalyticsEvent = require("../models/AnalyticsEvent");
 const notificationService = require("../services/notificationService");
+const shippingService = require("../services/shippingService");
+const orderCancellationService = require("../services/orderCancellationService");
 const { auth } = require("../middleware/auth");
+const roleRegistry = require("../services/roleRegistry");
+const {
+  createRateLimiter,
+  hashRateLimitPart,
+  normalizedIp,
+  parsePositiveInt,
+  safeRegex,
+} = require("../utils/security");
+const { serializeCustomerOrder } = require("../serializers/orderSerializer");
+const ReturnRequest = require("../models/ReturnRequest");
+const {
+  completeReturnRefund,
+  createReturnRequest,
+  getReturnEligibility,
+  serializeReturnRequest,
+} = require("../services/returnRequestService");
+const supportResolutionService = require("../services/supportResolutionService");
+const SupportTicket = require("../models/SupportTicket");
 
 const router = express.Router();
+
+const orderCreateIpLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 12,
+  keyPrefix: "order-create-ip",
+  message: "Bạn đang tạo đơn quá nhanh, vui lòng thử lại sau",
+});
+const orderCreateUserLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 6,
+  keyPrefix: "order-create-user",
+  keyGenerator: (req) => hashRateLimitPart(req.user?._id || normalizedIp(req)),
+  message: "Bạn đang tạo đơn quá nhanh, vui lòng thử lại sau",
+});
+const paymentRetryIpLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 20,
+  keyPrefix: "payment-retry-ip",
+  message: "Bạn đang thử thanh toán quá nhanh, vui lòng thử lại sau",
+});
+const paymentRetryUserLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 10,
+  keyPrefix: "payment-retry-user",
+  keyGenerator: (req) => hashRateLimitPart(req.user?._id || normalizedIp(req)),
+  message: "Bạn đang thử thanh toán quá nhanh, vui lòng thử lại sau",
+});
 
 function getClientIp(req) {
   const forwarded = req.headers["x-forwarded-for"];
@@ -29,98 +75,238 @@ function getFrontendUrl(req) {
   return config.frontendUrl;
 }
 
+function paymentReturnStatus(result) {
+  if (!result?.latePayment) return "success";
+  return result.order?.status === Order.STATUS.REFUNDED
+    ? "refunded"
+    : "refunding";
+}
+
+async function serializeOrderWithReturn(order) {
+  const returnRequests = await ReturnRequest.find({ order: order._id })
+    .sort({ createdAt: -1, _id: -1 });
+  const serializedRequests = returnRequests.map(serializeReturnRequest);
+  return {
+    ...serializeCustomerOrder(order),
+    // Compatibility alias for existing clients; new clients render the full history.
+    returnRequest: serializedRequests[0] || null,
+    returnRequests: serializedRequests,
+    returnEligibility: getReturnEligibility(order, returnRequests),
+  };
+}
+
 // ──────────────────────────────────────────────────────────────
 // Customer endpoints
 // ──────────────────────────────────────────────────────────────
 
 // POST /api/orders - Tạo đơn (soft-booking)
-router.post("/", auth, async (req, res) => {
+router.post(
+  "/",
+  auth,
+  orderCreateIpLimiter,
+  orderCreateUserLimiter,
+  async (req, res) => {
   try {
+    const idempotencyKey = req.get("Idempotency-Key");
     const {
       items,
       shippingAddress,
       paymentMethod,
       voucherCode,
+      orderVoucherCode,
+      shippingVoucherCode,
+      shippingMethod,
+      shippingOptionId,
       shippingFee,
       note,
+      pointsToRedeem,
+      checkoutSource,
+      expectedTotal,
     } = req.body;
 
     if (
-      !shippingAddress?.fullName ||
-      !shippingAddress?.phone ||
-      !shippingAddress?.address
+      typeof shippingOptionId !== "string" ||
+      shippingOptionId.trim().length === 0
     ) {
-      return res.status(400).json({
+      return res.status(422).json({
         success: false,
-        message: "Vui lòng điền đầy đủ thông tin giao hàng",
+        message: "Vui lòng chọn phương thức vận chuyển hợp lệ",
+        code: "SHIPPING_OPTION_REQUIRED",
       });
     }
 
-    const { order, paymentUrl } = await orderService.createOrder({
+    const authoritativeShipping =
+      await shippingService.resolveShippingSelection({
+        items,
+        shippingAddress,
+        optionId: shippingOptionId.trim(),
+      });
+
+    const { order, paymentUrl, replayed } = await orderService.createOrder({
       userId: req.user._id,
       items,
       shippingAddress,
       paymentMethod,
       voucherCode,
+      orderVoucherCode,
+      shippingVoucherCode,
+      shippingMethod,
       shippingFee,
+      authoritativeShipping,
       note,
+      pointsToRedeem,
+      checkoutSource,
+      expectedTotal,
       clientIp: getClientIp(req),
       frontendUrl: getFrontendUrl(req),
+      idempotencyKey,
     });
 
-    await Cart.updateOne({ user: req.user._id }, { $set: { items: [] } }).catch(() => null);
-    await AnalyticsEvent.create({
-      user: req.user._id,
-      sessionId: req.body.sessionId || "",
-      type: "order_created",
-      order: order._id,
-      value: order.totalAmount,
-      metadata: { orderCode: order.orderCode, paymentMethod: order.payment?.method },
-    }).catch(() => null);
-    await notificationService.notifyUser(
-      req.user._id,
-      {
-        type: "order",
-        title: "Đặt hàng thành công",
-        message: `Đơn hàng ${order.orderCode} đã được tạo thành công.`,
-        link: `/profile/orders/${order._id}`,
-        metadata: { orderId: order._id, orderCode: order.orderCode },
-      },
-      req
-    ).catch(() => null);
-    await notificationService.notifyAdmins(
-      {
-        type: "order",
-        title: "Đơn hàng mới",
-        message: `Đơn hàng ${order.orderCode} cần được xử lý.`,
-        link: `/admin/orders/${order._id}`,
-        metadata: { orderId: order._id, orderCode: order.orderCode },
-      },
-      req
-    ).catch(() => null);
+    if (!replayed) {
+      await AnalyticsEvent.updateOne(
+        { type: "order_created", order: order._id },
+        {
+          $setOnInsert: {
+            user: req.user._id,
+            sessionId: req.body.sessionId || "",
+            value: order.totalAmount,
+            metadata: {
+              orderCode: order.orderCode,
+              paymentMethod: order.payment?.method,
+            },
+          },
+        },
+        { upsert: true }
+      ).catch(() => null);
+      await notificationService.notifyUser(
+        req.user._id,
+        {
+          type: "order",
+          title: "Đặt hàng thành công",
+          message: `Đơn hàng ${order.orderCode} đã được tạo thành công.`,
+          link: `/profile/orders/${order._id}`,
+          metadata: { orderId: order._id, orderCode: order.orderCode },
+        },
+        req
+      ).catch(() => null);
+      await notificationService.notifyAdmins(
+        {
+          type: "order",
+          title: "Đơn hàng mới",
+          message: `Đơn hàng ${order.orderCode} cần được xử lý.`,
+          link: `/admin/orders/${order._id}`,
+          metadata: { orderId: order._id, orderCode: order.orderCode },
+        },
+        req
+      ).catch(() => null);
+    }
 
     res.status(201).json({
       success: true,
       message: "Đặt hàng thành công",
       data: {
-        order: { ...order.toObject(), id: order._id },
+        order: serializeCustomerOrder(order),
         paymentUrl,
+        replayed: !!replayed,
       },
     });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    const status =
+      error.statusCode ||
+      (error.code === "IDEMPOTENCY_CONFLICT" ? 409 : 400);
+    res.status(status).json({
+      success: false,
+      message: error.message,
+      ...(error.code ? { code: error.code } : {}),
+      ...(error.field ? { field: error.field } : {}),
+      ...(error.quote ? { quote: error.quote } : {}),
+    });
   }
-});
+  }
+);
 
 // GET /api/orders - Orders của user hiện tại
 router.get("/", auth, async (req, res) => {
   try {
-    const orders = await Order.getByUser(req.user._id);
+    const page = parsePositiveInt(req.query.page, 1, 10_000);
+    const limit = parsePositiveInt(req.query.limit, 10, 50);
+    const filter = { user: req.user._id };
+    if (req.query.status && Object.values(Order.STATUS).includes(req.query.status)) {
+      filter.status = req.query.status;
+    }
+    const searchRegex = safeRegex(String(req.query.search || "").slice(0, 100));
+    if (searchRegex) {
+      filter.$or = [
+        { orderCode: searchRegex },
+        { "items.title": searchRegex },
+      ];
+    }
+
+    const [orders, total, summaryRows] = await Promise.all([
+      Order.aggregate([
+        { $match: filter },
+        { $sort: { createdAt: -1, _id: -1 } },
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+        {
+          $project: {
+            orderCode: 1,
+            status: 1,
+            totalAmount: 1,
+            placedAt: 1,
+            createdAt: 1,
+            itemCount: { $size: { $ifNull: ["$items", []] } },
+            itemsPreview: {
+              $map: {
+                input: { $slice: [{ $ifNull: ["$items", []] }, 4] },
+                as: "item",
+                in: {
+                  book: "$$item.book",
+                  title: "$$item.title",
+                  imageUrl: "$$item.imageUrl",
+                  quantity: "$$item.quantity",
+                },
+              },
+            },
+          },
+        },
+      ]),
+      Order.countDocuments(filter),
+      Order.aggregate([
+        { $match: { user: req.user._id } },
+        {
+          $group: {
+            _id: null,
+            totalOrders: { $sum: 1 },
+            totalSpend: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", Order.STATUS.DELIVERED] },
+                  "$totalAmount",
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]),
+    ]);
+    const summary = summaryRows[0] || { totalOrders: 0, totalSpend: 0 };
     res.json({
       success: true,
       data: {
-        orders: orders.map((o) => ({ ...o.toObject(), id: o._id })),
-        count: orders.length,
+        orders: orders.map((order) => ({ ...order, id: order._id })),
+        count: total,
+        summary: {
+          totalOrders: summary.totalOrders || 0,
+          totalSpend: summary.totalSpend || 0,
+        },
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
       },
     });
   } catch (error) {
@@ -129,6 +315,31 @@ router.get("/", auth, async (req, res) => {
 });
 
 // GET /api/orders/:id - Chi tiết 1 đơn
+router.get("/code/:orderCode", auth, async (req, res) => {
+  try {
+    const orderCode = String(req.params.orderCode || "").trim().slice(0, 100);
+    if (!/^OD-[A-Z0-9-]+$/i.test(orderCode)) {
+      return res.status(400).json({ success: false, message: "Mã đơn không hợp lệ" });
+    }
+    const order = await Order.findOne({ orderCode });
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Không tìm thấy đơn hàng" });
+    }
+    if (
+      String(order.user) !== String(req.user._id) &&
+      !(await roleRegistry.roleHasPermission(req.user.role, "order.read"))
+    ) {
+      return res.status(403).json({ success: false, message: "Không có quyền truy cập" });
+    }
+    return res.json({
+      success: true,
+      data: { order: await serializeOrderWithReturn(order) },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.get("/:id([0-9a-fA-F]{24})", auth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate(
@@ -142,7 +353,7 @@ router.get("/:id([0-9a-fA-F]{24})", auth, async (req, res) => {
     }
     if (
       order.user._id.toString() !== req.user._id.toString() &&
-      req.user.role !== "admin"
+      !(await roleRegistry.roleHasPermission(req.user.role, "order.read"))
     ) {
       return res
         .status(403)
@@ -150,60 +361,92 @@ router.get("/:id([0-9a-fA-F]{24})", auth, async (req, res) => {
     }
     res.json({
       success: true,
-      data: { order: { ...order.toObject(), id: order._id } },
+      data: { order: await serializeOrderWithReturn(order) },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// POST /api/orders/:id/retry-payment - Lấy lại paymentUrl cho đơn PENDING online
-router.post("/:id/retry-payment", auth, async (req, res) => {
+// POST /api/orders/:id/return-request - Line/quantity-based self-service returns.
+router.post("/:id([0-9a-fA-F]{24})/return-request", auth, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
-    if (!order) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Không tìm thấy đơn hàng" });
-    }
-    if (order.user.toString() !== req.user._id.toString()) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Không có quyền truy cập" });
-    }
-    if (order.status !== Order.STATUS.PENDING) {
-      return res.status(400).json({
-        success: false,
-        message: `Đơn không ở trạng thái chờ thanh toán (${order.status})`,
-      });
-    }
-    if (order.payment?.method === Order.PAYMENT_METHOD.COD) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Đơn COD không cần thanh toán online" });
-    }
-
-    const result = await paymentGateway.createPaymentUrl({
-      orderCode: order.orderCode,
-      amount: order.totalAmount,
-      method: order.payment.method,
-      clientIp: getClientIp(req),
-      frontendUrl: order.payment?.frontendReturnUrl || getFrontendUrl(req),
+    const { request, order } = await createReturnRequest({
+      orderId: req.params.id,
+      userId: req.user._id,
+      payload: req.body,
     });
-    order.payment.transactionId = result.transactionId;
-    await order.save();
+    await notificationService.notifyAdmins(
+      {
+        type: "refund",
+        title: "Yêu cầu đổi trả mới",
+        message: `Đơn hàng ${order.orderCode} có yêu cầu đổi trả cần xử lý.`,
+        link: `/admin/orders/${order._id}`,
+        metadata: {
+          orderId: order._id,
+          orderCode: order.orderCode,
+          returnRequestId: request._id,
+        },
+      },
+      req
+    ).catch(() => null);
+
+    const returnRequests = await ReturnRequest.find({ order: order._id }).lean();
+
+    return res.status(201).json({
+      success: true,
+      message: "Đã gửi yêu cầu đổi trả",
+      data: {
+        returnRequest: serializeReturnRequest(request),
+        returnEligibility: getReturnEligibility(order, returnRequests),
+      },
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({
+      success: false,
+      message: error.message,
+      code: error.code,
+    });
+  }
+});
+
+// POST /api/orders/:id/retry-payment - Lấy lại paymentUrl cho đơn PENDING online
+router.post(
+  "/:id/retry-payment",
+  auth,
+  paymentRetryIpLimiter,
+  paymentRetryUserLimiter,
+  async (req, res) => {
+  try {
+    const result = await orderService.retryPayment({
+      orderId: req.params.id,
+      userId: req.user._id,
+      clientIp: getClientIp(req),
+      frontendUrl: getFrontendUrl(req),
+    });
 
     res.json({
       success: true,
       data: {
         paymentUrl: result.paymentUrl,
-        transactionId: result.transactionId,
+        transactionId: result.order.payment.providerOrderId,
+        replayed: result.replayed,
       },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    const status =
+      error.statusCode ||
+      (error.code === "FORBIDDEN"
+        ? 403
+        : error.code === "PAYMENT_RETRY_IN_PROGRESS"
+          ? 409
+          : /không tồn tại/i.test(error.message)
+            ? 404
+            : 400);
+    res.status(status).json({ success: false, message: error.message });
   }
-});
+  }
+);
 
 router.get("/gateway/mock", async (req, res) => {
   if (!paymentGateway.isMockEnabled()) {
@@ -287,25 +530,31 @@ router.get("/payment-return/vnpay", async (req, res) => {
     }
 
     const orderCode = paymentGateway.extractOrderCode(result.transactionId);
+    const order = await Order.findOne({ orderCode }).select(
+      "+payment.attempts"
+    );
+    if (!order) {
+      return res.redirect(paymentGateway.buildFrontendPaymentUrl(null, "error"));
+    }
+    orderService.assertPaymentCallback(order, {
+      method: "VNPAY",
+      providerOrderId: result.transactionId,
+      amount: Number(req.query.vnp_Amount) / 100,
+    });
     const isSuccess =
       req.query.vnp_ResponseCode === "00" &&
       req.query.vnp_TransactionStatus === "00";
-
-    if (isSuccess) {
-      const { order } = await orderService.handlePaymentSuccess({
-        orderCode,
-        transactionId: req.query.vnp_TransactionNo || result.transactionId,
-        rawPayload: req.query,
-      });
-      return res.redirect(paymentGateway.buildFrontendPaymentUrl(order, "success"));
-    }
-
-    const order = await orderService.handlePaymentFailed({
-      orderCode,
-      reason: `VNPay response ${req.query.vnp_ResponseCode || "unknown"}`,
-      rawPayload: req.query,
-    });
-    return res.redirect(paymentGateway.buildFrontendPaymentUrl(order, "failed"));
+    const status =
+      order.status === Order.STATUS.REFUNDED
+        ? "refunded"
+        : order.status === Order.STATUS.REFUNDING
+          ? "refunding"
+          : order.payment?.status === Order.PAYMENT_STATUS.PAID
+            ? "success"
+            : isSuccess
+              ? "returned"
+              : "failed";
+    return res.redirect(paymentGateway.buildFrontendPaymentUrl(order, status));
   } catch (error) {
     console.error("[payment-return/vnpay]", error);
     return res.redirect(paymentGateway.buildFrontendPaymentUrl(null, "error"));
@@ -320,18 +569,29 @@ router.get("/ipn/vnpay", async (req, res) => {
     }
 
     const orderCode = paymentGateway.extractOrderCode(result.transactionId);
-    const order = await Order.findOne({ orderCode });
+    const order = await Order.findOne({ orderCode }).select(
+      "+payment.attempts"
+    );
     if (!order) {
       return res.json({ RspCode: "01", Message: "Order not found" });
     }
 
-    const expectedAmount = Math.round(Number(order.totalAmount) * 100);
-    const receivedAmount = Math.round(Number(req.query.vnp_Amount));
-    if (expectedAmount !== receivedAmount) {
+    let matchedAttempt;
+    try {
+      matchedAttempt = orderService.assertPaymentCallback(order, {
+        method: "VNPAY",
+        providerOrderId: result.transactionId,
+        amount: Number(req.query.vnp_Amount) / 100,
+      });
+    } catch {
       return res.json({ RspCode: "04", Message: "Invalid amount" });
     }
 
-    if (order.payment?.status === Order.PAYMENT_STATUS.PAID) {
+    if (
+      order.payment?.status === Order.PAYMENT_STATUS.PAID &&
+      String(order.payment.providerOrderId || "") ===
+        String(matchedAttempt.providerOrderId || "")
+    ) {
       return res.json({ RspCode: "02", Message: "Order already confirmed" });
     }
 
@@ -342,12 +602,18 @@ router.get("/ipn/vnpay", async (req, res) => {
     if (isSuccess) {
       await orderService.handlePaymentSuccess({
         orderCode,
-        transactionId: req.query.vnp_TransactionNo || result.transactionId,
+        method: "VNPAY",
+        providerOrderId: result.transactionId,
+        transactionId: req.query.vnp_TransactionNo,
+        amount: Number(req.query.vnp_Amount) / 100,
         rawPayload: req.query,
       });
     } else {
       await orderService.handlePaymentFailed({
         orderCode,
+        method: "VNPAY",
+        providerOrderId: result.transactionId,
+        amount: Number(req.query.vnp_Amount) / 100,
         reason: `VNPay response ${req.query.vnp_ResponseCode || "unknown"}`,
         rawPayload: req.query,
       });
@@ -368,23 +634,29 @@ router.get("/payment-return/momo", async (req, res) => {
     }
 
     const orderCode = paymentGateway.extractOrderCode(result.transactionId);
-    const isSuccess = Number(req.query.resultCode) === 0;
-
-    if (isSuccess) {
-      const { order } = await orderService.handlePaymentSuccess({
-        orderCode,
-        transactionId: req.query.transId || result.transactionId,
-        rawPayload: req.query,
-      });
-      return res.redirect(paymentGateway.buildFrontendPaymentUrl(order, "success"));
+    const order = await Order.findOne({ orderCode }).select(
+      "+payment.attempts"
+    );
+    if (!order) {
+      return res.redirect(paymentGateway.buildFrontendPaymentUrl(null, "error"));
     }
-
-    const order = await orderService.handlePaymentFailed({
-      orderCode,
-      reason: req.query.message || `MoMo result ${req.query.resultCode}`,
-      rawPayload: req.query,
+    orderService.assertPaymentCallback(order, {
+      method: "MOMO",
+      providerOrderId: result.transactionId,
+      amount: Number(req.query.amount),
     });
-    return res.redirect(paymentGateway.buildFrontendPaymentUrl(order, "failed"));
+    const isSuccess = Number(req.query.resultCode) === 0;
+    const status =
+      order.status === Order.STATUS.REFUNDED
+        ? "refunded"
+        : order.status === Order.STATUS.REFUNDING
+          ? "refunding"
+          : order.payment?.status === Order.PAYMENT_STATUS.PAID
+            ? "success"
+            : isSuccess
+              ? "returned"
+              : "failed";
+    return res.redirect(paymentGateway.buildFrontendPaymentUrl(order, status));
   } catch (error) {
     console.error("[payment-return/momo]", error);
     return res.redirect(paymentGateway.buildFrontendPaymentUrl(null, "error"));
@@ -402,25 +674,44 @@ router.get("/payment-return/mock", async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing orderCode" });
     }
 
-    const paymentOrder = await Order.findOne({ orderCode }).select("payment orderCode");
+    const paymentOrder = await Order.findOne({ orderCode }).select(
+      "payment orderCode totalAmount placedAt +payment.attempts"
+    );
     if (!paymentOrder) {
       return res.redirect(paymentGateway.buildFrontendPaymentUrl(null, "error"));
     }
-    if (!txnRef || String(paymentOrder.payment?.transactionId || "") !== String(txnRef)) {
+    try {
+      orderService.assertPaymentCallback(paymentOrder, {
+        method: paymentOrder.payment.method,
+        providerOrderId: txnRef,
+        amount: paymentOrder.totalAmount,
+      });
+    } catch {
       return res.redirect(paymentGateway.buildFrontendPaymentUrl(paymentOrder, "failed"));
     }
 
     if (status === "success") {
-      const { order } = await orderService.handlePaymentSuccess({
+      const paymentResult = await orderService.handlePaymentSuccess({
         orderCode,
+        method: paymentOrder.payment.method,
+        providerOrderId: txnRef,
         transactionId: txnRef,
+        amount: paymentOrder.totalAmount,
         rawPayload: req.query,
       });
-      return res.redirect(paymentGateway.buildFrontendPaymentUrl(order, "success"));
+      return res.redirect(
+        paymentGateway.buildFrontendPaymentUrl(
+          paymentResult.order,
+          paymentReturnStatus(paymentResult)
+        )
+      );
     }
 
     const failedOrder = await orderService.handlePaymentFailed({
       orderCode,
+      method: paymentOrder.payment.method,
+      providerOrderId: txnRef,
+      amount: paymentOrder.totalAmount,
       reason: "Mock payment failed",
       rawPayload: req.query,
     });
@@ -442,7 +733,10 @@ router.post("/webhook/momo", async (req, res) => {
     if (Number(req.body.resultCode) === 0) {
       await orderService.handlePaymentSuccess({
         orderCode,
-        transactionId: req.body.transId || result.transactionId,
+        method: "MOMO",
+        providerOrderId: result.transactionId,
+        transactionId: req.body.transId,
+        amount: Number(req.body.amount),
         rawPayload: req.body,
       });
       return res.json({ success: true });
@@ -450,6 +744,9 @@ router.post("/webhook/momo", async (req, res) => {
 
     await orderService.handlePaymentFailed({
       orderCode,
+      method: "MOMO",
+      providerOrderId: result.transactionId,
+      amount: Number(req.body.amount),
       reason: req.body.message || `MoMo result ${req.body.resultCode}`,
       rawPayload: req.body,
     });
@@ -463,21 +760,23 @@ router.post("/webhook/momo", async (req, res) => {
 // POST /api/orders/:id/cancel - Khách hủy đơn
 router.post("/:id/cancel", auth, async (req, res) => {
   try {
-    const order = await orderService.cancelOrder(
+    const { order, replayed } = await orderCancellationService.requestCustomerCancellation(
       req.params.id,
       req.user._id,
-      req.body?.reason || ""
+      req.body?.reason || "",
+      getClientIp(req)
     );
-    res.json({
+    res.status(202).json({
       success: true,
-      message:
-        order.status === Order.STATUS.REFUNDING
-          ? "Đã yêu cầu hoàn tiền, đang xử lý"
-          : "Đã hủy đơn hàng",
-      data: { order: { ...order.toObject(), id: order._id } },
+      message: "Yêu cầu hủy đơn đang được xử lý",
+      data: { order: { ...order.toObject(), id: order._id }, replayed },
     });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    res.status(error.statusCode || 400).json({
+      success: false,
+      message: error.message,
+      code: error.code,
+    });
   }
 });
 
@@ -494,16 +793,27 @@ router.post("/:id/cancel", auth, async (req, res) => {
 router.post("/webhook/payment", async (req, res) => {
   try {
     const signature = req.header("x-signature");
+    const timestamp = req.header("x-webhook-timestamp");
     const ok = paymentGateway.verifyWebhookSignature({
       payload: req.body,
+      rawPayload: req.rawBody,
       signature,
+      timestamp,
       secret: process.env.PAYMENT_WEBHOOK_SECRET,
     });
     if (!ok) {
       return res.status(401).json({ success: false, message: "Invalid signature" });
     }
 
-    const { orderCode, status, transactionId, reason } = req.body || {};
+    const {
+      orderCode,
+      status,
+      method,
+      providerOrderId,
+      transactionId,
+      amount,
+      reason,
+    } = req.body || {};
     if (!orderCode || !status) {
       return res.status(400).json({ success: false, message: "Missing fields" });
     }
@@ -511,7 +821,10 @@ router.post("/webhook/payment", async (req, res) => {
     if (status === "success") {
       const { order } = await orderService.handlePaymentSuccess({
         orderCode,
+        method,
+        providerOrderId,
         transactionId,
+        amount,
         rawPayload: req.body,
       });
       return res.json({ success: true, orderStatus: order.status });
@@ -520,6 +833,9 @@ router.post("/webhook/payment", async (req, res) => {
     if (status === "failed") {
       const order = await orderService.handlePaymentFailed({
         orderCode,
+        method,
+        providerOrderId,
+        amount,
         reason,
         rawPayload: req.body,
       });
@@ -536,13 +852,19 @@ router.post("/webhook/payment", async (req, res) => {
 /**
  * POST /api/orders/webhook/refund
  * Body: { orderCode, status: 'success', refundTransactionId, ... }
+ *
+ * The refund transaction id is the primary lookup key. `orderCode` is only a
+ * guard: several independent refund businesses can belong to the same order.
  */
 router.post("/webhook/refund", async (req, res) => {
   try {
     const signature = req.header("x-signature");
+    const timestamp = req.header("x-webhook-timestamp");
     const ok = paymentGateway.verifyWebhookSignature({
       payload: req.body,
+      rawPayload: req.rawBody,
       signature,
+      timestamp,
       secret: process.env.PAYMENT_WEBHOOK_SECRET,
     });
     if (!ok) {
@@ -553,16 +875,108 @@ router.post("/webhook/refund", async (req, res) => {
     if (status !== "success") {
       return res.json({ success: true, ignored: true });
     }
+    if (!orderCode || !refundTransactionId) {
+      return res.status(400).json({
+        success: false,
+        message: "orderCode and refundTransactionId are required",
+      });
+    }
 
-    const order = await orderService.handleRefundSuccess({
-      orderCode,
-      refundTransactionId,
-      rawPayload: req.body,
+    const reference = String(refundTransactionId).trim();
+    if (!reference) {
+      return res.status(400).json({
+        success: false,
+        message: "refundTransactionId must not be blank",
+      });
+    }
+    const order = await Order.findOne({ orderCode }).select(
+      "_id status payment.method payment.refundTransactionId"
+    );
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    // Resolve exactly one owner by the refund id. Never "try" all workflows:
+    // doing so lets a support refund complete the whole order and manufacture
+    // a RETURN_IN movement for goods that are still lost with the carrier.
+    const [returnRequest, ticket] = await Promise.all([
+      ReturnRequest.findOne({
+        order: order._id,
+        "refund.transactionId": reference,
+        "refund.paymentMethod": { $in: ["VNPAY", "MOMO"] },
+        "refund.status": {
+          $in: [
+            ReturnRequest.REFUND_STATUS.PROCESSING,
+            ReturnRequest.REFUND_STATUS.COMPLETED,
+          ],
+        },
+      }),
+      SupportTicket.findOne({
+        order: order._id,
+        "resolution.refund.transactionId": reference,
+        "resolution.refund.paymentMethod": { $in: ["VNPAY", "MOMO"] },
+        "resolution.status": { $in: ["REFUND_PROCESSING", "REFUND_COMPLETED"] },
+      }).select("+resolution.refund.idempotencyKey"),
+    ]);
+    const owners = [
+      ...(["VNPAY", "MOMO"].includes(order.payment?.method) &&
+      [Order.STATUS.REFUNDING, Order.STATUS.REFUNDED].includes(order.status) &&
+      String(order.payment?.refundTransactionId || "") === reference
+        ? [{ type: "order", record: order }]
+        : []),
+      ...(returnRequest ? [{ type: "return", record: returnRequest }] : []),
+      ...(ticket ? [{ type: "support-ticket", record: ticket }] : []),
+    ];
+    if (owners.length !== 1) {
+      return res.status(409).json({
+        success: false,
+        code:
+          owners.length === 0
+            ? "REFUND_OWNER_NOT_FOUND"
+            : "REFUND_OWNER_AMBIGUOUS",
+        message:
+          owners.length === 0
+            ? "Refund transaction is not registered for this order"
+            : "Refund transaction matches more than one business record",
+      });
+    }
+
+    const owner = owners[0];
+    let changed = false;
+    if (owner.type === "order") {
+      const wasCompleted = owner.record.status === Order.STATUS.REFUNDED;
+      await orderService.handleRefundSuccess({
+        orderCode,
+        refundTransactionId: reference,
+        rawPayload: req.body,
+      });
+      changed = !wasCompleted;
+    } else if (owner.type === "return") {
+      const result = await completeReturnRefund({
+        orderId: order._id,
+        refundTransactionId: reference,
+      });
+      changed = Boolean(result?.changed);
+    } else {
+      changed = await supportResolutionService.settleProcessingRefund(
+        owner.record,
+        reference
+      );
+    }
+
+    res.json({
+      success: true,
+      owner: owner.type,
+      settled: changed ? [owner.type] : [],
+      duplicate: !changed,
     });
-    res.json({ success: true, orderStatus: order?.status });
   } catch (error) {
     console.error("[webhook/refund]", error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({
+      success: false,
+      code: error.code,
+      message: error.message,
+    });
   }
 });
 

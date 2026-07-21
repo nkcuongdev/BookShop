@@ -13,12 +13,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/hooks/useConfirm";
 import EmptyState from "@/components/common/EmptyState";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/context/AuthContext.jsx";
 import { authAPI } from "@/services/api";
+import VietnamAdministrativeFields from "@/components/address/VietnamAdministrativeFields";
+import { formatFullAddress } from "@/utils/address";
+import Switch from "@/components/ui/switch";
 
 export default function ProfileAddresses() {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const [addresses, setAddresses] = useState([]);
   const [open, setOpen] = useState(false);
@@ -28,6 +33,9 @@ export default function ProfileAddresses() {
     fullName: user?.name || "",
     phone: "",
     address: "",
+    city: "",
+    district: "",
+    ward: "",
     isDefault: false,
   });
 
@@ -52,6 +60,9 @@ export default function ProfileAddresses() {
       fullName: user?.name || "",
       phone: "",
       address: "",
+      city: "",
+      district: "",
+      ward: "",
       isDefault: false,
     });
 
@@ -63,7 +74,12 @@ export default function ProfileAddresses() {
 
   const openEdit = (addr) => {
     setEditing(addr._id);
-    setForm(addr);
+    setForm({
+      ...addr,
+      city: addr.city || "",
+      district: addr.district || "",
+      ward: addr.ward || "",
+    });
     setOpen(true);
   };
 
@@ -78,6 +94,9 @@ export default function ProfileAddresses() {
       fullName: form.fullName,
       phone: form.phone,
       address: form.address,
+      city: form.city || "",
+      district: form.district || "",
+      ward: form.ward || "",
       isDefault: !!form.isDefault,
     };
     const res = editing
@@ -95,7 +114,13 @@ export default function ProfileAddresses() {
   };
 
   const remove = async (id) => {
-    if (!confirm("Xóa địa chỉ này?")) return;
+    const ok = await confirm({
+      title: "Xoá địa chỉ này?",
+      description: "Địa chỉ sẽ bị xoá khỏi sổ địa chỉ của bạn.",
+      confirmText: "Xoá",
+      variant: "destructive",
+    });
+    if (!ok) return;
     const res = await authAPI.deleteAddress(id);
     if (!res.success) {
       toast.error(res.message || "Không thể xóa địa chỉ");
@@ -119,21 +144,21 @@ export default function ProfileAddresses() {
     <div className="space-y-5">
       <Card className="p-5 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-display font-bold text-secondary-800">
+          <h2 className="text-h3 font-display font-bold text-foreground">
             Địa chỉ đã lưu
           </h2>
-          <p className="text-sm text-secondary-500">
+          <p className="text-sm text-muted-foreground">
             {addresses.length} địa chỉ
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button onClick={openCreate}>
-              <Plus className="w-4 h-4" />
+              <Plus className="size-4" />
               Thêm địa chỉ
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>
                 {editing ? "Chỉnh sửa địa chỉ" : "Thêm địa chỉ mới"}
@@ -177,6 +202,12 @@ export default function ProfileAddresses() {
                   className="mt-1.5"
                 />
               </div>
+              <VietnamAdministrativeFields
+                key={editing || "new-address"}
+                value={form}
+                onChange={setForm}
+                idPrefix="profile-administrative"
+              />
               <div>
                 <Label htmlFor="address">Địa chỉ chi tiết</Label>
                 <textarea
@@ -186,20 +217,21 @@ export default function ProfileAddresses() {
                     setForm({ ...form, address: e.target.value })
                   }
                   rows={3}
-                  className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 resize-none"
+                  className="mt-1.5 w-full rounded-xl border border-border bg-card p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 resize-none"
                 />
               </div>
-              <label className="flex items-center gap-2 cursor-pointer text-sm">
-                <input
-                  type="checkbox"
+              <div className="flex items-center gap-3">
+                <Switch
                   checked={form.isDefault}
-                  onChange={(e) =>
-                    setForm({ ...form, isDefault: e.target.checked })
+                  onCheckedChange={(next) =>
+                    setForm({ ...form, isDefault: next })
                   }
-                  className="w-4 h-4 accent-primary-500"
+                  id="addr-default"
                 />
-                Đặt làm địa chỉ mặc định
-              </label>
+                <label htmlFor="addr-default" className="cursor-pointer text-sm">
+                  Đặt làm địa chỉ mặc định
+                </label>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpen(false)}>
@@ -228,7 +260,7 @@ export default function ProfileAddresses() {
                   <Badge variant="secondary">{addr.label}</Badge>
                   {addr.isDefault && (
                     <Badge variant="success">
-                      <Star className="w-3 h-3 fill-current" />
+                      <Star className="size-3 fill-current" />
                       Mặc định
                     </Badge>
                   )}
@@ -238,30 +270,30 @@ export default function ProfileAddresses() {
                     variant="ghost"
                     size="icon"
                     onClick={() => openEdit(addr)}
-                    className="h-8 w-8"
+                    className="size-8"
                   >
-                    <Pencil className="w-3.5 h-3.5" />
+                    <Pencil className="size-4" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={() => remove(addr._id)}
-                    className="h-8 w-8 text-red-500"
+                    className="size-8 text-danger-strong"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="size-4" />
                   </Button>
                 </div>
               </div>
-              <p className="font-semibold text-secondary-800 mt-3">
+              <p className="font-semibold text-foreground mt-3">
                 {addr.fullName}
               </p>
-              <p className="text-sm text-secondary-600 flex items-center gap-1.5 mt-1">
-                <Phone className="w-3.5 h-3.5" />
+              <p className="text-sm text-muted-foreground flex items-center gap-1.5 mt-1">
+                <Phone className="size-4" />
                 {addr.phone}
               </p>
-              <p className="text-sm text-secondary-600 flex items-start gap-1.5 mt-1">
-                <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                {addr.address}
+              <p className="text-sm text-muted-foreground flex items-start gap-1.5 mt-1">
+                <MapPin className="size-4 mt-0.5 shrink-0" />
+                {formatFullAddress(addr)}
               </p>
               {!addr.isDefault && (
                 <Button

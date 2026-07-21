@@ -65,6 +65,25 @@ function buildSteps(order) {
   const status = order.status;
 
   // Terminal "negative" branches
+  if (status === "CANCELLING") {
+    return [
+      {
+        key: "placed",
+        label: "Đã đặt hàng",
+        icon: ClipboardList,
+        date: order.placedAt || order.createdAt,
+        state: "done",
+      },
+      {
+        key: "cancelling",
+        label: "Đang hủy vận đơn và đơn hàng",
+        icon: RotateCcw,
+        date: getHistoryDate(order, "CANCELLING"),
+        state: "active",
+      },
+    ];
+  }
+
   if (status === "CANCELLED") {
     return [
       {
@@ -176,43 +195,43 @@ export default function OrderTimeline({ order }) {
                 aria-hidden
                 className={cn(
                   "absolute left-[15px] top-8 bottom-0 w-0.5",
-                  isDone || isDanger ? "bg-primary-500" : "bg-gray-200"
+                  isDone || isDanger ? "bg-primary" : "bg-border"
                 )}
               />
             )}
             <div
               className={cn(
-                "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-4 ring-white",
+                "relative z-10 flex size-8 shrink-0 items-center justify-center rounded-full ring-4 ring-white",
                 isDanger
-                  ? "bg-red-500 text-white"
+                  ? "bg-danger-strong text-white"
                   : isDone
-                  ? "bg-primary-500 text-white"
+                  ? "bg-primary text-primary-foreground"
                   : isActive
-                  ? "bg-amber-500 text-white animate-pulse"
-                  : "bg-gray-200 text-gray-500"
+                  ? "bg-warning-strong text-white animate-pulse"
+                  : "bg-border text-muted-foreground"
               )}
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="size-4" />
             </div>
             <div className="flex-1 pt-1">
               <p
                 className={cn(
                   "text-sm font-semibold",
                   isDanger
-                    ? "text-red-700"
+                    ? "text-danger-strong"
                     : isDone || isActive
-                    ? "text-secondary-800"
-                    : "text-secondary-400"
+                    ? "text-foreground"
+                    : "text-muted-foreground/70"
                 )}
               >
                 {step.label}
               </p>
               {step.date ? (
-                <p className="text-xs text-secondary-500 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   {formatDateTimeVN(step.date)}
                 </p>
               ) : isActive ? (
-                <p className="text-xs text-amber-600 mt-0.5 font-medium">
+                <p className="text-xs text-warning-strong mt-0.5 font-medium">
                   Đang xử lý...
                 </p>
               ) : null}

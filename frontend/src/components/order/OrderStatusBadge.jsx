@@ -1,73 +1,33 @@
-import {
-  Clock,
-  CreditCard,
-  PackageCheck,
-  Truck,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  RotateCcw,
-  Undo2,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadgeBase, getStatusIcon } from "@/components/ui/status-badge";
+import { STATUS_META, getStatusMeta } from "@/lib/status";
 
-// Map trạng thái đơn hàng (matches backend ORDER_STATUS)
-export const ORDER_STATUS_META = {
-  PENDING: {
-    label: "Chờ thanh toán",
-    icon: Clock,
-    variant: "warning",
-    tone: "bg-amber-50 text-amber-700 border-amber-200",
-  },
-  PAID: {
-    label: "Đã thanh toán",
-    icon: CreditCard,
-    variant: "info",
-    tone: "bg-sky-50 text-sky-700 border-sky-200",
-  },
-  PROCESSING: {
-    label: "Đang xử lý",
-    icon: PackageCheck,
-    variant: "info",
-    tone: "bg-indigo-50 text-indigo-700 border-indigo-200",
-  },
-  SHIPPED: {
-    label: "Đang giao",
-    icon: Truck,
-    variant: "info",
-    tone: "bg-blue-50 text-blue-700 border-blue-200",
-  },
-  DELIVERED: {
-    label: "Đã giao",
-    icon: CheckCircle2,
-    variant: "success",
-    tone: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  },
-  CANCELLED: {
-    label: "Đã hủy",
-    icon: XCircle,
-    variant: "destructive",
-    tone: "bg-red-50 text-red-700 border-red-200",
-  },
-  FAILED: {
-    label: "Thanh toán thất bại",
-    icon: AlertTriangle,
-    variant: "destructive",
-    tone: "bg-red-50 text-red-700 border-red-200",
-  },
-  REFUNDING: {
-    label: "Đang hoàn tiền",
-    icon: RotateCcw,
-    variant: "warning",
-    tone: "bg-amber-50 text-amber-700 border-amber-200",
-  },
-  REFUNDED: {
-    label: "Đã hoàn tiền",
-    icon: Undo2,
-    variant: "secondary",
-    tone: "bg-gray-100 text-gray-700 border-gray-200",
-  },
-};
+const ORDER_STATUS_KEYS = [
+  "PENDING",
+  "PAID",
+  "PROCESSING",
+  "CANCELLING",
+  "SHIPPED",
+  "DELIVERED",
+  "CANCELLED",
+  "FAILED",
+  "REFUNDING",
+  "REFUNDED",
+];
+
+/**
+ * Derived from the shared table so labels and colours cannot drift from the
+ * admin/profile/payment screens — `PAID` used to render green here, sky there
+ * and emerald on PaymentResult.
+ *
+ * `icon` is resolved to a component (was a component before) and `intent`
+ * replaces the old `tone` class string, which had no consumers.
+ */
+export const ORDER_STATUS_META = Object.fromEntries(
+  ORDER_STATUS_KEYS.map((key) => {
+    const meta = STATUS_META[key];
+    return [key, { ...meta, icon: getStatusIcon(meta.icon) }];
+  })
+);
 
 export function getOrderStatusMeta(status) {
   const key = String(status || "").toUpperCase();
@@ -75,30 +35,26 @@ export function getOrderStatusMeta(status) {
 }
 
 export default function OrderStatusBadge({ status, className }) {
-  const meta = getOrderStatusMeta(status);
-  const Icon = meta.icon;
+  const known = ORDER_STATUS_META[String(status || "").toUpperCase()];
   return (
-    <Badge variant={meta.variant} className={className}>
-      <Icon className="w-3.5 h-3.5" />
-      {meta.label}
-    </Badge>
+    <StatusBadgeBase
+      status={known ? status : "PENDING"}
+      icon
+      className={className}
+    />
   );
 }
 
-const PAYMENT_STATUS_META = {
-  UNPAID: { label: "Chưa thanh toán", variant: "warning" },
-  PAID: { label: "Đã thanh toán", variant: "success" },
-  FAILED: { label: "Thất bại", variant: "destructive" },
-  REFUNDING: { label: "Đang hoàn tiền", variant: "warning" },
-  REFUNDED: { label: "Đã hoàn tiền", variant: "secondary" },
-};
+const PAYMENT_STATUS_KEYS = ["UNPAID", "PAID", "FAILED", "REFUNDING", "REFUNDED"];
 
 export function PaymentStatusBadge({ status, className }) {
   const key = String(status || "UNPAID").toUpperCase();
-  const meta = PAYMENT_STATUS_META[key] || PAYMENT_STATUS_META.UNPAID;
+  const resolved = PAYMENT_STATUS_KEYS.includes(key) ? key : "UNPAID";
   return (
-    <Badge variant={meta.variant} className={className}>
-      {meta.label}
-    </Badge>
+    <StatusBadgeBase
+      intent={getStatusMeta(resolved).intent}
+      label={getStatusMeta(resolved).label}
+      className={className}
+    />
   );
 }

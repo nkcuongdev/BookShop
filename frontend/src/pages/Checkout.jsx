@@ -1,36 +1,40 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, Link, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import {
   Truck,
   CreditCard,
   MapPin,
-  CheckCircle2,
   Lock,
   ArrowLeft,
   FileText,
+  CircleAlert,
+  Loader2,
+  CalendarDays,
 } from "lucide-react";
 import { useCart } from "@/context/CartContext.jsx";
 import { useAuth } from "@/context/AuthContext.jsx";
 import { authAPI, eventsAPI, ordersAPI } from "@/services/api";
-import { formatVND } from "@/utils/format";
+import { formatDateVN, formatVND } from "@/utils/format";
+import { formatFullAddress } from "@/utils/address";
+import {
+  clearBuyNowSelection,
+  normalizeBuyNowSelection,
+  readBuyNowSelection,
+} from "@/utils/buyNow";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/sonner";
-import CheckoutStepper from "@/components/checkout/CheckoutStepper";
 import AddressForm from "@/components/checkout/AddressForm";
 import PaymentMethods from "@/components/checkout/PaymentMethods";
 import OrderSummaryCard from "@/components/cart/OrderSummaryCard";
 import { Badge } from "@/components/ui/badge";
+import BookCover from "@/components/book/BookCover";
+import PageHeader from "@/components/common/PageHeader";
+import StickyMobileBar from "@/components/common/StickyMobileBar";
+import Stepper from "@/components/common/Stepper";
+import SectionHeader from "@/components/common/SectionHeader";
 
 const STEPS = [
   { key: "address", label: "Địa chỉ", sub: "Thông tin giao hàng" },
@@ -38,54 +42,107 @@ const STEPS = [
   { key: "payment", label: "Thanh toán", sub: "Hoàn tất đơn" },
 ];
 
-const SHIPPING_OPTIONS = [
-  {
-    value: "standard",
-    title: "Giao hàng tiêu chuẩn",
-    desc: "Nhận hàng sau 2-4 ngày làm việc",
-    fee: 0,
-    icon: Truck,
-  },
-  {
-    value: "express",
-    title: "Giao nhanh 24h",
-    desc: "Nhận hàng trong vòng 24h (nội thành)",
-    fee: 25000,
-    icon: Truck,
-  },
-];
+function createIdempotencyKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `order-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 export default function Checkout() {
-  const { items, totalPrice, clearCart } = useCart();
-  const { user } = useAuth();
+  const cart = useCart();
+  const {
+    totalPrice: cartTotalPrice,
+    removePurchasedItems,
+    loading: cartLoading,
+  } = cart;
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // A "Mua ngay" checkout orders exactly one book and leaves the cart alone.
+  // Router state is the fresh source; sessionStorage is the fallback so a
+  // reload of /checkout does not silently switch over to the cart.
+  const buyNow = useMemo(() => {
+    const fromState = normalizeBuyNowSelection(location.state?.buyNow);
+    return fromState || readBuyNowSelection();
+  }, [location.state]);
+  const items = useMemo(() => {
+    // Keep compatibility with providers/mocks created before unavailable cart
+    // lines were split from the checkout selection.
+    const cartItems = cart.checkoutItems || cart.items || [];
+    return buyNow ? [{ book: buyNow.book, quantity: buyNow.quantity }] : cartItems;
+  }, [buyNow, cart.checkoutItems, cart.items]);
+  const totalPrice = buyNow
+    ? (Number(buyNow.book.price) || 0) * buyNow.quantity
+    : cartTotalPrice;
+
+  // Leaving checkout ends the buy-now session; otherwise a later visit to
+  // /checkout from the cart would still be pinned to that single book.
+  useEffect(() => () => clearBuyNowSelection(), []);
 
   const [step, setStep] = useState(1);
   const [address, setAddress] = useState({
     fullName: user?.name || "",
     phone: "",
     address: "",
+    city: "",
+    district: "",
+    ward: "",
     note: "",
   });
   const [errors, setErrors] = useState({});
-  const [shippingMethod, setShippingMethod] = useState("standard");
+  const [shippingMethod, setShippingMethod] = useState("");
+  const [shippingOptions, setShippingOptions] = useState([]);
+  const [shippingLoading, setShippingLoading] = useState(false);
+  const [shippingError, setShippingError] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("COD");
+  const selectedPaymentMethod = user && !user.emailVerified && paymentMethod === "COD"
+    ? "VNPAY"
+    : paymentMethod;
+  const [verificationSending, setVerificationSending] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState([]);
   const [selectedSavedAddressId, setSelectedSavedAddressId] = useState("");
-  const [appliedVoucherCode, setAppliedVoucherCode] = useState("");
+  const [appliedVoucherCodes, setAppliedVoucherCodes] = useState({
+    orderVoucherCode: "",
+    shippingVoucherCode: "",
+  });
   const [summaryState, setSummaryState] = useState({
     total: totalPrice,
     discount: 0,
     shipping: 0,
+    appliedPoints: 0,
+    pointsDiscount: 0,
   });
   const trackedCheckoutStart = useRef(false);
+  const orderIdempotencyKeyRef = useRef("");
+  const shippingQuoteKey = [
+    address.city,
+    address.district,
+    address.ward,
+    address.address,
+    ...items.map((item) => `${item.book._id || item.book.id}:${item.quantity}`),
+  ].join("|");
 
   useEffect(() => {
     if (!user || items.length === 0 || trackedCheckoutStart.current) return;
     trackedCheckoutStart.current = true;
-    eventsAPI.track({ type: "checkout_start", value: totalPrice }).catch(() => null);
+    eventsAPI.track({ type: "checkout_start" }).catch(() => null);
   }, [items.length, totalPrice, user]);
+
+  const requestEmailVerification = async () => {
+    setVerificationSending(true);
+    try {
+      const response = await authAPI.requestEmailVerification();
+      toast.success(response.message || "Đã gửi email xác minh");
+      if (response.data?.verificationUrl) {
+        window.location.assign(response.data.verificationUrl);
+      }
+    } catch (error) {
+      toast.error(error.message || "Không thể gửi email xác minh");
+    } finally {
+      setVerificationSending(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) return undefined;
@@ -107,6 +164,9 @@ export default function Checkout() {
           fullName: defaultAddr.fullName || prev.fullName || "",
           phone: defaultAddr.phone || "",
           address: defaultAddr.address || "",
+          city: defaultAddr.city || "",
+          district: defaultAddr.district || "",
+          ward: defaultAddr.ward || "",
         }));
       })
       .catch(() => {
@@ -117,14 +177,86 @@ export default function Checkout() {
     };
   }, [user]);
 
+  useEffect(() => {
+    if (step < 2 || !user || items.length === 0) return undefined;
+    let active = true;
+    // A quote belongs to the exact address/cart snapshot. Invalidate it before
+    // the debounce so a stale fee cannot be submitted while a new quote loads.
+    setShippingLoading(true);
+    setShippingOptions([]);
+    setShippingMethod("");
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await ordersAPI.getShippingQuotes({
+          items: items.map((item) => ({
+            bookId: item.book._id || item.book.id,
+            quantity: item.quantity,
+          })),
+          shippingAddress: {
+            fullName: address.fullName.trim(),
+            phone: address.phone.trim(),
+            address: address.address.trim(),
+            city: address.city?.trim() || "",
+            district: address.district?.trim() || "",
+            ward: address.ward?.trim() || "",
+          },
+        });
+        if (!active) return;
+        const options = response.data?.options || [];
+        setShippingOptions(options);
+        setShippingError("");
+        setShippingMethod((current) =>
+          options.some((option) => option.id === current)
+            ? current
+            : options[0]?.id || ""
+        );
+      } catch (error) {
+        if (!active) return;
+        setShippingOptions([]);
+        setShippingMethod("");
+        setShippingError(
+          error?.message ||
+            "Không thể kết nối GHN Sandbox. Vui lòng kiểm tra cấu hình thử nghiệm."
+        );
+      } finally {
+        if (active) setShippingLoading(false);
+      }
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [
+    address.address,
+    address.city,
+    address.district,
+    address.fullName,
+    address.phone,
+    address.ward,
+    items,
+    shippingQuoteKey,
+    step,
+    user,
+  ]);
+
   const selectedSavedAddress = useMemo(
     () =>
       savedAddresses.find((addr) => (addr._id || addr.id) === selectedSavedAddressId) || null,
     [savedAddresses, selectedSavedAddressId]
   );
 
-  if (items.length === 0) return <Navigate to="/cart" replace />;
+  if (authLoading || (cartLoading && !buyNow)) {
+    return (
+      <div
+        className="min-h-[60vh] flex items-center justify-center text-muted-foreground"
+        role="status"
+      >
+        Đang chuẩn bị thanh toán...
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login?redirect=/checkout" replace />;
+  if (items.length === 0) return <Navigate to="/cart" replace />;
 
   const handleSelectSavedAddress = (addr) => {
     setSelectedSavedAddressId(addr._id || addr.id || "");
@@ -133,12 +265,18 @@ export default function Checkout() {
       fullName: addr.fullName || "",
       phone: addr.phone || "",
       address: addr.address || "",
+      city: addr.city || "",
+      district: addr.district || "",
+      ward: addr.ward || "",
     }));
     setErrors((prev) => ({
       ...prev,
       fullName: undefined,
       phone: undefined,
       address: undefined,
+      city: undefined,
+      district: undefined,
+      ward: undefined,
     }));
   };
 
@@ -149,8 +287,16 @@ export default function Checkout() {
     else if (!/^[0-9]{10,11}$/.test(address.phone.replace(/\s/g, "")))
       errs.phone = "Số điện thoại không hợp lệ";
     if (!address.address.trim()) errs.address = "Vui lòng nhập địa chỉ";
-    else if (address.address.trim().length < 10)
+    else if (
+      address.address.trim().length <
+      (address.city || address.district || address.ward ? 3 : 10)
+    )
       errs.address = "Vui lòng nhập địa chỉ chi tiết hơn";
+    // GHN only knows the three-level catalogue, so all three units are required
+    // here — otherwise the shipping step silently returns no options.
+    if (!address.city?.trim()) errs.city = "Vui lòng chọn tỉnh/thành phố";
+    if (!address.district?.trim()) errs.district = "Vui lòng chọn quận/huyện";
+    if (!address.ward?.trim()) errs.ward = "Vui lòng chọn phường/xã";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -160,14 +306,25 @@ export default function Checkout() {
     setStep((s) => Math.min(s + 1, STEPS.length));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  const backTarget = buyNow
+    ? `/books/${buyNow.book._id || buyNow.book.id}`
+    : "/cart";
   const goBack = () =>
     step > 1
       ? setStep((s) => s - 1)
-      : navigate("/cart");
+      : navigate(backTarget);
 
   const handlePlaceOrder = async () => {
     if (!validateAddress()) {
       setStep(1);
+      return;
+    }
+    const selectedOption = shippingOptions.find(
+      (option) => option.id === shippingMethod
+    );
+    if (shippingLoading || !selectedOption) {
+      setStep(2);
+      toast.error("Vui lòng chọn lại phương thức vận chuyển");
       return;
     }
     setSubmitting(true);
@@ -176,24 +333,45 @@ export default function Checkout() {
       const orderItems = items.map((item) => ({
         bookId: item.book._id || item.book.id,
         quantity: item.quantity,
+        expectedUnitPrice: Math.round(Number(item.book.price) || 0),
       }));
       const shippingAddress = {
         fullName: address.fullName.trim(),
         phone: address.phone.trim(),
         address: address.address.trim(),
+        city: address.city?.trim() || "",
+        district: address.district?.trim() || "",
+        ward: address.ward?.trim() || "",
       };
-      const fee =
-        SHIPPING_OPTIONS.find((s) => s.value === shippingMethod)?.fee || 0;
-      const response = await ordersAPI.create({
-        items: orderItems,
-        shippingAddress,
-        paymentMethod,
-        voucherCode: appliedVoucherCode || undefined,
-        shippingFee: fee,
-        note: address.note?.trim() || "",
-        sessionId: eventsAPI.getSessionId(),
-      });
+      if (!orderIdempotencyKeyRef.current) {
+        orderIdempotencyKeyRef.current = createIdempotencyKey();
+      }
+      const response = await ordersAPI.create(
+        {
+          items: orderItems,
+          shippingAddress,
+          paymentMethod: selectedPaymentMethod,
+          orderVoucherCode:
+            appliedVoucherCodes.orderVoucherCode || undefined,
+          shippingVoucherCode:
+            appliedVoucherCodes.shippingVoucherCode || undefined,
+          shippingMethod:
+            shippingOptions.find((option) => option.id === shippingMethod)
+              ?.method || "standard",
+          shippingOptionId: shippingMethod,
+          note: address.note?.trim() || "",
+          // Points, not money: the server holds the conversion rate and
+          // re-checks the ceiling, so handing it an amount would let the client
+          // decide what a point is worth.
+          pointsToRedeem: summaryState.appliedPoints || undefined,
+          checkoutSource: buyNow ? "BUY_NOW" : "CART",
+          expectedTotal: Math.round(Number(summaryState.total) || 0),
+          sessionId: eventsAPI.getSessionId(),
+        },
+        orderIdempotencyKeyRef.current
+      );
       if (response.success) {
+        orderIdempotencyKeyRef.current = "";
         const newId = response.data.order._id || response.data.order.id;
         const paymentUrl = response.data.paymentUrl;
         if (paymentUrl) {
@@ -202,7 +380,11 @@ export default function Checkout() {
           window.location.href = paymentUrl;
           return;
         }
-        clearCart();
+        // Buy-now items were never in the cart, so there is nothing to remove.
+        if (!buyNow) {
+          removePurchasedItems(response.data.order.items || []);
+        }
+        clearBuyNowSelection();
         toast.success("Đặt hàng thành công!");
         navigate(`/profile/orders/${newId}`, { state: { justCreated: true } });
       }
@@ -215,53 +397,44 @@ export default function Checkout() {
     }
   };
 
-  const shippingFee =
-    SHIPPING_OPTIONS.find((s) => s.value === shippingMethod)?.fee || 0;
+  const selectedShippingOption =
+    shippingOptions.find((option) => option.id === shippingMethod);
+  const shippingReady =
+    !shippingLoading && Boolean(selectedShippingOption) && Boolean(shippingMethod);
+  const shippingFee = selectedShippingOption?.fee || 0;
 
   return (
     <div className="min-h-screen pb-28 lg:pb-6">
       {/* Header */}
-      <div className="bg-white border-b border-gray-100">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-          <Breadcrumb className="mb-2">
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link to="/cart">Giỏ hàng</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Thanh toán</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-          <h1 className="text-2xl lg:text-3xl font-display font-bold text-secondary-800">
-            Thanh toán
-          </h1>
-          <div className="mt-5">
-            <CheckoutStepper steps={STEPS} currentStep={step} />
-          </div>
+      <PageHeader
+        crumbs={[
+          buyNow
+            ? { label: buyNow.book.title || "Sản phẩm", to: backTarget }
+            : { label: "Giỏ hàng", to: "/cart" },
+          { label: "Thanh toán" },
+        ]}
+        title="Thanh toán"
+      >
+        <div className="mt-5">
+          <Stepper steps={STEPS} currentStep={step} />
         </div>
-      </div>
+      </PageHeader>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="page-container py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Form steps */}
           <div className="lg:col-span-2 space-y-5">
             {step === 1 && (
               <Card className="p-5 lg:p-6">
-                <div className="flex items-center gap-2.5 mb-4">
-                  <div className="w-9 h-9 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center">
-                    <MapPin className="w-5 h-5" />
-                  </div>
-                  <h2 className="text-lg font-display font-bold text-secondary-800">
-                    Địa chỉ giao hàng
-                  </h2>
-                </div>
+                <SectionHeader
+                  variant="icon"
+                  icon={MapPin}
+                  title="Địa chỉ giao hàng"
+                  className="mb-4"
+                />
                 {savedAddresses.length > 0 && (
-                  <div className="mb-4 rounded-xl border border-gray-200 p-3">
-                    <p className="text-sm font-semibold text-secondary-800 mb-2">
+                  <div className="mb-4 rounded-xl border border-border p-3">
+                    <p className="text-sm font-semibold text-foreground mb-2">
                       Chọn nhanh từ địa chỉ đã lưu
                     </p>
                     <div className="space-y-2">
@@ -278,19 +451,19 @@ export default function Checkout() {
                               "w-full text-left rounded-lg border p-3 transition-colors " +
                               (active
                                 ? "border-primary-500 bg-primary-50/40"
-                                : "border-gray-200 hover:border-primary-300")
+                                : "border-border hover:border-primary-300")
                             }
                           >
                             <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold text-secondary-800">
+                              <p className="text-sm font-semibold text-foreground">
                                 {addr.fullName}
                               </p>
                               <Badge variant="secondary">{addr.label || "Địa chỉ"}</Badge>
                               {addr.isDefault && <Badge variant="success">Mặc định</Badge>}
                             </div>
-                            <p className="text-xs text-secondary-600 mt-1">{addr.phone}</p>
-                            <p className="text-xs text-secondary-600 mt-0.5 line-clamp-2">
-                              {addr.address}
+                            <p className="text-xs text-muted-foreground mt-1">{addr.phone}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                              {formatFullAddress(addr)}
                             </p>
                           </button>
                         );
@@ -299,6 +472,7 @@ export default function Checkout() {
                   </div>
                 )}
                 <AddressForm
+                  key={selectedSavedAddressId || "custom-address"}
                   data={address}
                   onChange={setAddress}
                   errors={errors}
@@ -308,47 +482,63 @@ export default function Checkout() {
 
             {step === 2 && (
               <Card className="p-5 lg:p-6">
-                <div className="flex items-center gap-2.5 mb-4">
-                  <div className="w-9 h-9 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center">
-                    <Truck className="w-5 h-5" />
-                  </div>
-                  <h2 className="text-lg font-display font-bold text-secondary-800">
-                    Phương thức vận chuyển
-                  </h2>
-                </div>
+                <SectionHeader
+                  variant="icon"
+                  icon={Truck}
+                  title="Phương thức vận chuyển"
+                  className="mb-4"
+                />
                 <RadioGroup
                   value={shippingMethod}
                   onValueChange={setShippingMethod}
                   className="gap-3"
                 >
-                  {SHIPPING_OPTIONS.map((opt) => {
-                    const active = shippingMethod === opt.value;
+                  {shippingLoading && (
+                    <div className="flex items-center gap-2 rounded-xl border border-info/30 bg-info-muted p-3 text-sm text-info-strong">
+                      <Loader2 className="size-4 animate-spin" />
+                      Đang lấy phí và thời gian giao hàng...
+                    </div>
+                  )}
+                  {shippingError && (
+                    <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-muted p-3 text-xs text-warning-strong">
+                      <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                      {shippingError}
+                    </div>
+                  )}
+                  {shippingOptions.map((opt) => {
+                    const active = shippingMethod === opt.id;
                     return (
                       <Label
-                        key={opt.value}
-                        htmlFor={`ship-${opt.value}`}
+                        key={opt.id}
+                        htmlFor={`ship-${opt.id}`}
                         className={
                           "flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all " +
                           (active
                             ? "border-primary-500 bg-primary-50/40"
-                            : "border-gray-200 hover:border-primary-300 bg-white")
+                            : "border-border hover:border-primary-300 bg-card")
                         }
                       >
                         <RadioGroupItem
-                          id={`ship-${opt.value}`}
-                          value={opt.value}
+                          id={`ship-${opt.id}`}
+                          value={opt.id}
                           className="mt-1"
                         />
-                        <opt.icon className="w-5 h-5 text-primary-600 mt-0.5 shrink-0" />
+                        <Truck className="size-5 text-primary mt-0.5 shrink-0" />
                         <div className="flex-1">
-                          <p className="font-semibold text-secondary-800 text-sm">
+                          <p className="font-semibold text-foreground text-sm">
                             {opt.title}
                           </p>
-                          <p className="text-xs text-secondary-500 mt-0.5">
-                            {opt.desc}
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {opt.description}
                           </p>
+                          {opt.estimatedDelivery && (
+                            <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-primary">
+                              <CalendarDays className="size-3.5" />
+                              Dự kiến giao {formatDateVN(opt.estimatedDelivery)}
+                            </p>
+                          )}
                         </div>
-                        <p className="font-bold text-primary-600 text-sm shrink-0">
+                        <p className="font-bold text-primary text-sm shrink-0">
                           {opt.fee === 0 ? "Miễn phí" : formatVND(opt.fee)}
                         </p>
                       </Label>
@@ -361,52 +551,57 @@ export default function Checkout() {
             {step === 3 && (
               <>
                 <Card className="p-5 lg:p-6">
-                  <div className="flex items-center gap-2.5 mb-4">
-                    <div className="w-9 h-9 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center">
-                      <CreditCard className="w-5 h-5" />
-                    </div>
-                    <h2 className="text-lg font-display font-bold text-secondary-800">
-                      Phương thức thanh toán
-                    </h2>
-                  </div>
+                  <SectionHeader
+                    variant="icon"
+                    icon={CreditCard}
+                    title="Phương thức thanh toán"
+                    className="mb-4"
+                  />
                   <PaymentMethods
-                    value={paymentMethod}
+                    value={selectedPaymentMethod}
                     onChange={setPaymentMethod}
+                    codDisabled={!user?.emailVerified}
+                    codDisabledReason="Bạn cần xác minh email trước khi chọn thanh toán COD."
+                    onRequestVerification={requestEmailVerification}
+                    verificationSending={verificationSending}
                   />
                 </Card>
 
                 {/* Review summary */}
                 <Card className="p-5 lg:p-6">
-                  <div className="flex items-center gap-2.5 mb-4">
-                    <div className="w-9 h-9 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center">
-                      <FileText className="w-5 h-5" />
-                    </div>
-                    <h2 className="text-lg font-display font-bold text-secondary-800">
-                      Xác nhận đơn hàng
-                    </h2>
-                  </div>
+                  <SectionHeader
+                    variant="icon"
+                    icon={FileText}
+                    title="Xác nhận đơn hàng"
+                    className="mb-4"
+                  />
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-secondary-400 font-semibold mb-1">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground/70 font-semibold mb-1">
                         Giao đến
                       </p>
-                      <p className="font-medium text-secondary-800">
+                      <p className="font-medium text-foreground">
                         {address.fullName}
                       </p>
-                      <p className="text-secondary-600">{address.phone}</p>
-                      <p className="text-secondary-600 mt-1">
-                        {address.address}
+                      <p className="text-muted-foreground">{address.phone}</p>
+                      <p className="text-muted-foreground mt-1">
+                        {formatFullAddress(address)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-secondary-400 font-semibold mb-1">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground/70 font-semibold mb-1">
                         Vận chuyển
                       </p>
-                      <p className="font-medium text-secondary-800">
-                        {SHIPPING_OPTIONS.find(
-                          (s) => s.value === shippingMethod
-                        )?.title}
+                      <p className="font-medium text-foreground">
+                        {selectedShippingOption?.title}
                       </p>
+                      {selectedShippingOption?.estimatedDelivery && (
+                        <p className="mt-1 flex items-center gap-1.5 text-muted-foreground">
+                          <CalendarDays className="size-3.5" />
+                          Dự kiến giao{" "}
+                          {formatDateVN(selectedShippingOption.estimatedDelivery)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -416,8 +611,12 @@ export default function Checkout() {
             {/* Step nav (desktop) */}
             <div className="hidden lg:flex items-center justify-between gap-3">
               <Button variant="outline" onClick={goBack}>
-                <ArrowLeft className="w-4 h-4" />
-                {step === 1 ? "Quay lại giỏ" : "Quay lại"}
+                <ArrowLeft className="size-4" />
+                {step === 1
+                  ? buyNow
+                    ? "Quay lại sản phẩm"
+                    : "Quay lại giỏ"
+                  : "Quay lại"}
               </Button>
               {step < STEPS.length && <Button onClick={goNext}>Tiếp tục</Button>}
             </div>
@@ -428,15 +627,19 @@ export default function Checkout() {
             <OrderSummaryCard
               subtotal={totalPrice}
               itemCount={items.length}
-              shippingFee={shippingFee}
+              shippingFee={shippingReady ? shippingFee : undefined}
               onCheckout={step === STEPS.length ? handlePlaceOrder : goNext}
               checkoutLabel={
                 step < STEPS.length ? "Tiếp tục" : "Đặt hàng ngay"
               }
-              checkoutDisabled={submitting}
+              checkoutDisabled={
+                submitting || !shippingReady
+              }
               showCheckoutButton={step === STEPS.length}
               showCoupon={step === STEPS.length}
-              onCouponChange={setAppliedVoucherCode}
+              showPoints={step === STEPS.length}
+              voucherValidationReady={shippingReady}
+              onCouponChange={setAppliedVoucherCodes}
               onSummaryChange={setSummaryState}
               compactItems={
                 <div className="mt-3 space-y-2 max-h-64 overflow-y-auto pr-1">
@@ -446,20 +649,20 @@ export default function Checkout() {
                       className="flex items-center gap-3"
                     >
                       <div className="relative shrink-0">
-                        <img
+                        <BookCover
                           src={item.book.imageUrl}
-                          alt=""
-                          className="w-12 h-16 object-cover rounded-lg bg-gray-100"
+                          title={item.book.title}
+                          size="sm"
                         />
-                        <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-primary-500 text-white text-[10px] font-bold flex items-center justify-center">
+                        <span className="absolute -top-1 -right-1 size-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
                           {item.quantity}
                         </span>
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-secondary-800 line-clamp-2">
+                        <p className="text-xs font-medium text-foreground line-clamp-2">
                           {item.book.title}
                         </p>
-                        <p className="text-xs text-primary-600 font-semibold mt-0.5">
+                        <p className="text-xs text-primary font-semibold mt-0.5">
                           {formatVND(item.book.price * item.quantity)}
                         </p>
                       </div>
@@ -473,27 +676,30 @@ export default function Checkout() {
       </div>
 
       {/* Sticky mobile CTA */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 shadow-2xl p-3 flex items-center gap-2">
+      <StickyMobileBar>
         <Button variant="outline" onClick={goBack} className="shrink-0">
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="size-4" />
         </Button>
         {step < STEPS.length ? (
           <Button onClick={goNext} className="flex-1">
             Tiếp tục
           </Button>
         ) : (
+          // !shippingReady is a validity guard, not progress — it belongs in
+          // `disabled`, otherwise the button spins before a shipping method is
+          // even picked.
           <Button
             onClick={handlePlaceOrder}
-            disabled={submitting}
+            disabled={!shippingReady}
+            loading={submitting}
+            loadingText="Đang xử lý..."
             className="flex-1"
           >
-            <Lock className="w-4 h-4" />
-            {submitting
-              ? "Đang xử lý..."
-              : `Đặt hàng · ${formatVND(summaryState.total)}`}
+            <Lock className="size-4" />
+            {`Đặt hàng · ${formatVND(summaryState.total)}`}
           </Button>
         )}
-      </div>
+      </StickyMobileBar>
     </div>
   );
 }

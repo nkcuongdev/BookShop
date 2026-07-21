@@ -1,5 +1,6 @@
+import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ShoppingCart, Trash2, ArrowLeft, ArrowRight } from "lucide-react";
+import { Trash2, ArrowLeft, ArrowRight } from "lucide-react";
 import { useCart } from "@/context/CartContext.jsx";
 import { useAuth } from "@/context/AuthContext.jsx";
 import CartItem from "@/components/cart/CartItem";
@@ -8,22 +9,39 @@ import EmptyState from "@/components/common/EmptyState";
 import TrustBadgeRow from "@/components/common/TrustBadgeRow";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+import { useConfirm } from "@/hooks/useConfirm";
+import PageHeader from "@/components/common/PageHeader";
 
+import { EmptyCartIllustration } from "@/components/common/illustrations";
 export default function Cart() {
-  const { items, removeItem, updateQuantity, totalPrice, totalItems, clearCart } =
-    useCart();
+  const confirm = useConfirm();
+  const {
+    items,
+    checkoutItems,
+    cartNotices,
+    removeItem,
+    updateQuantity,
+    totalPrice,
+    totalItems,
+    clearCart,
+    loading,
+    syncError,
+    clearSyncError,
+  } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    if (!syncError) return;
+    toast.error(syncError);
+    clearSyncError();
+  }, [syncError, clearSyncError]);
+
   const handleCheckout = () => {
+    if (!checkoutItems.length) {
+      toast.error("Giỏ hàng chưa có sản phẩm khả dụng để thanh toán");
+      return;
+    }
     if (!user) {
       toast.error("Vui lòng đăng nhập để thanh toán");
       navigate("/login?redirect=/checkout");
@@ -32,18 +50,29 @@ export default function Cart() {
     navigate("/checkout");
   };
 
+  if (loading) {
+    return (
+      <div
+        className="min-h-[60vh] flex items-center justify-center text-muted-foreground"
+        role="status"
+      >
+        Đang đồng bộ giỏ hàng...
+      </div>
+    );
+  }
+
   if (items.length === 0) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-16">
+      <div className="mx-auto max-w-4xl px-4 section-base">
         <EmptyState
-          icon={ShoppingCart}
+          illustration={EmptyCartIllustration}
           title="Giỏ hàng trống"
           description="Bạn chưa thêm sách nào vào giỏ. Khám phá ngay để tìm cuốn sách yêu thích!"
           action={
             <Button asChild size="lg">
               <Link to="/products">
                 Khám phá sách
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="size-4" />
               </Link>
             </Button>
           }
@@ -54,50 +83,42 @@ export default function Cart() {
 
   return (
     <div className="min-h-screen">
-      <div className="bg-white border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-          <Breadcrumb className="mb-2">
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link to="/">Trang chủ</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Giỏ hàng</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-          <h1 className="text-2xl lg:text-3xl font-display font-bold text-secondary-800">
-            Giỏ hàng
-          </h1>
-          <p className="text-sm text-secondary-500 mt-0.5">
-            Bạn đang có {totalItems} sản phẩm trong giỏ
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        crumbs={[{ label: "Trang chủ", to: "/" }, { label: "Giỏ hàng" }]}
+        title="Giỏ hàng"
+        subtitle={`Bạn đang có ${totalItems} sản phẩm trong giỏ`}
+      />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="page-container py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Items */}
           <div className="lg:col-span-2 space-y-3">
+            {cartNotices.length > 0 && (
+              <div className="rounded-xl border border-warning/30 bg-warning-muted p-3 text-sm text-warning-strong">
+                Giỏ hàng đã được cập nhật theo tình trạng bán và tồn kho mới nhất. Các dòng không khả dụng được giữ lại để bạn xem hoặc xóa.
+              </div>
+            )}
             <div className="flex items-center justify-between px-1">
-              <p className="text-sm font-medium text-secondary-600">
+              <p className="text-sm font-medium text-muted-foreground">
                 {items.length} sản phẩm
               </p>
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  if (confirm("Xóa tất cả sản phẩm trong giỏ?")) {
-                    clearCart();
-                    toast.success("Đã xóa giỏ hàng");
-                  }
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: "Xoá tất cả sản phẩm?",
+                    description: "Toàn bộ sản phẩm trong giỏ hàng sẽ bị xoá.",
+                    confirmText: "Xoá tất cả",
+                    variant: "destructive",
+                  });
+                  if (!ok) return;
+                  clearCart();
+                  toast.success("Đã xoá giỏ hàng");
                 }}
-                className="text-secondary-500 hover:text-red-500"
+                className="text-muted-foreground hover:text-danger-strong"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="size-4" />
                 Xóa tất cả
               </Button>
             </div>
@@ -116,7 +137,7 @@ export default function Cart() {
 
             <Button asChild variant="outline" className="w-full sm:w-auto">
               <Link to="/products">
-                <ArrowLeft className="w-4 h-4" />
+                <ArrowLeft className="size-4" />
                 Tiếp tục mua sắm
               </Link>
             </Button>

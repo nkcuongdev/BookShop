@@ -24,7 +24,14 @@ const METHODS = [
   },
 ];
 
-export default function PaymentMethods({ value = "COD", onChange }) {
+export default function PaymentMethods({
+  value = "COD",
+  onChange,
+  codDisabled = false,
+  codDisabledReason = "",
+  onRequestVerification,
+  verificationSending = false,
+}) {
   const selectMethod = (method) => {
     if (method.disabled) return;
     onChange?.(method.value);
@@ -32,28 +39,23 @@ export default function PaymentMethods({ value = "COD", onChange }) {
 
   return (
     <RadioGroup value={value} onValueChange={onChange} className="gap-3">
-      {METHODS.map((m) => {
+      {METHODS.map((baseMethod) => {
+        const m =
+          baseMethod.value === "COD" && codDisabled
+            ? { ...baseMethod, disabled: true, disabledReason: codDisabledReason }
+            : baseMethod;
         const isActive = value === m.value;
         return (
           <Label
             key={m.value}
             htmlFor={`pm-${m.value}`}
-            role="radio"
-            tabIndex={m.disabled ? -1 : 0}
-            aria-checked={isActive}
             onClick={() => selectMethod(m)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                selectMethod(m);
-              }
-            }}
             className={cn(
               "flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all",
               m.disabled && "opacity-50 cursor-not-allowed",
               isActive
-                ? "border-primary-500 bg-primary-50/40 shadow-sm"
-                : "border-gray-200 hover:border-primary-300 bg-white"
+                ? "border-primary-500 bg-primary-50/40 shadow-xs"
+                : "border-border hover:border-primary-300 bg-card"
             )}
           >
             <RadioGroupItem
@@ -64,21 +66,40 @@ export default function PaymentMethods({ value = "COD", onChange }) {
             />
             <div
               className={cn(
-                "w-10 h-10 rounded-lg flex items-center justify-center shrink-0",
+                "size-10 rounded-lg flex items-center justify-center shrink-0",
                 isActive
-                  ? "bg-primary-500 text-white"
-                  : "bg-gray-100 text-secondary-500"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground"
               )}
             >
-              <m.icon className="w-5 h-5" />
+              <m.icon className="size-5" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <p className="font-semibold text-secondary-800 text-sm">
+                <p className="font-semibold text-foreground text-sm">
                   {m.title}
                 </p>
               </div>
-              <p className="text-xs text-secondary-500 mt-0.5">{m.desc}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{m.desc}</p>
+              {m.disabledReason && (
+                <div className="mt-2 text-xs text-warning-strong">
+                  <p>{m.disabledReason}</p>
+                  {onRequestVerification && (
+                    <button
+                      type="button"
+                      className="mt-1 font-semibold text-primary hover:underline disabled:opacity-50"
+                      disabled={verificationSending}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onRequestVerification();
+                      }}
+                    >
+                      {verificationSending ? "Đang gửi..." : "Gửi lại email xác minh"}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </Label>
         );

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { formatVND } from "@/utils/format.js";
+import BookCover from "@/components/book/BookCover";
 
 function getBookId(item) {
   return item?.book?._id || item?.book || item?.bookId || "";
@@ -9,11 +10,11 @@ function getBookId(item) {
 export default function OrderItemsList({ items = [] }) {
   return (
     <Card className="p-5">
-      <h3 className="font-semibold text-secondary-800 text-sm mb-4">
+      <h3 className="font-semibold text-foreground text-sm mb-4">
         Sản phẩm ({items.length})
       </h3>
 
-      <ul className="divide-y divide-gray-100">
+      <ul className="divide-y divide-border">
         {items.map((item, idx) => {
           const bookId = getBookId(item);
           const lineTotal = item.subtotal ?? item.price * item.quantity;
@@ -26,31 +27,32 @@ export default function OrderItemsList({ items = [] }) {
                   className="shrink-0 group"
                   aria-label={item.title}
                 >
-                  <img
-                    src={item.imageUrl || "https://via.placeholder.com/80x120"}
-                    alt={item.title}
-                    className="w-16 h-22 object-cover rounded-lg shadow-sm transition-transform group-hover:scale-105"
-                    style={{ aspectRatio: "2 / 3" }}
+                  <BookCover
+                    src={item.imageUrl}
+                    title={item.title}
+                    size="md"
+                    zoomOnHover
+                    className="shadow-xs"
                   />
                 </Link>
 
                 <div className="flex-1 min-w-0">
                   <Link
                     to={bookId ? `/books/${bookId}` : "#"}
-                    className="font-medium text-secondary-800 hover:text-primary-600 transition-colors line-clamp-2 text-sm"
+                    className="font-medium text-foreground hover:text-primary transition-colors line-clamp-2 text-sm"
                   >
                     {item.title}
                   </Link>
                   {item.author && (
-                    <p className="text-xs text-secondary-500 mt-0.5">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {item.author}
                     </p>
                   )}
                   <div className="mt-2 flex items-center justify-between">
-                    <p className="text-xs text-secondary-500">
+                    <p className="text-xs text-muted-foreground">
                       {formatVND(item.price)} × {item.quantity}
                     </p>
-                    <p className="text-sm font-semibold text-primary-600">
+                    <p className="text-sm font-semibold text-primary">
                       {formatVND(lineTotal)}
                     </p>
                   </div>

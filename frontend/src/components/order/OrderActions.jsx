@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { CreditCard, X, ShoppingCart, RefreshCw } from "lucide-react";
+import { CreditCard, Headphones, X, ShoppingCart, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import CancelOrderDialog from "./CancelOrderDialog";
 import { useCart } from "@/context/CartContext.jsx";
@@ -87,34 +87,39 @@ export default function OrderActions({ order, onChanged }) {
     }
   };
 
-  if (!canPay && !canCancel && !canReorder) return null;
-
   return (
     <>
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          onClick={() => navigate(`/profile/support?orderId=${order._id || order.id}`)}
+        >
+          <Headphones className="size-4" />
+          Hỗ trợ & đổi trả
+        </Button>
         {canReorder && (
           <Button variant="outline" onClick={handleReorder}>
-            <ShoppingCart className="w-4 h-4" />
+            <ShoppingCart className="size-4" />
             Mua lại
           </Button>
         )}
         {canCancel && (
           <Button
             variant="outline"
-            className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+            className="text-danger-strong hover:text-danger-strong hover:bg-danger-muted border-danger-strong/40"
             onClick={() => setCancelOpen(true)}
             disabled={loading}
           >
-            <X className="w-4 h-4" />
+            <X className="size-4" />
             Huỷ đơn
           </Button>
         )}
         {canPay && (
           <Button onClick={handlePay} disabled={loading}>
             {loading ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
+              <RefreshCw className="size-4 animate-spin" />
             ) : (
-              <CreditCard className="w-4 h-4" />
+              <CreditCard className="size-4" />
             )}
             Thanh toán ngay
           </Button>
