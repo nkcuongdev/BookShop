@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageCircle, Send, X, Phone, Mail, Loader2 } from "lucide-react";
+import { Bot, MessageCircle, Send, X, Phone, Mail, Loader2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
@@ -14,6 +14,7 @@ const QUICK_FAQS = [
   "Chính sách đổi trả như thế nào?",
   "Có giao hàng toàn quốc không?",
   "Thanh toán bằng cách nào?",
+  "Gặp nhân viên hỗ trợ",
 ];
 
 function timeAgo(iso) {
@@ -101,28 +102,28 @@ export default function ChatSupportWidget() {
         onClick={() => setOpen((v) => !v)}
         aria-label="Hỗ trợ trực tuyến"
         className={cn(
-          "fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-xl shadow-primary-500/40 flex items-center justify-center transition-all hover:scale-110 hover:shadow-2xl",
+          "fixed bottom-5 right-5 z-40 size-14 rounded-full bg-gradient-to-br from-primary-600 to-primary-800 text-white shadow-primary-glow-lg flex items-center justify-center transition-all hover:scale-110 hover:shadow-modal",
           open && "rotate-90"
         )}
       >
-        {open ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
+        {open ? <X className="size-6" /> : <MessageCircle className="size-6" />}
         {!open && (
-          <span className="absolute top-0 right-0 w-3 h-3 bg-emerald-400 rounded-full ring-2 ring-white animate-pulse" />
+          <span className="absolute top-0 right-0 size-3 bg-success rounded-full ring-2 ring-white animate-pulse" />
         )}
       </button>
 
       {open && (
-        <div className="fixed bottom-24 right-5 z-40 w-[360px] max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200 flex flex-col max-h-[70vh]">
-          <div className="bg-gradient-to-br from-primary-500 to-primary-600 text-white p-4">
+        <div className="fixed bottom-24 right-5 z-40 w-[360px] max-w-[calc(100vw-2rem)] bg-card rounded-2xl ring-1 ring-foreground/[0.08] shadow-modal overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200 flex flex-col max-h-[70vh]">
+          <div className="bg-gradient-to-br from-primary-600 to-primary-800 text-white p-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-                <MessageCircle className="w-5 h-5" />
+              <div className="size-10 rounded-full bg-white/20 flex items-center justify-center">
+                <MessageCircle className="size-5" />
               </div>
               <div>
                 <p className="font-semibold">BookShop hỗ trợ</p>
                 <p className="text-xs text-white/80 flex items-center gap-1.5">
-                  <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-                  Online — phản hồi trong 5 phút
+                  <span className="size-2 bg-success rounded-full animate-pulse" />
+                  Trợ lý tự động trả lời ngay
                 </p>
               </div>
             </div>
@@ -130,44 +131,47 @@ export default function ChatSupportWidget() {
 
           {!user ? (
             <div className="p-6 text-center space-y-3">
-              <p className="text-sm text-secondary-700">
+              <p className="text-sm text-foreground">
                 Đăng nhập để trò chuyện với nhân viên hỗ trợ của BookShop.
               </p>
               <a
                 href="/login"
-                className="inline-flex items-center justify-center rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-600"
+                className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-600"
               >
                 Đăng nhập
               </a>
               <div className="grid grid-cols-2 gap-2 pt-2">
                 <a
                   href="tel:19001234"
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-primary-300 text-sm text-secondary-700"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border hover:border-primary/40 text-sm text-foreground"
                 >
-                  <Phone className="w-4 h-4 text-primary-600" /> 1900 1234
+                  <Phone className="size-4 text-primary" /> 1900 1234
                 </a>
                 <a
                   href="mailto:hello@bookshop.vn"
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-primary-300 text-sm text-secondary-700"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border hover:border-primary/40 text-sm text-foreground"
                 >
-                  <Mail className="w-4 h-4 text-primary-600" /> Email
+                  <Mail className="size-4 text-primary" /> Email
                 </a>
               </div>
             </div>
           ) : (
             <>
-              <div className="flex-1 overflow-y-auto p-4 bg-gray-50/60 space-y-3">
-                <div className="bg-white border border-gray-100 rounded-xl p-3 text-sm text-secondary-700">
-                  Xin chào {user.name} 👋 Chúng tôi có thể giúp gì cho bạn hôm nay?
+              <div className="flex-1 overflow-y-auto p-4 bg-muted/60 space-y-3">
+                <div className="bg-card border border-border rounded-xl p-3 text-sm text-foreground">
+                  <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-primary">
+                    <Bot className="size-3.5" /> Trợ lý tự động
+                  </div>
+                  Xin chào {user.name} 👋 Mình có thể giúp gì cho bạn hôm nay?
                 </div>
 
                 {chatQ.isLoading ? (
                   <div className="flex justify-center py-6">
-                    <Loader2 className="w-5 h-5 animate-spin text-primary-500" />
+                    <Loader2 className="size-5 animate-spin text-primary" />
                   </div>
                 ) : messages.length === 0 ? (
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-secondary-400 mb-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70 mb-2">
                       Câu hỏi thường gặp
                     </p>
                     <div className="space-y-1.5">
@@ -175,7 +179,7 @@ export default function ChatSupportWidget() {
                         <button
                           key={faq}
                           onClick={() => handleQuickFaq(faq)}
-                          className="w-full text-left text-sm px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 transition-colors"
+                          className="w-full text-left text-sm px-3 py-2 rounded-lg border border-border bg-card hover:border-primary/40 hover:bg-primary-50 hover:text-primary-700 transition-colors"
                         >
                           {faq}
                         </button>
@@ -193,17 +197,22 @@ export default function ChatSupportWidget() {
                         >
                           <div
                             className={cn(
-                              "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-sm",
+                              "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm shadow-xs",
                               mine
-                                ? "rounded-tr-sm bg-primary-500 text-white"
-                                : "rounded-tl-sm bg-white text-secondary-800 border border-gray-100"
+                                ? "rounded-tr-sm bg-primary text-white"
+                                : "rounded-tl-sm bg-card text-foreground border border-border"
                             )}
                           >
                             <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                            {m.automated && (
+                              <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-primary">
+                                <Bot className="size-3" /> Trả lời tự động
+                              </p>
+                            )}
                             <p
                               className={cn(
                                 "mt-1 text-[10px]",
-                                mine ? "text-white/70" : "text-secondary-400"
+                                mine ? "text-white/70" : "text-muted-foreground/70"
                               )}
                             >
                               {timeAgo(m.at)}
@@ -217,29 +226,37 @@ export default function ChatSupportWidget() {
                 )}
               </div>
 
-              <form
-                onSubmit={handleSend}
-                className="border-t border-gray-100 p-3 flex items-center gap-2"
-              >
-                <Input
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder="Nhập tin nhắn..."
-                  className="flex-1 h-10"
-                  disabled={sendMut.isPending}
-                />
-                <Button
-                  type="submit"
-                  size="icon"
-                  disabled={!text.trim() || sendMut.isPending}
+              <div className="border-t border-border p-3">
+                <button
+                  type="button"
+                  onClick={() => handleQuickFaq("Gặp nhân viên hỗ trợ")}
+                  disabled={sendMut.isPending || chatQ.data?.conversation?.needsHuman}
+                  className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
                 >
-                  {sendMut.isPending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-                </Button>
-              </form>
+                  <UserRound className="size-3.5" />
+                  {chatQ.data?.conversation?.needsHuman
+                    ? "Đã chuyển cho nhân viên"
+                    : "Gặp nhân viên"}
+                </button>
+                <form onSubmit={handleSend} className="flex items-center gap-2">
+                  <Input
+                    value={text}
+                    maxLength={2000}
+                    onChange={(e) => setText(e.target.value)}
+                    placeholder="Nhập tin nhắn..."
+                    className="flex-1 h-10"
+                    disabled={sendMut.isPending}
+                  />
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={!text.trim()}
+                    loading={sendMut.isPending}
+                  >
+                    <Send className="size-4" />
+                  </Button>
+                </form>
+              </div>
             </>
           )}
         </div>

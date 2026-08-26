@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageSquare, Search, Send } from "lucide-react";
+import { Bot, MessageSquare, Search, Send, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/admin/common/PageHeader";
 import { EmptyState } from "@/components/admin/common/EmptyState";
 import { ErrorState } from "@/components/admin/common/ErrorState";
@@ -16,6 +16,9 @@ import {
 import { cn } from "@/lib/utils";
 import { connectSocket } from "@/services/socket";
 import { useQueryClient } from "@tanstack/react-query";
+import useDebounce from "@/hooks/useDebounce";
+import { useAuth } from "@/context/AuthContext.jsx";
+import { can } from "@/lib/rbac";
 
 function timeAgo(iso) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -28,39 +31,48 @@ function timeAgo(iso) {
 }
 
 export default function ChatSupport() {
+  const { user } = useAuth();
+  const canWrite = can(user, "chat.write");
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [text, setText] = useState("");
   const listEndRef = useRef(null);
+  const loadingOlderRef = useRef(false);
   const qc = useQueryClient();
+  const debouncedSearch = useDebounce(search, 250);
 
-  const convsQ = useConversations();
-  const msgsQ = useMessages(selectedId);
+  const convsQ = useConversations({
+    page,
+    limit: 30,
+    search: debouncedSearch || undefined,
+  });
+  const conversations = convsQ.data?.conversations || [];
+  const activeSelectedId = conversations.some((item) => item._id === selectedId)
+    ? selectedId
+    : conversations[0]?._id || null;
+  const msgsQ = useMessages(activeSelectedId);
   const sendMut = useSendMessage();
   const markRead = useMarkRead();
 
   useEffect(() => {
-    if (!selectedId && convsQ.data?.length) {
-      setSelectedId(convsQ.data[0]._id);
-    }
-  }, [convsQ.data, selectedId]);
-
-  useEffect(() => {
-    if (selectedId) markRead.mutate(selectedId);
+    if (canWrite && activeSelectedId) markRead.mutate(activeSelectedId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [activeSelectedId, canWrite]);
 
   useEffect(() => {
-    listEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [msgsQ.data?.length]);
+    if (!loadingOlderRef.current) {
+      listEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [msgsQ.data?.messages?.length]);
 
   useEffect(() => {
     const socket = connectSocket();
-    if (selectedId) socket.emit("chat:join", selectedId);
+    if (activeSelectedId) socket.emit("chat:join", activeSelectedId);
     const onMessage = (payload) => {
       qc.invalidateQueries({ queryKey: ["admin", "conversations"] });
-      if (!payload?.conversationId || payload.conversationId === selectedId) {
-        qc.invalidateQueries({ queryKey: ["admin", "messages", selectedId] });
+      if (!payload?.conversationId || payload.conversationId === activeSelectedId) {
+        qc.invalidateQueries({ queryKey: ["admin", "messages", activeSelectedId] });
       }
     };
     const onConversation = () => {
@@ -72,18 +84,26 @@ export default function ChatSupport() {
       socket.off("chat:message", onMessage);
       socket.off("chat:conversation", onConversation);
     };
-  }, [qc, selectedId]);
+  }, [qc, activeSelectedId]);
 
-  const filteredConvs = (convsQ.data || []).filter((c) =>
-    !search ? true : c.customer.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredConvs = convsQ.data?.conversations || [];
 
-  const selected = convsQ.data?.find((c) => c._id === selectedId);
+  const selected = conversations.find((c) => c._id === activeSelectedId);
+  const messages = msgsQ.data?.messages || [];
+
+  const loadOlderMessages = async () => {
+    loadingOlderRef.current = true;
+    try {
+      await msgsQ.fetchNextPage();
+    } finally {
+      loadingOlderRef.current = false;
+    }
+  };
 
   const handleSend = (e) => {
     e.preventDefault();
-    if (!text.trim() || !selectedId) return;
-    sendMut.mutate({ conversationId: selectedId, text: text.trim() });
+    if (!canWrite || !text.trim() || !activeSelectedId) return;
+    sendMut.mutate({ conversationId: activeSelectedId, text: text.trim() });
     setText("");
   };
 
@@ -91,15 +111,18 @@ export default function ChatSupport() {
     <div className="space-y-4">
       <PageHeader title="Chat hỗ trợ" />
 
-      <div className="grid h-[calc(100vh-12rem)] grid-cols-1 gap-0 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm lg:grid-cols-[320px,1fr]">
-        <aside className="flex min-h-0 flex-col border-b border-gray-100 lg:border-b-0 lg:border-r">
-          <div className="border-b border-gray-100 p-3">
+      <div className="grid h-[calc(100vh-12rem)] grid-cols-1 gap-0 overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/[0.06] shadow-rest lg:grid-cols-[320px_1fr]">
+        <aside className="flex min-h-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
+          <div className="border-b border-border p-3">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-secondary-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
               <Input
                 placeholder="Tìm hội thoại..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
                 className="h-9 pl-8"
               />
             </div>
@@ -116,39 +139,45 @@ export default function ChatSupport() {
             ) : filteredConvs.length === 0 ? (
               <EmptyState icon={MessageSquare} title="Chưa có hội thoại" />
             ) : (
+              <>
               <ul>
                 {filteredConvs.map((c) => {
-                  const isActive = c._id === selectedId;
+                  const isActive = c._id === activeSelectedId;
                   return (
                     <li key={c._id}>
                       <button
                         type="button"
                         onClick={() => setSelectedId(c._id)}
                         className={cn(
-                          "flex w-full items-start gap-3 border-b border-gray-100 p-3 text-left transition-colors",
-                          isActive ? "bg-primary-50/60" : "hover:bg-gray-50"
+                          "flex w-full items-start gap-3 border-b border-border p-3 text-left transition-colors",
+                          isActive ? "bg-primary-50/60" : "hover:bg-muted"
                         )}
                       >
-                        <Avatar className="h-10 w-10 shrink-0">
+                        <Avatar className="size-10 shrink-0">
                           <AvatarFallback className="text-sm">
                             {c.customer.name.charAt(0)}
                           </AvatarFallback>
                         </Avatar>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="truncate font-semibold text-secondary-800">
+                            <p className="truncate font-semibold text-foreground">
                               {c.customer.name}
                             </p>
-                            <span className="shrink-0 text-[10px] text-secondary-400">
+                            <span className="shrink-0 text-[10px] text-muted-foreground/70">
                               {timeAgo(c.lastAt)}
                             </span>
                           </div>
-                          <p className="truncate text-xs text-secondary-500">
+                          <p className="truncate text-xs text-muted-foreground">
                             {c.lastMessage}
                           </p>
+                          {c.needsHuman && (
+                            <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-warning-strong">
+                              <UserRound className="size-3" /> Cần nhân viên hỗ trợ
+                            </p>
+                          )}
                         </div>
                         {c.unread > 0 && (
-                          <span className="mt-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary-500 px-1.5 text-[10px] font-bold text-white">
+                          <span className="mt-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold text-white">
                             {c.unread}
                           </span>
                         )}
@@ -157,6 +186,36 @@ export default function ChatSupport() {
                   );
                 })}
               </ul>
+              {(convsQ.data?.pagination?.totalPages || 1) > 1 && (
+                <div className="flex items-center justify-between border-t border-border p-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={page <= 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  >
+                    Trước
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {page}/{convsQ.data.pagination.totalPages}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={page >= convsQ.data.pagination.totalPages}
+                    onClick={() =>
+                      setPage((current) =>
+                        Math.min(convsQ.data.pagination.totalPages, current + 1)
+                      )
+                    }
+                  >
+                    Sau
+                  </Button>
+                </div>
+              )}
+              </>
             )}
           </div>
         </aside>
@@ -168,21 +227,26 @@ export default function ChatSupport() {
             </div>
           ) : (
             <>
-              <header className="flex items-center gap-3 border-b border-gray-100 p-4">
-                <Avatar className="h-10 w-10">
+              <header className="flex items-center gap-3 border-b border-border p-4">
+                <Avatar className="size-10">
                   <AvatarFallback>{selected.customer.name.charAt(0)}</AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="font-semibold text-secondary-900">
+                  <p className="font-semibold text-foreground">
                     {selected.customer.name}
                   </p>
-                  <p className="text-xs text-secondary-500">
+                  <p className="text-xs text-muted-foreground">
                     {selected.customer.email}
                   </p>
+                  {selected.needsHuman && (
+                    <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-warning-strong">
+                      <UserRound className="size-3.5" /> Khách đang chờ nhân viên
+                    </p>
+                  )}
                 </div>
               </header>
 
-              <div className="flex-1 overflow-y-auto bg-gray-50/60 p-4">
+              <div className="flex-1 overflow-y-auto bg-muted/60 p-4">
                 {msgsQ.isLoading ? (
                   <div className="space-y-2">
                     {Array.from({ length: 4 }).map((_, i) => (
@@ -191,7 +255,7 @@ export default function ChatSupport() {
                   </div>
                 ) : msgsQ.isError ? (
                   <ErrorState onRetry={() => msgsQ.refetch()} />
-                ) : (msgsQ.data || []).length === 0 ? (
+                ) : messages.length === 0 ? (
                   <EmptyState
                     icon={MessageSquare}
                     title="Chưa có tin nhắn"
@@ -199,7 +263,20 @@ export default function ChatSupport() {
                   />
                 ) : (
                   <ul className="space-y-3">
-                    {(msgsQ.data || []).map((m) => {
+                    {msgsQ.hasNextPage && (
+                      <li className="flex justify-center">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={msgsQ.isFetchingNextPage}
+                          onClick={loadOlderMessages}
+                        >
+                          {msgsQ.isFetchingNextPage ? "Đang tải..." : "Tải tin nhắn cũ"}
+                        </Button>
+                      </li>
+                    )}
+                    {messages.map((m) => {
                       const isAdmin = m.from === "admin";
                       return (
                         <li
@@ -208,17 +285,22 @@ export default function ChatSupport() {
                         >
                           <div
                             className={cn(
-                              "max-w-[75%] rounded-2xl px-4 py-2 text-sm shadow-sm",
+                              "max-w-[75%] rounded-2xl px-4 py-2 text-sm shadow-xs",
                               isAdmin
-                                ? "rounded-tr-sm bg-primary-500 text-white"
-                                : "rounded-tl-sm bg-white text-secondary-800"
+                                ? "rounded-tr-sm bg-primary text-primary-foreground"
+                                : "rounded-tl-sm bg-card text-foreground"
                             )}
                           >
                             <p>{m.text}</p>
+                            {m.automated && (
+                              <p className="mt-1 flex items-center justify-end gap-1 text-[10px] font-semibold text-white/80">
+                                <Bot className="size-3" /> Trả lời tự động
+                              </p>
+                            )}
                             <p
                               className={cn(
                                 "mt-1 text-[10px]",
-                                isAdmin ? "text-white/70" : "text-secondary-400"
+                                isAdmin ? "text-white/70" : "text-muted-foreground/70"
                               )}
                             >
                               {timeAgo(m.at)}
@@ -232,20 +314,31 @@ export default function ChatSupport() {
                 )}
               </div>
 
-              <form onSubmit={handleSend} className="border-t border-gray-100 p-3">
-                <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="Nhập câu trả lời..."
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    className="h-10"
-                  />
-                  <Button type="submit" disabled={!text.trim() || sendMut.isPending}>
-                    <Send className="h-4 w-4" />
-                    Gửi
-                  </Button>
-                </div>
-              </form>
+              {canWrite ? (
+                <form onSubmit={handleSend} className="border-t border-border p-3">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="Nhập câu trả lời..."
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      maxLength={2000}
+                      className="h-10"
+                    />
+                    <Button
+                      type="submit"
+                      disabled={!text.trim() || sendMut.isPending}
+                      loading={sendMut.isPending}
+                    >
+                      <Send className="size-4" />
+                      Gửi
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <p className="border-t border-border p-3 text-sm text-muted-foreground">
+                  Bạn chỉ có quyền xem hội thoại.
+                </p>
+              )}
             </>
           )}
         </section>

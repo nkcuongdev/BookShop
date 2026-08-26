@@ -1,54 +1,92 @@
 const express = require("express");
+const crypto = require("crypto");
+const mongoose = require("mongoose");
 const AnalyticsEvent = require("../models/AnalyticsEvent");
-const { optionalAuth, auth, adminOnly } = require("../middleware/auth");
-const { createRateLimiter } = require("../utils/security");
+const { optionalAuth, auth, requirePermission } = require("../middleware/auth");
+const {
+  createRateLimiter,
+  hashRateLimitPart,
+} = require("../utils/security");
+const { getFunnelStages } = require("../services/analyticsService");
 
 const router = express.Router();
-const eventLimiter = createRateLimiter({
+const CLIENT_EVENT_TYPES = new Set([
+  "product_view",
+  "search",
+  "add_to_cart",
+  "cart_update",
+  "checkout_start",
+]);
+const eventIpLimiter = createRateLimiter({
   windowMs: 60_000,
   max: 120,
-  keyPrefix: "analytics-event",
+  keyPrefix: "analytics-event-ip",
   message: "Too many events",
 });
+const eventSessionLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 120,
+  keyPrefix: "analytics-event-session",
+  message: "Too many events",
+  keyGenerator: (req) =>
+    hashRateLimitPart(req.body?.sessionId || "missing-session"),
+});
 
-router.post("/", eventLimiter, optionalAuth, async (req, res) => {
+router.post("/", eventIpLimiter, eventSessionLimiter, optionalAuth, async (req, res) => {
   try {
-    const { type, bookId, orderId, value = 0, sessionId = "", metadata = null } = req.body || {};
-    if (!type) return res.status(400).json({ success: false, message: "Missing event type" });
+    const { type, bookId, sessionId = "", metadata = null } = req.body || {};
+    const normalizedType = String(type || "").trim();
+    if (!CLIENT_EVENT_TYPES.has(normalizedType)) {
+      return res.status(400).json({ success: false, message: "Unsupported client event type" });
+    }
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!/^[a-zA-Z0-9_-]{8,128}$/.test(normalizedSessionId)) {
+      return res.status(400).json({ success: false, message: "Invalid analytics session" });
+    }
+    const requiresBook = ["product_view", "add_to_cart", "cart_update"].includes(
+      normalizedType
+    );
+    if (requiresBook && !mongoose.isValidObjectId(bookId)) {
+      return res.status(400).json({ success: false, message: "Invalid book ID" });
+    }
     const safeMetadata =
-      metadata && JSON.stringify(metadata).length <= 2000 ? metadata : null;
-    const event = await AnalyticsEvent.create({
-      user: req.user?._id || null,
-      sessionId: String(sessionId || ""),
-      type,
-      book: bookId || null,
-      order: orderId || null,
-      value: Number(value) || 0,
-      metadata: safeMetadata,
+      metadata && typeof metadata === "object" && JSON.stringify(metadata).length <= 2000
+        ? metadata
+        : null;
+    const bucket = Math.floor(Date.now() / 10_000);
+    const identity = req.user?._id || normalizedSessionId;
+    const dedupeKey = crypto
+      .createHash("sha256")
+      .update(`${identity}|${normalizedType}|${bookId || ""}|${bucket}`)
+      .digest("hex");
+    const result = await AnalyticsEvent.updateOne(
+      { dedupeKey },
+      {
+        $setOnInsert: {
+          user: req.user?._id || null,
+          sessionId: normalizedSessionId,
+          type: normalizedType,
+          book: bookId || null,
+          order: null,
+          value: 0,
+          metadata: safeMetadata,
+          dedupeKey,
+        },
+      },
+      { upsert: true }
+    );
+    res.status(result.upsertedCount ? 201 : 202).json({
+      success: true,
+      data: { deduplicated: result.upsertedCount === 0 },
     });
-    res.status(201).json({ success: true, data: { eventId: event._id } });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
 });
 
-router.get("/funnel", auth, adminOnly, async (req, res) => {
+router.get("/funnel", auth, requirePermission("analytics.view"), async (req, res) => {
   try {
-    const days = Math.max(1, Math.min(365, Number(req.query.days) || 30));
-    const since = new Date();
-    since.setDate(since.getDate() - days);
-    const rows = await AnalyticsEvent.aggregate([
-      { $match: { createdAt: { $gte: since } } },
-      { $group: { _id: "$type", value: { $sum: 1 } } },
-    ]);
-    const counts = Object.fromEntries(rows.map((row) => [row._id, row.value]));
-    const stages = [
-      { stage: "Luot xem", value: counts.product_view || 0 },
-      { stage: "Them gio", value: counts.add_to_cart || 0 },
-      { stage: "Bat dau checkout", value: counts.checkout_start || 0 },
-      { stage: "Tao don", value: counts.order_created || 0 },
-      { stage: "Thanh toan thanh cong", value: counts.payment_success || 0 },
-    ];
+    const stages = await getFunnelStages(req.query.days);
     res.json({ success: true, data: { stages } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

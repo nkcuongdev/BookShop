@@ -1,21 +1,35 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { chatAPI } from "@/services/api";
 
-export function useConversations() {
+export function useConversations(params = {}) {
   return useQuery({
-    queryKey: ["admin", "conversations"],
+    queryKey: ["admin", "conversations", params],
     queryFn: () =>
-      chatAPI.getConversations().then((r) => r.data?.conversations || []),
+      chatAPI.getConversations(params).then((r) => ({
+        conversations: r.data?.conversations || [],
+        pagination: r.data?.pagination || { total: 0, page: 1, totalPages: 1 },
+      })),
+    placeholderData: (previous) => previous,
     refetchInterval: 8000,
   });
 }
 
 export function useMessages(conversationId) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ["admin", "messages", conversationId],
     enabled: !!conversationId,
-    queryFn: () =>
-      chatAPI.getMessages(conversationId).then((r) => r.data?.messages || []),
+    initialPageParam: null,
+    queryFn: ({ pageParam }) =>
+      chatAPI
+        .getMessages(conversationId, { limit: 50, before: pageParam || undefined })
+        .then((r) => r.data || { messages: [], pageInfo: { hasMore: false } }),
+    getNextPageParam: (lastPage) => lastPage.pageInfo?.nextCursor || undefined,
+    select: (data) => ({
+      ...data,
+      messages: [...data.pages]
+        .reverse()
+        .flatMap((page) => page.messages || []),
+    }),
     refetchInterval: 5000,
   });
 }
