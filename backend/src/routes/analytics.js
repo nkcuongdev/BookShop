@@ -4,12 +4,16 @@ const Book = require("../models/Book");
 const Review = require("../models/Review");
 const User = require("../models/User");
 const Voucher = require("../models/Voucher");
-const { auth, adminOnly } = require("../middleware/auth");
+const { auth, requirePermission } = require("../middleware/auth");
+const {
+  getFunnelStages,
+  getZonedDateWindow,
+  parseDays,
+} = require("../services/analyticsService");
 
 const router = express.Router();
 
-router.use(auth, adminOnly);
-const REVENUE_STATUSES = ["PAID", "PROCESSING", "SHIPPED", "DELIVERED"];
+router.use(auth, requirePermission("analytics.view"));
 
 /**
  * GET /api/admin/analytics/revenue-series?days=30
@@ -17,19 +21,19 @@ const REVENUE_STATUSES = ["PAID", "PROCESSING", "SHIPPED", "DELIVERED"];
  */
 router.get("/revenue-series", async (req, res) => {
   try {
-    const days = Math.max(1, Math.min(365, parseInt(req.query.days) || 30));
+    const days = parseDays(req.query.days);
     const tz = process.env.ANALYTICS_TIMEZONE || "Asia/Ho_Chi_Minh";
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
-    const start = new Date(end);
-    start.setDate(end.getDate() - (days - 1));
-    start.setHours(0, 0, 0, 0);
+    const { start, endExclusive, calendarDays } = getZonedDateWindow(
+      days,
+      new Date(),
+      tz
+    );
 
     const agg = await Order.aggregate([
       {
         $match: {
-          createdAt: { $gte: start, $lte: end },
-          status: { $in: REVENUE_STATUSES },
+          paidAt: { $gte: start, $lt: endExclusive },
+          "payment.status": "PAID",
         },
       },
       {
@@ -37,7 +41,7 @@ router.get("/revenue-series", async (req, res) => {
           _id: {
             $dateToString: {
               format: "%Y-%m-%d",
-              date: "$createdAt",
+              date: "$paidAt",
               timezone: tz,
             },
           },
@@ -49,20 +53,7 @@ router.get("/revenue-series", async (req, res) => {
 
     const byDate = Object.fromEntries(agg.map((a) => [a._id, a]));
     const series = [];
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      const key = new Intl.DateTimeFormat("en-CA", {
-        timeZone: tz,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).format(d);
-      const label = new Intl.DateTimeFormat("vi-VN", {
-        timeZone: tz,
-        day: "2-digit",
-        month: "2-digit",
-      }).format(d);
+    for (const { key, label } of calendarDays) {
       const row = byDate[key];
       series.push({
         date: key,
@@ -85,20 +76,11 @@ router.get("/revenue-series", async (req, res) => {
 router.get("/category-share", async (req, res) => {
   try {
     const rows = await Order.aggregate([
-      { $match: { status: { $in: REVENUE_STATUSES } } },
+      { $match: { "payment.status": "PAID", paidAt: { $ne: null } } },
       { $unwind: "$items" },
       {
-        $lookup: {
-          from: "books",
-          localField: "items.book",
-          foreignField: "_id",
-          as: "book",
-        },
-      },
-      { $unwind: { path: "$book", preserveNullAndEmptyArrays: true } },
-      {
         $group: {
-          _id: "$book.category",
+          _id: { $ifNull: ["$items.category", "Khác"] },
           revenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
         },
       },
@@ -200,30 +182,11 @@ router.get("/activity", async (req, res) => {
 
 /**
  * GET /api/admin/analytics/funnel
- * Rough conversion funnel: views -> add-to-cart -> checkout -> completed.
- *
- * Since we don't track views/carts server-side, we estimate:
- *   - Lượt xem    = totalSold * 10 (heuristic)
- *   - Thêm giỏ    = totalSold * 3
- *   - Thanh toán  = total orders
- *   - Hoàn tất    = orders with status in ['completed', 'delivered']
+ * Conversion funnel backed only by recorded analytics events.
  */
 router.get("/funnel", async (req, res) => {
   try {
-    const [soldAgg, ordersTotal, completedTotal] = await Promise.all([
-      Book.aggregate([
-        { $group: { _id: null, sold: { $sum: "$sold" } } },
-      ]),
-      Order.countDocuments(),
-      Order.countDocuments({ status: "DELIVERED" }),
-    ]);
-    const sold = soldAgg[0]?.sold || 0;
-    const stages = [
-      { stage: "Lượt xem", value: sold * 10 },
-      { stage: "Thêm giỏ", value: sold * 3 },
-      { stage: "Thanh toán", value: ordersTotal },
-      { stage: "Hoàn tất", value: completedTotal },
-    ];
+    const stages = await getFunnelStages(req.query.days);
     res.json({ success: true, data: { stages } });
   } catch (error) {
     res.status(500).json({ success: false, message: "Lỗi server", error: error.message });

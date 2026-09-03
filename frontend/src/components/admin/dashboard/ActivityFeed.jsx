@@ -11,12 +11,12 @@ const ICONS = {
 };
 
 const ACCENTS = {
-  order: "bg-primary-50 text-primary-600",
-  review: "bg-amber-50 text-amber-600",
-  user: "bg-emerald-50 text-emerald-600",
-  stock: "bg-rose-50 text-rose-600",
-  voucher: "bg-violet-50 text-violet-600",
-  message: "bg-blue-50 text-blue-600",
+  order: "bg-primary-50 text-primary",
+  review: "bg-warning-muted text-warning-strong",
+  user: "bg-success-muted text-success-strong",
+  stock: "bg-danger-muted text-danger-strong",
+  voucher: "bg-violet-100 text-violet-700",
+  message: "bg-info-muted text-info-strong",
 };
 
 function timeAgo(iso) {
@@ -46,12 +46,12 @@ export function ActivityFeed({ items = [], isLoading }) {
         const Icon = ICONS[it.type] || MessageSquare;
         return (
           <li key={i} className="flex items-start gap-3">
-            <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${ACCENTS[it.type] || ACCENTS.message}`}>
-              <Icon className="h-3.5 w-3.5" />
+            <div className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full ${ACCENTS[it.type] || ACCENTS.message}`}>
+              <Icon className="size-4" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-secondary-800">{it.text}</p>
-              <p className="text-[11px] text-secondary-400">{timeAgo(it.at)}</p>
+              <p className="text-sm text-foreground">{it.text}</p>
+              <p className="text-[11px] text-muted-foreground/70">{timeAgo(it.at)}</p>
             </div>
           </li>
         );

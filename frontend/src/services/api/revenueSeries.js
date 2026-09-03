@@ -8,5 +8,5 @@ export const revenueSeriesAPI = {
 
   getActivity: () => request(`/admin/analytics/activity`),
 
-  getFunnel: (days = 30) => request(`/events/funnel?days=${days}`),
+  getFunnel: (days = 30) => request(`/admin/analytics/funnel?days=${days}`),
 };

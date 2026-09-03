@@ -20,7 +20,7 @@ export function RecentOrders({ orders = [], isLoading }) {
   }
 
   return (
-    <ul className="divide-y divide-gray-100">
+    <ul className="divide-y divide-border">
       {orders.map((o) => {
         const code = formatOrderCode(o);
         return (
@@ -28,16 +28,16 @@ export function RecentOrders({ orders = [], isLoading }) {
             <div className="min-w-0">
               <Link
                 to={`/admin/orders/${o._id || o.id}`}
-                className="font-medium text-primary-600 hover:underline"
+                className="font-medium text-primary hover:underline"
               >
                 {code}
               </Link>
-              <p className="truncate text-xs text-secondary-500">
+              <p className="truncate text-xs text-muted-foreground">
                 {o.shippingAddress?.fullName || "—"} · {o.items?.length || 0} sản phẩm
               </p>
             </div>
             <div className="flex items-center gap-3 text-right">
-              <span className="text-sm font-semibold text-secondary-800">
+              <span className="text-sm font-semibold text-foreground">
                 {formatVND(o.totalAmount || 0)}
               </span>
               <StatusBadge status={o.status || "PENDING"} />

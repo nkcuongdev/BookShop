@@ -1,6 +1,10 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { ChartTooltip } from "./ChartTooltip";
+import { chartSeries } from "./chartTheme";
 
-const COLORS = ["#ed7620", "#f19340", "#fad7ac", "#3b82f6", "#8b5cf6"];
+const tooltipRows = (point) => [
+  { label: point.name, value: `${point.value}%`, accent: true },
+];
 
 export function CategoryPieChart({ data = [] }) {
   return (
@@ -18,30 +22,28 @@ export function CategoryPieChart({ data = [] }) {
               dataKey="value"
               nameKey="name"
             >
-              {data.map((_, i) => (
-                <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              {data.map((entry, i) => (
+                <Cell
+                  key={entry.name ?? i}
+                  fill={chartSeries[i % chartSeries.length]}
+                />
               ))}
             </Pie>
-            <Tooltip
-              contentStyle={{
-                borderRadius: 12,
-                border: "1px solid #f1f5f9",
-                fontSize: 12,
-              }}
-              formatter={(v) => [`${v}%`, "Tỉ trọng"]}
-            />
+            <Tooltip content={<ChartTooltip rows={tooltipRows} />} />
           </PieChart>
         </ResponsiveContainer>
       </div>
       <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-2 pb-1 text-xs">
         {data.map((d, i) => (
           <li key={d.name} className="flex items-center gap-2">
+            {/* Inline style is unavoidable here: the swatch colour is data-driven,
+                so it cannot be a Tailwind class. */}
             <span
-              className="h-2.5 w-2.5 rounded-full"
-              style={{ background: COLORS[i % COLORS.length] }}
+              className="size-2.5 shrink-0 rounded-full"
+              style={{ background: chartSeries[i % chartSeries.length] }}
             />
-            <span className="text-secondary-600">{d.name}</span>
-            <span className="ml-auto font-semibold text-secondary-800">
+            <span className="text-muted-foreground">{d.name}</span>
+            <span className="ml-auto font-semibold text-foreground">
               {d.value}%
             </span>
           </li>
