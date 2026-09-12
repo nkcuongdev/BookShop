@@ -3,6 +3,7 @@ import { Outlet, Navigate } from "react-router-dom";
 import { AdminSidebar } from "@/components/admin/layout/AdminSidebar";
 import { AdminTopbar } from "@/components/admin/layout/AdminTopbar";
 import { useAuth } from "@/context/AuthContext.jsx";
+import { can } from "@/lib/rbac";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function AdminLayout() {
@@ -11,7 +12,7 @@ export default function AdminLayout() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-6">
+      <div className="min-h-screen bg-muted p-6">
         <div className="flex gap-6">
           <Skeleton className="h-[calc(100vh-3rem)] w-64" />
           <div className="flex-1 space-y-4">
@@ -23,12 +24,12 @@ export default function AdminLayout() {
     );
   }
 
-  if (!user || user.role !== "admin") {
-    return <Navigate to="/login" replace />;
-  }
+  if (!user) return <Navigate to="/login?redirect=/admin" replace />;
+  // Any staff role may enter; each page checks its own permission below.
+  if (!can(user, "admin.access")) return <Navigate to="/" replace />;
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-muted">
       <AdminSidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed((c) => !c)}

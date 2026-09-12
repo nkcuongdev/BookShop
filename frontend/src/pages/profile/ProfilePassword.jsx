@@ -26,8 +26,8 @@ export default function ProfilePassword() {
       toast.error("Vui lòng nhập đầy đủ thông tin");
       return;
     }
-    if (form.next.length < 6) {
-      toast.error("Mật khẩu mới cần ít nhất 6 ký tự");
+    if (form.next.length < 8) {
+      toast.error("Mật khẩu mới cần ít nhất 8 ký tự");
       return;
     }
     if (form.next !== form.confirm) {
@@ -61,12 +61,12 @@ export default function ProfilePassword() {
         <button
           type="button"
           onClick={() => setShow({ ...show, [key]: !show[key] })}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary-400 hover:text-secondary-600"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/70 hover:text-muted-foreground"
         >
           {show[key] ? (
-            <EyeOff className="w-4 h-4" />
+            <EyeOff className="size-4" />
           ) : (
-            <Eye className="w-4 h-4" />
+            <Eye className="size-4" />
           )}
         </button>
       </div>
@@ -76,14 +76,14 @@ export default function ProfilePassword() {
   return (
     <Card className="p-6 max-w-xl">
       <div className="flex items-center gap-3 mb-5">
-        <div className="w-11 h-11 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center">
-          <KeyRound className="w-5 h-5" />
+        <div className="size-11 rounded-xl bg-primary-50 text-primary flex items-center justify-center">
+          <KeyRound className="size-5" />
         </div>
         <div>
-          <h2 className="text-lg font-display font-bold text-secondary-800">
+          <h2 className="text-h3 font-display font-bold text-foreground">
             Đổi mật khẩu
           </h2>
-          <p className="text-sm text-secondary-500">
+          <p className="text-sm text-muted-foreground">
             Để bảo mật tài khoản, vui lòng không chia sẻ mật khẩu.
           </p>
         </div>

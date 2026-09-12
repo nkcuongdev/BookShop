@@ -11,7 +11,7 @@ export function FormField({ name, label, description, required, children, classN
       {label && (
         <Label htmlFor={name} className="flex items-center gap-1">
           {label}
-          {required && <span className="text-rose-500">*</span>}
+          {required && <span className="text-danger-strong">*</span>}
         </Label>
       )}
       <Controller
@@ -20,10 +20,10 @@ export function FormField({ name, label, description, required, children, classN
         render={({ field }) => children({ ...field, id: name })}
       />
       {description && !error && (
-        <p className="text-xs text-secondary-500">{description}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
       )}
       {error?.message && (
-        <p className="text-xs text-rose-600">{String(error.message)}</p>
+        <p className="text-xs text-danger-strong">{String(error.message)}</p>
       )}
     </div>
   );

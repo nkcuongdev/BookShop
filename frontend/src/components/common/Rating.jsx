@@ -1,14 +1,37 @@
 import { useState } from "react";
 import { Star } from "lucide-react";
+import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
-const sizes = {
-  xs: "w-3 h-3",
-  sm: "w-3.5 h-3.5",
-  md: "w-4 h-4",
-  lg: "w-5 h-5",
-  xl: "w-6 h-6",
-};
+/**
+ * Filled stars use --warning: 2.14:1 on white, below the 3:1 WCAG asks of
+ * meaningful graphics (the previous amber-400 was worse, at 1.67:1). Kept
+ * deliberately — a yellow star is an industry-wide convention and darkening it
+ * enough to pass reads as brown.
+ *
+ * Known limitation, measured: filled vs empty stars are only 1.68:1 apart, so
+ * the fill/empty distinction is carried by shape more than by luminance. This
+ * cannot be fixed by adjusting the empty star — the filled star is barely
+ * darker than the page, so no empty value is both lighter than it and 3:1 away.
+ * Reaching 3:1 requires darkening --warning to ~36% lightness, which is the
+ * brown-looking option we rejected.
+ *
+ * Most call sites render the numeric rating beside these stars, but ReviewList
+ * and FilterSidebar do not. The right fix there is an aria-label / visible text,
+ * not a darker fill.
+ */
+const starVariants = cva("transition-colors duration-150", {
+  variants: {
+    size: {
+      xs: "size-3",
+      sm: "size-4",
+      md: "size-4",
+      lg: "size-5",
+      xl: "size-6",
+    },
+  },
+  defaultVariants: { size: "sm" },
+});
 
 export default function Rating({
   value = 0,
@@ -42,25 +65,24 @@ export default function Rating({
           >
             <Star
               className={cn(
-                sizes[size],
-                "transition-colors duration-150",
+                starVariants({ size }),
                 star <= Math.floor(display)
-                  ? "fill-amber-400 text-amber-400"
+                  ? "fill-warning text-warning"
                   : star - 0.5 <= display
-                  ? "fill-amber-400/50 text-amber-400"
-                  : "fill-gray-200 text-gray-200"
+                  ? "fill-warning/50 text-warning"
+                  : "fill-border text-border"
               )}
             />
           </button>
         ))}
       </div>
       {showValue && (
-        <span className="text-xs font-semibold text-secondary-700">
+        <span className="text-xs font-semibold text-foreground">
           {Number(value).toFixed(1)}
         </span>
       )}
       {reviewCount !== null && (
-        <span className="text-xs text-secondary-400">
+        <span className="text-xs text-muted-foreground/70">
           ({reviewCount.toLocaleString()})
         </span>
       )}

@@ -7,8 +7,10 @@ import EmptyState from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "@/components/ui/sonner";
+import { useConfirm } from "@/hooks/useConfirm";
 
 export default function ProfileWishlist() {
+  const confirm = useConfirm();
   const { items, clear } = useWishlist();
   const { addItem } = useCart();
 
@@ -46,29 +48,34 @@ export default function ProfileWishlist() {
     <div className="space-y-5">
       <Card className="p-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-display font-bold text-secondary-800">
+          <h2 className="text-h3 font-display font-bold text-foreground">
             Sản phẩm yêu thích
           </h2>
-          <p className="text-sm text-secondary-500">
+          <p className="text-sm text-muted-foreground">
             {items.length} cuốn sách trong danh sách
           </p>
         </div>
         <div className="flex gap-2">
           <Button onClick={addAllToCart} variant="outline">
-            <ShoppingCart className="w-4 h-4" />
+            <ShoppingCart className="size-4" />
             Thêm tất cả vào giỏ
           </Button>
           <Button
             variant="ghost"
             onClick={async () => {
-              if (confirm("Xóa toàn bộ danh sách yêu thích?")) {
-                await clear();
-                toast.success("Đã xóa danh sách yêu thích");
-              }
+              const ok = await confirm({
+                title: "Xoá toàn bộ yêu thích?",
+                description: "Tất cả sách trong danh sách yêu thích sẽ bị xoá.",
+                confirmText: "Xoá tất cả",
+                variant: "destructive",
+              });
+              if (!ok) return;
+              await clear();
+              toast.success("Đã xoá danh sách yêu thích");
             }}
-            className="text-red-500 hover:bg-red-50"
+            className="text-danger-strong hover:bg-danger-muted"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="size-4" />
           </Button>
         </div>
       </Card>

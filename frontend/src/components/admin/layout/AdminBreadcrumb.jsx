@@ -18,17 +18,17 @@ export function AdminBreadcrumb() {
   }
 
   return (
-    <nav className="flex items-center gap-1 text-xs text-secondary-500">
-      <Link to="/admin" className="flex items-center gap-1 hover:text-secondary-800">
-        <Home className="h-3 w-3" />
+    <nav className="flex items-center gap-1 text-xs text-muted-foreground">
+      <Link to="/admin" className="flex items-center gap-1 hover:text-foreground">
+        <Home className="size-3" />
       </Link>
       {crumbs.slice(1).map((c, i) => (
         <span key={c.to} className="flex items-center gap-1">
-          <ChevronRight className="h-3 w-3" />
+          <ChevronRight className="size-3" />
           {i === crumbs.length - 2 ? (
-            <span className="font-medium text-secondary-800">{c.label}</span>
+            <span className="font-medium text-foreground">{c.label}</span>
           ) : (
-            <Link to={c.to} className="hover:text-secondary-800 capitalize">
+            <Link to={c.to} className="hover:text-foreground capitalize">
               {c.label}
             </Link>
           )}

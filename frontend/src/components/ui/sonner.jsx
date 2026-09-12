@@ -6,15 +6,16 @@ export function Toaster(props) {
       position="top-right"
       richColors
       closeButton
+      duration={4000}
       toastOptions={{
         classNames: {
           toast:
-            "group toast group-[.toaster]:bg-white group-[.toaster]:text-secondary-800 group-[.toaster]:border group-[.toaster]:border-gray-100 group-[.toaster]:shadow-xl group-[.toaster]:rounded-xl",
-          description: "group-[.toast]:text-secondary-500",
+            "group toast group-[.toaster]:bg-card group-[.toaster]:text-foreground group-[.toaster]:ring-1 group-[.toaster]:ring-foreground/[0.08] group-[.toaster]:shadow-float group-[.toaster]:rounded-xl",
+          description: "group-[.toast]:text-muted-foreground",
           actionButton:
-            "group-[.toast]:bg-primary-500 group-[.toast]:text-white",
+            "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton:
-            "group-[.toast]:bg-gray-100 group-[.toast]:text-secondary-700",
+            "group-[.toast]:bg-border group-[.toast]:text-foreground",
         },
       }}
       {...props}

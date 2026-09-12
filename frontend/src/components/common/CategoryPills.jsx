@@ -20,11 +20,11 @@ export default function CategoryPills({ categories = [], className }) {
         className={cn(
           "shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border transition-all",
           !active
-            ? "bg-primary-500 text-white border-primary-500 shadow-md shadow-primary-500/25"
-            : "bg-white text-secondary-700 border-gray-200 hover:border-primary-300 hover:text-primary-600"
+            ? "bg-primary text-primary-foreground border-primary shadow-primary-glow"
+            : "bg-card text-foreground border-border hover:border-primary/40 hover:text-primary"
         )}
       >
-        <BookOpen className="w-3.5 h-3.5" />
+        <BookOpen className="size-4" />
         Tất cả
       </Link>
       {categories.map((cat) => {
@@ -37,8 +37,8 @@ export default function CategoryPills({ categories = [], className }) {
             className={cn(
               "shrink-0 inline-flex items-center px-4 py-2 rounded-full text-sm font-medium border transition-all",
               isActive
-                ? "bg-primary-500 text-white border-primary-500 shadow-md shadow-primary-500/25"
-                : "bg-white text-secondary-700 border-gray-200 hover:border-primary-300 hover:text-primary-600"
+                ? "bg-primary text-primary-foreground border-primary shadow-primary-glow"
+                : "bg-card text-foreground border-border hover:border-primary/40 hover:text-primary"
             )}
           >
             {cat.name}

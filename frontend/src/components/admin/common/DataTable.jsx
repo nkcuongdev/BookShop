@@ -36,29 +36,43 @@ export function DataTable({
   pageSize = 10,
   className,
   totalLabel,
+  pagination,
+  onPaginationChange,
+  pageCount,
+  totalRows,
 }) {
   const [sorting, setSorting] = useState([]);
   const [rowSelection, setRowSelection] = useState({});
   const [columnFilters, setColumnFilters] = useState([]);
 
+  // TanStack Table intentionally exposes mutable function references.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, rowSelection, columnFilters },
+    state: {
+      sorting,
+      rowSelection,
+      columnFilters,
+      ...(pagination ? { pagination } : {}),
+    },
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,
     onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: enableSorting ? getSortedRowModel() : undefined,
     getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    getPaginationRowModel: pagination ? undefined : getPaginationRowModel(),
+    onPaginationChange,
+    manualPagination: Boolean(pagination),
+    pageCount,
     enableRowSelection: enableSelection,
     getRowId: getRowId,
     initialState: { pagination: { pageSize } },
   });
 
   return (
-    <div className={cn("rounded-2xl border border-gray-100 bg-white shadow-sm", className)}>
+    <div className={cn("rounded-2xl bg-card ring-1 ring-foreground/[0.06] shadow-rest", className)}>
       {toolbar && <div className="px-4 pt-4">{toolbar}</div>}
 
       {isLoading ? (
@@ -103,8 +117,8 @@ export function DataTable({
         </Table>
       )}
 
-      <div className="border-t border-gray-100">
-        <DataTablePagination table={table} totalLabel={totalLabel} />
+      <div className="border-t border-border">
+        <DataTablePagination table={table} totalLabel={totalLabel} totalRows={totalRows} />
       </div>
     </div>
   );

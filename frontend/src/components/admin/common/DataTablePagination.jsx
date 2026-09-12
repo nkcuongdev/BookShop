@@ -8,19 +8,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export function DataTablePagination({ table, totalLabel = "dòng" }) {
-  const total = table.getFilteredRowModel().rows.length;
+export function DataTablePagination({ table, totalLabel = "dòng", totalRows }) {
+  const total = totalRows ?? table.getFilteredRowModel().rows.length;
   const { pageIndex, pageSize } = table.getState().pagination;
   const pageCount = table.getPageCount() || 1;
 
   return (
     <div className="flex flex-col-reverse items-center justify-between gap-3 px-4 py-3 sm:flex-row">
-      <div className="text-xs text-secondary-500">
-        Tổng <span className="font-semibold text-secondary-700">{total}</span> {totalLabel}
+      <div className="text-xs text-muted-foreground">
+        Tổng <span className="font-semibold text-foreground">{total}</span> {totalLabel}
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 text-xs text-secondary-500">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>Mỗi trang</span>
           <Select
             value={String(pageSize)}
@@ -39,7 +39,7 @@ export function DataTablePagination({ table, totalLabel = "dòng" }) {
           </Select>
         </div>
 
-        <div className="flex items-center gap-1 text-xs text-secondary-500">
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
           Trang {pageIndex + 1} / {pageCount}
         </div>
 
@@ -47,42 +47,42 @@ export function DataTablePagination({ table, totalLabel = "dòng" }) {
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8"
+            className="size-8"
             onClick={() => table.setPageIndex(0)}
             disabled={!table.getCanPreviousPage()}
             aria-label="Trang đầu"
           >
-            <ChevronsLeft className="h-4 w-4" />
+            <ChevronsLeft className="size-4" />
           </Button>
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8"
+            className="size-8"
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
             aria-label="Trang trước"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="size-4" />
           </Button>
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8"
+            className="size-8"
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
             aria-label="Trang sau"
           >
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="size-4" />
           </Button>
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8"
+            className="size-8"
             onClick={() => table.setPageIndex(pageCount - 1)}
             disabled={!table.getCanNextPage()}
             aria-label="Trang cuối"
           >
-            <ChevronsRight className="h-4 w-4" />
+            <ChevronsRight className="size-4" />
           </Button>
         </div>
       </div>

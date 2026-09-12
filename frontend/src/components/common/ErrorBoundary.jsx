@@ -1,7 +1,8 @@
 import { Component } from "react";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+import { ErrorIllustration } from "@/components/common/illustrations";
 export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -26,18 +27,16 @@ export default class ErrorBoundary extends Component {
       return (
         <div className="min-h-[60vh] flex items-center justify-center px-4">
           <div className="max-w-md text-center">
-            <div className="w-20 h-20 mx-auto rounded-full bg-red-50 text-red-500 flex items-center justify-center mb-5">
-              <AlertTriangle className="w-10 h-10" />
-            </div>
-            <h1 className="text-2xl font-display font-bold text-secondary-800">
+            <ErrorIllustration className="mx-auto mb-6 h-32 w-40 text-danger-strong" />
+            <h1 className="text-h1 font-display font-bold text-foreground">
               Rất tiếc, đã có lỗi xảy ra
             </h1>
-            <p className="text-secondary-500 mt-2">
+            <p className="text-muted-foreground mt-2">
               Vui lòng tải lại trang hoặc thử lại sau ít phút.
             </p>
             <div className="mt-6 flex items-center justify-center gap-3">
               <Button onClick={this.handleReset}>
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="size-4" />
                 Tải lại trang
               </Button>
               <Button

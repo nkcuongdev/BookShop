@@ -33,13 +33,13 @@ export default function TrustBadgeRow({
     return (
       <div
         className={cn(
-          "flex flex-wrap gap-x-6 gap-y-2 text-sm text-secondary-600",
+          "flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground",
           className
         )}
       >
         {items.map((item) => (
           <div key={item.title} className="flex items-center gap-2">
-            <item.icon className="w-4 h-4 text-primary-500" />
+            <item.icon className="size-4 text-primary" />
             <span>{item.title}</span>
           </div>
         ))}
@@ -57,16 +57,16 @@ export default function TrustBadgeRow({
       {items.map((item) => (
         <div
           key={item.title}
-          className="flex items-start gap-3 p-4 rounded-2xl bg-white border border-gray-100 hover:border-primary-200 hover:shadow-md transition-all"
+          className="flex items-start gap-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/[0.06] shadow-rest transition-[box-shadow,transform,--tw-ring-color] duration-base ease-out-soft hover:ring-primary/25 hover:shadow-lift"
         >
-          <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center shrink-0">
-            <item.icon className="w-5 h-5 text-primary-600" />
+          <div className="size-10 rounded-xl bg-primary-50 flex items-center justify-center shrink-0">
+            <item.icon className="size-5 text-primary" />
           </div>
           <div className="min-w-0">
-            <p className="font-semibold text-secondary-800 text-sm">
+            <p className="font-semibold text-foreground text-sm">
               {item.title}
             </p>
-            <p className="text-xs text-secondary-500 mt-0.5">{item.desc}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
           </div>
         </div>
       ))}

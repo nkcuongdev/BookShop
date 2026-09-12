@@ -24,7 +24,7 @@ export default function MobileBottomNav() {
   const wishCount = wishlist?.length || 0;
 
   return (
-    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-gray-100 shadow-[0_-4px_20px_rgba(0,0,0,0.04)] pb-[env(safe-area-inset-bottom)]">
+    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 glass-chrome border-t border-border shadow-nav-up pb-[env(safe-area-inset-bottom)]">
       <div className="grid grid-cols-5">
         {ITEMS.map((item) => {
           const badgeValue =
@@ -42,8 +42,8 @@ export default function MobileBottomNav() {
                 cn(
                   "flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium transition-colors relative",
                   isActive
-                    ? "text-primary-600"
-                    : "text-secondary-500 hover:text-secondary-700"
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
                 )
               }
             >
@@ -52,19 +52,19 @@ export default function MobileBottomNav() {
                   <div className="relative">
                     <item.icon
                       className={cn(
-                        "w-5 h-5 transition-transform",
+                        "size-5 transition-transform",
                         isActive && "scale-110"
                       )}
                     />
                     {badgeValue > 0 && (
-                      <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-primary-500 text-white text-[10px] font-bold flex items-center justify-center">
+                      <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
                         {badgeValue > 9 ? "9+" : badgeValue}
                       </span>
                     )}
                   </div>
                   <span>{item.label}</span>
                   {isActive && (
-                    <span className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-b-full bg-primary-500" />
+                    <span className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-b-full bg-primary" />
                   )}
                 </>
               )}

@@ -10,21 +10,21 @@ export function SectionCard({
   bodyClassName,
 }) {
   return (
-    <section className={cn("rounded-2xl border border-gray-100 bg-white shadow-sm", className)}>
+    <section className={cn("rounded-2xl bg-card ring-1 ring-foreground/[0.06] shadow-rest", className)}>
       {(title || action) && (
-        <header className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+        <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div className="flex items-start gap-3">
             {Icon && (
-              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
-                <Icon className="h-4 w-4" />
+              <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary">
+                <Icon className="size-4" />
               </div>
             )}
             <div>
               {title && (
-                <h3 className="font-semibold text-secondary-900">{title}</h3>
+                <h3 className="text-base font-semibold text-foreground">{title}</h3>
               )}
               {description && (
-                <p className="text-xs text-secondary-500">{description}</p>
+                <p className="text-xs text-muted-foreground">{description}</p>
               )}
             </div>
           </div>

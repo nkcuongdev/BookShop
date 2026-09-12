@@ -23,8 +23,8 @@ export default function CountdownTimer({ target, variant = "dark", className }) 
 
   const cellClass =
     variant === "dark"
-      ? "bg-secondary-900 text-white"
-      : "bg-white text-secondary-900 border border-gray-200";
+      ? "bg-foreground text-background"
+      : "bg-card text-foreground border border-border";
 
   const cells = [
     { value: pad(time.hours), label: "GIỜ" },
@@ -38,7 +38,7 @@ export default function CountdownTimer({ target, variant = "dark", className }) 
         <div key={c.label} className="flex items-center gap-1.5">
           <div
             className={cn(
-              "min-w-[44px] px-2.5 py-1.5 rounded-lg text-center font-bold font-mono shadow-sm",
+              "min-w-[44px] px-2.5 py-1.5 rounded-lg text-center font-bold font-mono shadow-xs",
               cellClass
             )}
           >
@@ -50,7 +50,7 @@ export default function CountdownTimer({ target, variant = "dark", className }) 
             </span>
           </div>
           {i < cells.length - 1 && (
-            <span className="text-base font-bold text-secondary-400">:</span>
+            <span className="text-base font-bold text-muted-foreground/70">:</span>
           )}
         </div>
       ))}

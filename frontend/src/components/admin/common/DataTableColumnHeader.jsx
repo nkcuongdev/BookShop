@@ -11,17 +11,17 @@ export function DataTableColumnHeader({ column, title, className }) {
       type="button"
       onClick={() => column.toggleSorting(sorted === "asc")}
       className={cn(
-        "inline-flex items-center gap-1 hover:text-secondary-800 transition-colors",
+        "inline-flex items-center gap-1 hover:text-foreground transition-colors",
         className
       )}
     >
       <span>{title}</span>
       {sorted === "asc" ? (
-        <ArrowUp className="h-3.5 w-3.5" />
+        <ArrowUp className="size-4" />
       ) : sorted === "desc" ? (
-        <ArrowDown className="h-3.5 w-3.5" />
+        <ArrowDown className="size-4" />
       ) : (
-        <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" />
+        <ChevronsUpDown className="size-4 opacity-50" />
       )}
     </button>
   );

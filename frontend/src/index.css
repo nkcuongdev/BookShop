@@ -4,58 +4,111 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 20% 18%;
+    /* ── Surfaces ─────────────────────────────────── */
+    --background: 60 9% 98%; /* #FAFAF9 stone-50 */
+    --foreground: 24 10% 10%; /* #1C1917 stone-900 */
 
+    /* Card/popover stay pure white: they must separate from the warm page
+       ground so products, forms and admin tables keep their edge. */
     --card: 0 0% 100%;
-    --card-foreground: 222 20% 18%;
+    --card-foreground: 24 10% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 20% 18%;
+    --popover-foreground: 24 10% 10%;
 
-    /* primary = orange-500 #ed7620 -> HSL 24 85% 53% */
-    --primary: 24 85% 53%;
+    /* ── Brand: indigo ────────────────────────────── */
+    --primary: 244 58% 51%; /* #4338CA indigo-700 */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 222 20% 18%;
+    /* Brand ramp — consumed by tailwind colors.primary.N */
+    --primary-50: 226 100% 97%; /* #EEF2FF */
+    --primary-100: 226 100% 94%; /* #E0E7FF */
+    --primary-200: 228 96% 89%; /* #C7D2FE */
+    --primary-300: 230 94% 82%; /* #A5B4FC */
+    --primary-400: 234 89% 74%; /* #818CF8 */
+    --primary-500: 239 84% 67%; /* #6366F1 */
+    --primary-600: 243 75% 59%; /* #4F46E5 */
+    --primary-700: 244 58% 51%; /* #4338CA == --primary */
+    --primary-800: 244 55% 41%; /* #3730A3 */
+    --primary-900: 242 47% 34%; /* #312E81 */
 
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
+    /* ── Brand accent: orange (CTA / sale emphasis) ──
+       NOT shadcn's --accent. Exposed to Tailwind as `brand`.
+       #F97316 on white is only 3.02:1 — never use as body text.
+       Use --brand-accent-strong for text, --brand-accent for fills. */
+    --brand-accent: 25 95% 53%; /* #F97316 orange-500 */
+    --brand-accent-foreground: 0 0% 100%;
+    --brand-accent-muted: 34 100% 92%; /* #FFEDD5 orange-100 surface */
+    /* Darkened from orange-700 #C2410C (3.95:1 on --brand-accent-muted, fails
+       AA) to #AE4309 — 5.08:1 on muted, 5.81:1 on white. */
+    --brand-accent-strong: 21 90% 36%;
+    /* The darkest orange that still reads as vivid orange rather than brown.
+       #C74605 — 4.89:1 with white text, so it is legal as a gradient fill on
+       the 11px sale badge, where --brand-accent (2.78:1) is not. */
+    --brand-accent-vivid: 20 95% 40%;
 
-    --accent: 220 14% 96%;
-    --accent-foreground: 222 20% 18%;
+    /* ── Deep chrome: footer, announcement bar, hero bands ──
+       Large dark surfaces need their OWN ramp, not the brand ramp. Using
+       primary-800/900 for a full-width footer put a hue-242, 47%-saturated slab
+       directly against the hue-60, 9%-saturated page ground: two blocks
+       disagreeing on both colour temperature and saturation, which read as a
+       footer pasted in from a different theme.
+       Same indigo family, pulled warmer (250) and much calmer (20-22%) so it
+       sits under the stone neutrals instead of fighting them. White text scores
+       BETTER here than on the old primary-900 (15.5:1 vs 11.4:1). */
+    --deep: 250 22% 17%; /* #252235 — footer base */
+    --deep-soft: 250 20% 23%; /* #332F46 — gradient midpoint */
+    --deep-raised: 250 20% 27%; /* #3C3753 — announcement bar, inner panels */
+    --deep-foreground: 0 0% 100%;
 
+    /* ── Neutral surfaces / muted ─────────────────── */
+    --secondary: 20 6% 96%; /* #F5F5F4 stone-100 — surface role only */
+    --secondary-foreground: 24 10% 10%;
+
+    --muted: 20 6% 96%; /* #F5F5F4 stone-100 */
+    /* Plan specifies stone-500 #78716C, which is 4.40:1 on --muted — just
+       under AA for the muted-on-muted pairings that exist (status-badge
+       neutral, TopBooks, BookDetailTabs). Dropped 0.7% lightness to #766F6B:
+       4.52:1 on muted, 4.72:1 on background, 4.93:1 on card. */
+    --muted-foreground: 25 5% 44%;
+
+    /* shadcn --accent = interactive HOVER surface. Kept neutral on purpose. */
+    --accent: 20 6% 96%;
+    --accent-foreground: 24 10% 10%;
+
+    /* ── Status intents ───────────────────────────── */
+    --success: 160 84% 39%; /* #10B981 */
+    --success-foreground: 0 0% 100%;
+    --success-muted: 152 81% 96%; /* #ECFDF5 */
+    /* Darkened from emerald-700 #047857 (3.65:1 on --success-muted, fails AA)
+       to #047C56 — 4.98:1 on muted, 5.24:1 on white. */
+    --success-strong: 161 94% 25%;
+
+    --warning: 38 92% 50%; /* #F59E0B */
+    --warning-foreground: 24 10% 10%; /* dark ink: amber fails AA with white */
+    --warning-muted: 48 100% 96%; /* #FFFBEB */
+    --warning-strong: 26 90% 37%; /* #B45309 */
+
+    --danger: 0 84% 60%; /* #EF4444 */
+    --danger-foreground: 0 0% 100%;
+    --danger-muted: 0 86% 97%; /* #FEF2F2 */
+    --danger-strong: 0 74% 42%; /* #B91C1C */
+
+    --info: 217 91% 60%; /* #3B82F6 */
+    --info-foreground: 0 0% 100%;
+    --info-muted: 214 100% 97%; /* #EFF6FF */
+    --info-strong: 224 76% 48%; /* #1D4ED8 */
+
+    /* alias: shadcn expects --destructive */
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 24 85% 53%;
+    /* ── Lines & focus ────────────────────────────── */
+    --border: 20 6% 90%; /* #E7E5E4 stone-200 */
+    --input: 20 6% 90%;
+    --ring: 244 58% 51%; /* = --primary */
 
     --radius: 0.75rem;
-  }
-
-  .dark {
-    --background: 222 20% 10%;
-    --foreground: 0 0% 98%;
-    --card: 222 20% 12%;
-    --card-foreground: 0 0% 98%;
-    --popover: 222 20% 12%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 24 85% 53%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 222 15% 20%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 222 15% 20%;
-    --muted-foreground: 220 9% 65%;
-    --accent: 222 15% 20%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62% 50%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 222 15% 22%;
-    --input: 222 15% 22%;
-    --ring: 24 85% 53%;
   }
 
   * {
@@ -66,9 +119,8 @@
   }
 
   body {
+    @apply bg-background text-foreground;
     font-family: "Inter", system-ui, sans-serif;
-    background-color: #f8fafc;
-    color: #1e293b;
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
   }
@@ -82,24 +134,208 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+}
 
-  .line-clamp-1 {
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+/**
+ * Reduced motion.
+ *
+ * The app had zero handling for this. A CSS media query rather than a JS hook on
+ * purpose: it covers Tailwind transitions, tailwindcss-animate enter/exit, our
+ * own keyframes, and smooth scrolling in one place — a hook can only gate the JS
+ * it is wired into, and would need threading through every animated component.
+ *
+ * `!important` is required to beat utility classes. Scroll-behaviour is reset
+ * too, since `scroll-behavior: smooth` is itself motion.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+}
+
+/**
+ * Skeleton shimmer.
+ *
+ * The Skeleton primitive was plain `animate-pulse` — an opacity breathe, which
+ * reads as "disabled" more than "loading". A sweep reads as work in progress.
+ * Kept as a single class so Skeleton's one-class API doesn't change.
+ */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
   }
-  .line-clamp-3 {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+}
+
+@layer components {
+  .skeleton {
+    @apply relative overflow-hidden bg-muted-foreground/[0.12];
+  }
+  .skeleton::after {
+    @apply absolute inset-0;
+    content: "";
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      hsl(0 0% 100% / 0.45),
+      transparent
+    );
+    animation: shimmer 1.6s infinite;
+  }
+  /* A static skeleton is better than a sweeping one when motion is unwanted. */
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton::after {
+      display: none;
+    }
+  }
+}
+
+/**
+ * List entrance stagger.
+ *
+ * Children fade up in sequence rather than all at once. Implemented with
+ * nth-child delays rather than inline styles so the caller adds one class and
+ * the grid stays declarative.
+ *
+ * Capped at 10: beyond that the last item would wait long enough to read as lag,
+ * and everything past the cap simply animates with the final delay.
+ */
+@layer components {
+  .stagger-in > * {
+    animation: stagger-rise 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .stagger-in > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-in > *:nth-child(2) { animation-delay: 40ms; }
+  .stagger-in > *:nth-child(3) { animation-delay: 80ms; }
+  .stagger-in > *:nth-child(4) { animation-delay: 120ms; }
+  .stagger-in > *:nth-child(5) { animation-delay: 160ms; }
+  .stagger-in > *:nth-child(6) { animation-delay: 200ms; }
+  .stagger-in > *:nth-child(7) { animation-delay: 240ms; }
+  .stagger-in > *:nth-child(8) { animation-delay: 280ms; }
+  .stagger-in > *:nth-child(9) { animation-delay: 320ms; }
+  .stagger-in > *:nth-child(n + 10) { animation-delay: 360ms; }
+}
+
+@keyframes stagger-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/**
+ * Section rhythm.
+ *
+ * Three tiers instead of the 15 distinct `py-*` values previously in use (Home
+ * alone had six). Every section owning its own arbitrary padding is why the page
+ * had no readable vertical rhythm.
+ *
+ * `.page-container` captures the one convention that WAS consistent — the
+ * `max-w-7xl mx-auto px-4 sm:px-6 lg:px-8` string appeared byte-identical at
+ * 26 sites. Home repeated it eight times.
+ */
+@layer components {
+  .page-container {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+  .section-tight {
+    @apply py-8 lg:py-10;
+  }
+  .section-base {
+    @apply py-12 lg:py-16;
+  }
+  .section-loose {
+    @apply py-16 lg:py-24;
+  }
+}
+
+/**
+ * Sticky chrome glass.
+ *
+ * Replaces three competing recipes for the same concept — bg-card/80 + blur-md
+ * (Header), /95 + blur (MobileBottomNav), /80 + blur-md (AdminTopbar) — none of
+ * which had a fallback. Without backdrop-filter support the surface must go
+ * fully opaque, otherwise sticky chrome becomes semi-transparent and unreadable.
+ */
+@layer components {
+  .glass-chrome {
+    @apply bg-card/80 backdrop-blur-xl;
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass-chrome {
+      @apply bg-card;
+    }
+  }
+}
+
+/**
+ * Long-form body copy.
+ *
+ * Replaces `prose prose-lg max-w-none`, which emitted nothing at all —
+ * @tailwindcss/typography was never installed. On top of that, max-w-none
+ * removed any measure, so the news article body ran the full container width
+ * (~150-170 characters per line against a 45-75 readable target).
+ *
+ * Hand-rolled rather than adding the plugin: we need a handful of elements, the
+ * token colours are already defined, and CSS does not count against the JS
+ * bundle budget.
+ */
+@layer components {
+  .prose-content {
+    @apply max-w-[68ch] text-base leading-relaxed text-foreground;
+  }
+  .prose-content > * + * {
+    @apply mt-4;
+  }
+  /* Sizes intentionally use stock Tailwind steps so this block does not depend
+     on the semantic type scale added later. */
+  .prose-content h2 {
+    @apply mt-10 text-h3 font-display font-bold lg:text-h2;
+  }
+  .prose-content h3 {
+    @apply mt-8 text-base font-semibold lg:text-h3;
+  }
+  .prose-content p {
+    @apply text-muted-foreground;
+  }
+  .prose-content strong {
+    @apply font-semibold text-foreground;
+  }
+  .prose-content a {
+    @apply font-medium text-primary underline decoration-primary/30 underline-offset-2 transition-colors hover:decoration-primary;
+  }
+  .prose-content ul,
+  .prose-content ol {
+    @apply space-y-2 pl-5 text-muted-foreground;
+  }
+  .prose-content ul {
+    @apply list-disc;
+  }
+  .prose-content ol {
+    @apply list-decimal;
+  }
+  .prose-content blockquote {
+    @apply border-l-2 border-primary/30 pl-4 italic text-muted-foreground;
+  }
+  .prose-content img {
+    @apply rounded-xl;
+  }
+  .prose-content code {
+    @apply rounded bg-muted px-1.5 py-0.5 text-sm text-foreground;
+  }
+  /* Width is owned by the container, not the prose block, when a page needs
+     full-bleed media inside the article. */
+  .prose-content-wide {
+    @apply max-w-none;
   }
 }
 
@@ -108,13 +344,440 @@
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: hsl(var(--muted));
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: hsl(var(--border));
   border-radius: 6px;
-  border: 2px solid #f1f5f9;
+  border: 2px solid hsl(var(--muted));
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: hsl(var(--muted-foreground));
+}
+
+.order-receipt-print-root {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 11mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  body > *:not(.order-receipt-print-root) {
+    display: none !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .order-receipt-print-root,
+  .order-receipt-print-root * {
+    visibility: visible !important;
+  }
+
+  .order-receipt-print-root {
+    display: block !important;
+    position: static;
+    width: 100%;
+    color: #0f172a;
+    background: #fff;
+    font-family: "Inter", Arial, sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .order-receipt {
+    width: 100%;
+    margin: 0 auto;
+    font-size: 10pt;
+    line-height: 1.5;
+  }
+
+  /* ---------- Header ---------- */
+  .receipt-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    background: linear-gradient(120deg, #4338ca 0%, #6366f1 55%, #818cf8 100%);
+    color: #fff;
+  }
+
+  .receipt-identity {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+  }
+
+  .receipt-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    color: #fff;
+    font-size: 16pt;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .receipt-brand {
+    color: #fff;
+    font-size: 18pt;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+
+  .receipt-brand-subtitle {
+    margin-top: 1px;
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 8pt;
+    letter-spacing: 0.02em;
+  }
+
+  .receipt-heading {
+    text-align: right;
+  }
+
+  .receipt-heading h1 {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 10pt;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+  }
+
+  .receipt-code {
+    margin-top: 3px;
+    color: #fff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12pt;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+  }
+
+  .receipt-issued {
+    margin-top: 1px;
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 7.5pt;
+  }
+
+  /* ---------- Meta cards ---------- */
+  .receipt-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .receipt-meta-grid > div {
+    min-height: 46px;
+    padding: 8px 9px;
+    border: 1px solid #e2e8f0;
+    border-top: 2px solid #c7d2fe;
+    border-radius: 8px;
+    background: #fafbff;
+  }
+
+  .receipt-meta-grid span,
+  .receipt-meta-grid strong {
+    display: block;
+  }
+
+  .receipt-meta-grid span {
+    color: #64748b;
+    font-size: 7pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .receipt-meta-grid strong {
+    margin-top: 3px;
+    color: #0f172a;
+    font-size: 8.5pt;
+  }
+
+  .receipt-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 8pt;
+    font-style: normal;
+    font-weight: 700;
+  }
+
+  .receipt-badge.is-ok {
+    background: #dcfce7;
+    color: #15803d;
+  }
+
+  .receipt-badge.is-info {
+    background: #e0e7ff;
+    color: #4338ca;
+  }
+
+  .receipt-badge.is-warn {
+    background: #fef3c7;
+    color: #b45309;
+  }
+
+  .receipt-badge.is-bad {
+    background: #fee2e2;
+    color: #b91c1c;
+  }
+
+  /* ---------- Sections ---------- */
+  .receipt-section {
+    margin-top: 16px;
+  }
+
+  .receipt-section h2 {
+    margin-bottom: 7px;
+    color: #4338ca;
+    font-size: 8.5pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .receipt-two-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .receipt-panel {
+    padding: 11px 13px;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #6366f1;
+    border-radius: 8px;
+    background: #fafbff;
+    break-inside: avoid;
+  }
+
+  .receipt-panel h2 {
+    margin-bottom: 5px;
+  }
+
+  .receipt-recipient {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: #475569;
+    font-size: 9pt;
+  }
+
+  .receipt-recipient strong {
+    color: #0f172a;
+    font-size: 9.5pt;
+  }
+
+  .receipt-mono {
+    overflow-wrap: anywhere;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 8pt;
+  }
+
+  /* ---------- Items table ---------- */
+  .receipt-items {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .receipt-items thead {
+    display: table-header-group;
+  }
+
+  .receipt-items tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .receipt-items tbody tr:nth-child(even) {
+    background: #fafbff;
+  }
+
+  .receipt-items th,
+  .receipt-items td {
+    padding: 8px 9px;
+    border-bottom: 1px solid #eef2f7;
+    vertical-align: top;
+  }
+
+  .receipt-items tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .receipt-items th {
+    color: #fff;
+    background: #4338ca;
+    font-size: 7.5pt;
+    font-weight: 700;
+    text-align: left;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .receipt-items .receipt-index {
+    width: 6%;
+    color: #94a3b8;
+    text-align: center;
+    font-size: 8pt;
+  }
+
+  .receipt-items th.receipt-index {
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  .receipt-items th:nth-child(2),
+  .receipt-items td:nth-child(2) {
+    width: 46%;
+  }
+
+  .receipt-items td strong,
+  .receipt-items td span {
+    display: block;
+  }
+
+  .receipt-items td strong {
+    color: #0f172a;
+    font-size: 9pt;
+  }
+
+  .receipt-items td span {
+    margin-top: 1px;
+    color: #64748b;
+    font-size: 8pt;
+  }
+
+  .receipt-items .receipt-number {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .receipt-items .receipt-line-total {
+    color: #0f172a;
+    font-weight: 700;
+  }
+
+  /* ---------- Totals ---------- */
+  .receipt-totals {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-top: 14px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .receipt-totals-note {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+
+  .receipt-count {
+    color: #64748b;
+    font-size: 8pt;
+  }
+
+  .receipt-stamp {
+    align-self: flex-start;
+    padding: 5px 12px;
+    border: 2px solid #16a34a;
+    border-radius: 7px;
+    color: #16a34a;
+    font-size: 10pt;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    transform: rotate(-5deg);
+  }
+
+  .receipt-totals dl {
+    width: 268px;
+    flex-shrink: 0;
+    padding: 11px 13px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    background: #fafbff;
+  }
+
+  .receipt-summary-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 3px 0;
+    color: #475569;
+    font-size: 9pt;
+  }
+
+  .receipt-summary-row dd {
+    color: #0f172a;
+    font-weight: 600;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .receipt-summary-row.is-total {
+    margin: 6px -13px -11px;
+    padding: 9px 13px;
+    border-top: 1px solid #c7d2fe;
+    border-radius: 0 0 8px 8px;
+    background: #eef2ff;
+    color: #312e81;
+    font-size: 11pt;
+    font-weight: 800;
+  }
+
+  .receipt-summary-row.is-total dd {
+    color: #4338ca;
+    font-size: 13pt;
+    font-weight: 800;
+  }
+
+  /* ---------- Footer ---------- */
+  .receipt-footer {
+    margin-top: 20px;
+    padding-top: 11px;
+    border-top: 1px dashed #cbd5e1;
+    color: #64748b;
+    font-size: 8pt;
+    text-align: center;
+    break-inside: avoid;
+  }
+
+  .receipt-thanks {
+    color: #4338ca;
+    font-size: 9.5pt;
+    font-weight: 700;
+  }
+
+  .receipt-footer p + p {
+    margin-top: 3px;
+  }
 }

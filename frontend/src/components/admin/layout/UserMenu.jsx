@@ -19,29 +19,29 @@ export function UserMenu() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="group inline-flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-gray-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/30">
-        <Avatar className="h-8 w-8">
+      <DropdownMenuTrigger className="group inline-flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
+        <Avatar className="size-8">
           {user?.avatar && <AvatarImage src={user.avatar} />}
           <AvatarFallback className="text-xs">{initials}</AvatarFallback>
         </Avatar>
         <div className="hidden text-left md:block">
-          <p className="text-sm font-semibold leading-tight text-secondary-900">
+          <p className="text-sm font-semibold leading-tight text-foreground">
             {user?.name || "Admin"}
           </p>
-          <p className="text-[11px] leading-tight text-secondary-500">
+          <p className="text-[11px] leading-tight text-muted-foreground">
             {user?.email || "admin@bookshop.local"}
           </p>
         </div>
-        <ChevronDown className="h-3.5 w-3.5 text-secondary-500 transition-transform group-data-[state=open]:rotate-180" />
+        <ChevronDown className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel>Tài khoản</DropdownMenuLabel>
         <DropdownMenuItem onClick={() => navigate("/profile")}>
-          <UserRound className="h-4 w-4" />
+          <UserRound className="size-4" />
           Hồ sơ cá nhân
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => navigate("/")}>
-          <Store className="h-4 w-4" />
+          <Store className="size-4" />
           Về cửa hàng
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -50,9 +50,9 @@ export function UserMenu() {
             logout();
             navigate("/login");
           }}
-          className="text-rose-600 focus:bg-rose-50 focus:text-rose-700"
+          className="text-danger-strong focus:bg-danger-muted focus:text-danger-strong"
         >
-          <LogOut className="h-4 w-4" />
+          <LogOut className="size-4" />
           Đăng xuất
         </DropdownMenuItem>
       </DropdownMenuContent>
