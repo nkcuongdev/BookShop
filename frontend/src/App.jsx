@@ -1,26 +1,41 @@
 import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import MainLayout from "./layouts/MainLayout.jsx";
-import AdminLayout from "./layouts/AdminLayout.jsx";
-import ProfileLayout from "./layouts/ProfileLayout.jsx";
 import Home from "./pages/Home.jsx";
-import ProductList from "./pages/ProductList.jsx";
-import BookDetail from "./pages/BookDetail.jsx";
-import Cart from "./pages/Cart.jsx";
-import Checkout from "./pages/Checkout.jsx";
-import PaymentResult from "./pages/PaymentResult.jsx";
-import Login from "./pages/Login.jsx";
-import Register from "./pages/Register.jsx";
-import NewsList from "./pages/NewsList.jsx";
-import NewsDetail from "./pages/NewsDetail.jsx";
-import ProfileOverview from "./pages/profile/ProfileOverview.jsx";
-import ProfileOrders from "./pages/profile/ProfileOrders.jsx";
-import OrderDetail from "./pages/profile/OrderDetail.jsx";
-import ProfileAddresses from "./pages/profile/ProfileAddresses.jsx";
-import ProfileWishlist from "./pages/profile/ProfileWishlist.jsx";
-import ProfilePassword from "./pages/profile/ProfilePassword.jsx";
+import NotFound from "./pages/NotFound.jsx";
 import { Skeleton } from "./components/ui/skeleton.jsx";
+import { RequirePermission } from "./components/admin/common/RequirePermission.jsx";
 
+const AdminLayout = lazy(() => import("./layouts/AdminLayout.jsx"));
+const ProfileLayout = lazy(() => import("./layouts/ProfileLayout.jsx"));
+const ProductList = lazy(() => import("./pages/ProductList.jsx"));
+const BookDetail = lazy(() => import("./pages/BookDetail.jsx"));
+const Cart = lazy(() => import("./pages/Cart.jsx"));
+const Checkout = lazy(() => import("./pages/Checkout.jsx"));
+const PaymentResult = lazy(() => import("./pages/PaymentResult.jsx"));
+const Login = lazy(() => import("./pages/Login.jsx"));
+const Register = lazy(() => import("./pages/Register.jsx"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword.jsx"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword.jsx"));
+const VerifyEmail = lazy(() => import("./pages/VerifyEmail.jsx"));
+const LegalPage = lazy(() => import("./pages/LegalPage.jsx"));
+const NewsletterConfirm = lazy(() => import("./pages/NewsletterConfirm.jsx"));
+const NewsletterUnsubscribe = lazy(() => import("./pages/NewsletterUnsubscribe.jsx"));
+const SupportPage = lazy(() => import("./pages/SupportPage.jsx"));
+const NewsList = lazy(() => import("./pages/NewsList.jsx"));
+const NewsDetail = lazy(() => import("./pages/NewsDetail.jsx"));
+const ProfileOverview = lazy(() => import("./pages/profile/ProfileOverview.jsx"));
+const ProfileOrders = lazy(() => import("./pages/profile/ProfileOrders.jsx"));
+const OrderDetail = lazy(() => import("./pages/profile/OrderDetail.jsx"));
+const ProfileAddresses = lazy(() => import("./pages/profile/ProfileAddresses.jsx"));
+const ProfileWishlist = lazy(() => import("./pages/profile/ProfileWishlist.jsx"));
+const ProfilePassword = lazy(() => import("./pages/profile/ProfilePassword.jsx"));
+const ProfileNotifications = lazy(() => import("./pages/profile/ProfileNotifications.jsx"));
+const MyPermissions = lazy(() => import("./pages/profile/MyPermissions.jsx"));
+const ProfilePoints = lazy(() => import("./pages/profile/ProfilePoints.jsx"));
+const PointsRewards = lazy(() => import("./pages/profile/PointsRewards.jsx"));
+const SupportTickets = lazy(() => import("./pages/profile/SupportTickets.jsx"));
+const SupportTicketDetail = lazy(() => import("./pages/profile/SupportTicketDetail.jsx"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard.jsx"));
 const BooksList = lazy(() => import("./pages/admin/books/BooksList.jsx"));
 const BookFormPage = lazy(() => import("./pages/admin/books/BookFormPage.jsx"));
@@ -29,6 +44,20 @@ const CategoriesList = lazy(() =>
 );
 const OrdersList = lazy(() => import("./pages/admin/orders/OrdersList.jsx"));
 const UsersList = lazy(() => import("./pages/admin/users/UsersList.jsx"));
+const RolesMatrix = lazy(() => import("./pages/admin/roles/RolesMatrix.jsx"));
+const RoleFormPage = lazy(() => import("./pages/admin/roles/RoleFormPage.jsx"));
+const LoyaltyMembersList = lazy(() =>
+  import("./pages/admin/loyalty/LoyaltyMembersList.jsx")
+);
+const MemberPointsHistory = lazy(() =>
+  import("./pages/admin/loyalty/MemberPointsHistory.jsx")
+);
+const LoyaltyRewardsList = lazy(() =>
+  import("./pages/admin/loyalty/RewardsList.jsx")
+);
+const LoyaltySettings = lazy(() =>
+  import("./pages/admin/loyalty/LoyaltySettings.jsx")
+);
 const VouchersList = lazy(() =>
   import("./pages/admin/vouchers/VouchersList.jsx")
 );
@@ -41,6 +70,39 @@ const PostFormPage = lazy(() => import("./pages/admin/posts/PostFormPage.jsx"));
 const PostCategoriesList = lazy(() =>
   import("./pages/admin/posts/PostCategoriesList.jsx")
 );
+const ReviewsList = lazy(() => import("./pages/admin/reviews/ReviewsList.jsx"));
+const NewsletterManager = lazy(() =>
+  import("./pages/admin/newsletter/NewsletterManager.jsx")
+);
+const SupportTicketQueue = lazy(() => import("./pages/admin/support/SupportTicketQueue.jsx"));
+const AdminSupportTicketDetail = lazy(() => import("./pages/admin/support/SupportTicketDetail.jsx"));
+const SuppliersList = lazy(() => import("./pages/admin/suppliers/SuppliersList.jsx"));
+const StockReceiptsList = lazy(() =>
+  import("./pages/admin/inventory/StockReceiptsList.jsx")
+);
+const StockReceiptForm = lazy(() =>
+  import("./pages/admin/inventory/StockReceiptForm.jsx")
+);
+const StockIssuesList = lazy(() =>
+  import("./pages/admin/inventory/StockIssuesList.jsx")
+);
+const StockIssueForm = lazy(() =>
+  import("./pages/admin/inventory/StockIssueForm.jsx")
+);
+const StockCountsList = lazy(() =>
+  import("./pages/admin/inventory/StockCountsList.jsx")
+);
+const StockCountSheet = lazy(() =>
+  import("./pages/admin/inventory/StockCountSheet.jsx")
+);
+const StockLedgerPage = lazy(() =>
+  import("./pages/admin/inventory/StockLedgerPage.jsx")
+);
+const LowStockPage = lazy(() => import("./pages/admin/inventory/LowStockPage.jsx"));
+const ProfitReport = lazy(() =>
+  import("./pages/admin/reports/ProfitReport.jsx")
+);
+const AuditLogPage = lazy(() => import("./pages/admin/audit/AuditLogPage.jsx"));
 
 function AdminPageFallback() {
   return (
@@ -57,8 +119,47 @@ function AdminPageFallback() {
   );
 }
 
+/**
+ * Customer routes must NOT use AdminPageFallback — an admin dashboard skeleton
+ * (title + 4 stat cards + chart block) flashing on the storefront reads as a
+ * broken page. This mirrors the shared storefront shape instead: a page-header
+ * band followed by a content block.
+ */
+function CustomerPageFallback() {
+  return (
+    <div className="min-h-screen">
+      <div className="border-b border-border bg-card">
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+          <Skeleton className="h-4 w-48" />
+          <Skeleton className="mt-3 h-8 w-72" />
+        </div>
+      </div>
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <Skeleton className="h-64 w-full" />
+      </div>
+    </div>
+  );
+}
+
 function LazyAdmin({ children }) {
   return <Suspense fallback={<AdminPageFallback />}>{children}</Suspense>;
+}
+
+/**
+ * Unknown /admin/* URL. Handled inside the admin branch so the sidebar and
+ * topbar stay in place instead of dropping to the storefront 404.
+ */
+function AdminNotFound() {
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-2 text-center">
+      <h1 className="text-h2 font-display font-bold text-foreground">
+        Không tìm thấy trang
+      </h1>
+      <p className="text-sm text-muted-foreground">
+        Đường dẫn quản trị này không tồn tại.
+      </p>
+    </div>
+  );
 }
 
 function RedirectToProfileOrder() {
@@ -68,7 +169,8 @@ function RedirectToProfileOrder() {
 
 function App() {
   return (
-    <Routes>
+    <Suspense fallback={<CustomerPageFallback />}>
+      <Routes>
       <Route element={<MainLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/products" element={<ProductList />} />
@@ -78,6 +180,17 @@ function App() {
         <Route path="/payment-result" element={<PaymentResult />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/newsletter/confirm" element={<NewsletterConfirm />} />
+        <Route path="/newsletter/unsubscribe" element={<NewsletterUnsubscribe />} />
+        <Route path="/terms" element={<LegalPage type="terms" />} />
+        <Route path="/privacy" element={<LegalPage type="privacy" />} />
+        <Route path="/support/shipping" element={<SupportPage type="shipping" />} />
+        <Route path="/support/returns" element={<SupportPage type="returns" />} />
+        <Route path="/support/faq" element={<SupportPage type="faq" />} />
+        <Route path="/support/contact" element={<SupportPage type="contact" />} />
         <Route path="/news" element={<NewsList />} />
         <Route path="/news/:slug" element={<NewsDetail />} />
 
@@ -87,7 +200,13 @@ function App() {
           <Route path="orders/:orderId" element={<OrderDetail />} />
           <Route path="addresses" element={<ProfileAddresses />} />
           <Route path="wishlist" element={<ProfileWishlist />} />
+          <Route path="notifications" element={<ProfileNotifications />} />
+          <Route path="support" element={<SupportTickets />} />
+          <Route path="support/:ticketId" element={<SupportTicketDetail />} />
+          <Route path="points" element={<ProfilePoints />} />
+          <Route path="points/rewards" element={<PointsRewards />} />
           <Route path="password" element={<ProfilePassword />} />
+          <Route path="permissions" element={<MyPermissions />} />
         </Route>
 
         <Route path="/orders" element={<Navigate to="/profile/orders" replace />} />
@@ -95,131 +214,407 @@ function App() {
           path="/orders/:orderId"
           element={<RedirectToProfileOrder />}
         />
+        <Route path="*" element={<NotFound />} />
       </Route>
 
       <Route path="/admin" element={<AdminLayout />}>
         <Route
           index
           element={
-            <LazyAdmin>
-              <AdminDashboard />
-            </LazyAdmin>
+            <RequirePermission permission="dashboard.view">
+              <LazyAdmin>
+                <AdminDashboard />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="books"
           element={
-            <LazyAdmin>
-              <BooksList />
-            </LazyAdmin>
+            <RequirePermission permission="book.read">
+              <LazyAdmin>
+                <BooksList />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="books/new"
           element={
-            <LazyAdmin>
-              <BookFormPage mode="create" />
-            </LazyAdmin>
+            <RequirePermission permission="book.write">
+              <LazyAdmin>
+                <BookFormPage mode="create" />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="books/:id/edit"
           element={
-            <LazyAdmin>
-              <BookFormPage mode="edit" />
-            </LazyAdmin>
+            <RequirePermission permission="book.write">
+              <LazyAdmin>
+                <BookFormPage mode="edit" />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="categories"
           element={
-            <LazyAdmin>
-              <CategoriesList />
-            </LazyAdmin>
+            <RequirePermission permission="category.manage">
+              <LazyAdmin>
+                <CategoriesList />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="orders"
           element={
-            <LazyAdmin>
-              <OrdersList />
-            </LazyAdmin>
+            <RequirePermission permission="order.read">
+              <LazyAdmin>
+                <OrdersList />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="orders/:id"
           element={
-            <LazyAdmin>
-              <OrdersList />
-            </LazyAdmin>
+            <RequirePermission permission="order.read">
+              <LazyAdmin>
+                <OrdersList />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="roles"
+          element={
+            <RequirePermission permission="role.read">
+              <LazyAdmin>
+                <RolesMatrix />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="audit-logs"
+          element={
+            <RequirePermission permission="audit.read">
+              <LazyAdmin>
+                <AuditLogPage />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="roles/new"
+          element={
+            <RequirePermission permission="role.manage">
+              <LazyAdmin>
+                <RoleFormPage mode="create" />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="roles/:key"
+          element={
+            <RequirePermission permission="role.manage">
+              <LazyAdmin>
+                <RoleFormPage mode="edit" />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="users"
           element={
-            <LazyAdmin>
-              <UsersList />
-            </LazyAdmin>
+            <RequirePermission permission="user.manage">
+              <LazyAdmin>
+                <UsersList />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="vouchers"
           element={
-            <LazyAdmin>
-              <VouchersList />
-            </LazyAdmin>
+            <RequirePermission permission="voucher.manage">
+              <LazyAdmin>
+                <VouchersList />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="loyalty/members"
+          element={
+            <RequirePermission permission="loyalty.read">
+              <LazyAdmin>
+                <LoyaltyMembersList />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="loyalty/members/:userId"
+          element={
+            <RequirePermission permission="loyalty.read">
+              <LazyAdmin>
+                <MemberPointsHistory />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="loyalty/rewards"
+          element={
+            <RequirePermission permission="loyalty.read">
+              <LazyAdmin>
+                <LoyaltyRewardsList />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="loyalty/settings"
+          element={
+            <RequirePermission permission="loyalty.read">
+              <LazyAdmin>
+                <LoyaltySettings />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="promotions"
           element={
-            <LazyAdmin>
-              <PromotionsList />
-            </LazyAdmin>
+            <RequirePermission permission="promotion.manage">
+              <LazyAdmin>
+                <PromotionsList />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="support"
+          element={
+            <RequirePermission permission="ticket.read">
+              <LazyAdmin>
+                <SupportTicketQueue />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="support/:ticketId"
+          element={
+            <RequirePermission permission="ticket.read">
+              <LazyAdmin>
+                <AdminSupportTicketDetail />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="chat"
           element={
-            <LazyAdmin>
-              <ChatSupport />
-            </LazyAdmin>
+            <RequirePermission permission="chat.read">
+              <LazyAdmin>
+                <ChatSupport />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="posts"
           element={
-            <LazyAdmin>
-              <PostsList />
-            </LazyAdmin>
+            <RequirePermission permission="post.read">
+              <LazyAdmin>
+                <PostsList />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="posts/new"
           element={
-            <LazyAdmin>
-              <PostFormPage mode="create" />
-            </LazyAdmin>
+            <RequirePermission permission="post.write">
+              <LazyAdmin>
+                <PostFormPage mode="create" />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="posts/:id/edit"
           element={
-            <LazyAdmin>
-              <PostFormPage mode="edit" />
-            </LazyAdmin>
+            <RequirePermission permission="post.write">
+              <LazyAdmin>
+                <PostFormPage mode="edit" />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
         <Route
           path="posts/categories"
           element={
-            <LazyAdmin>
-              <PostCategoriesList />
-            </LazyAdmin>
+            <RequirePermission permission="postCategory.manage">
+              <LazyAdmin>
+                <PostCategoriesList />
+              </LazyAdmin>
+            </RequirePermission>
           }
         />
+        <Route
+          path="newsletter"
+          element={
+            <RequirePermission permission="newsletter.manage">
+              <LazyAdmin>
+                <NewsletterManager />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="reviews"
+          element={
+            <RequirePermission permission="review.moderate">
+              <LazyAdmin>
+                <ReviewsList />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+
+        {/* Warehouse management */}
+        <Route
+          path="suppliers"
+          element={
+            <RequirePermission permission="supplier.read">
+              <LazyAdmin>
+                <SuppliersList />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="inventory/receipts"
+          element={
+            <RequirePermission permission="inventory.read">
+              <LazyAdmin>
+                <StockReceiptsList />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="inventory/receipts/new"
+          element={
+            <RequirePermission permission="inventory.write">
+              <LazyAdmin>
+                <StockReceiptForm mode="create" />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="inventory/receipts/:id"
+          element={
+            <RequirePermission permission="inventory.read">
+              <LazyAdmin>
+                <StockReceiptForm mode="edit" />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="inventory/issues"
+          element={
+            <RequirePermission permission="inventory.read">
+              <LazyAdmin>
+                <StockIssuesList />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="inventory/issues/new"
+          element={
+            <RequirePermission permission="inventory.write">
+              <LazyAdmin>
+                <StockIssueForm mode="create" />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="inventory/issues/:id"
+          element={
+            <RequirePermission permission="inventory.read">
+              <LazyAdmin>
+                <StockIssueForm mode="edit" />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="inventory/counts"
+          element={
+            <RequirePermission permission="inventory.read">
+              <LazyAdmin>
+                <StockCountsList />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="inventory/counts/:id"
+          element={
+            <RequirePermission permission="inventory.read">
+              <LazyAdmin>
+                <StockCountSheet />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="inventory/ledger"
+          element={
+            <RequirePermission permission="inventory.read">
+              <LazyAdmin>
+                <StockLedgerPage />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="inventory/low-stock"
+          element={
+            <RequirePermission permission="inventory.read">
+              <LazyAdmin>
+                <LowStockPage />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="reports/profit"
+          element={
+            <RequirePermission permission="analytics.view">
+              <LazyAdmin>
+                <ProfitReport />
+              </LazyAdmin>
+            </RequirePermission>
+          }
+        />
+        <Route path="*" element={<AdminNotFound />} />
       </Route>
-    </Routes>
+      <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
   );
 }
 

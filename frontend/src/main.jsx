@@ -7,6 +7,11 @@ import { AuthProvider } from "./context/AuthContext.jsx";
 import { CartProvider } from "./context/CartContext.jsx";
 import { CategoryProvider } from "./context/CategoryContext.jsx";
 import { AppProviders } from "./app/providers.jsx";
+import { cleanupLegacyTheme } from "./lib/themeCleanup.js";
+
+// Runs before first render so a returning visitor never paints with the stale
+// `dark` class still on <html>.
+cleanupLegacyTheme();
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>

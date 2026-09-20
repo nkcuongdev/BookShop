@@ -8,23 +8,75 @@ const Review = require("./models/Review");
 const Voucher = require("./models/Voucher");
 const Conversation = require("./models/Conversation");
 const Message = require("./models/Message");
+const AnalyticsEvent = require("./models/AnalyticsEvent");
+const AuthSession = require("./models/AuthSession");
+const Cart = require("./models/Cart");
+const Notification = require("./models/Notification");
+const Post = require("./models/Post");
+const PostCategory = require("./models/PostCategory");
+const Promotion = require("./models/Promotion");
+const PromotionAlertDelivery = require("./models/PromotionAlertDelivery");
+const LoyaltyGift = require("./models/LoyaltyGift");
+const LoyaltyGiftRedemption = require("./models/LoyaltyGiftRedemption");
+const LoyaltyLedger = require("./models/LoyaltyLedger");
+const LoyaltyProgram = require("./models/LoyaltyProgram");
+const loyaltyService = require("./services/loyaltyService");
+const { seedRoles } = require("./jobs/seedRoles");
 
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/bookshop";
 
-const users = [
-  {
-    name: "Admin",
-    email: "admin@bookshop.com",
-    password: "admin123",
-    role: "admin",
-  },
-  {
-    name: "Nguyễn Văn A",
-    email: "user@bookshop.com",
-    password: "user123",
-    role: "user",
-  },
+function assertSeedAllowed() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Seed is disabled in production");
+  }
+  if (process.env.SEED_CONFIRM !== "RESET_BOOKSHOP_DATA") {
+    throw new Error(
+      "Refusing destructive seed. Set SEED_CONFIRM=RESET_BOOKSHOP_DATA to continue"
+    );
+  }
+}
+
+// One account per staff role so every permission set can be exercised locally.
+const STAFF_SEEDS = [
+  { role: "warehouse", name: "Nhân viên kho", email: "warehouse@gmail.com" },
+  { role: "support", name: "Nhân viên CSKH", email: "support@gmail.com" },
+  { role: "content", name: "Nhân viên nội dung", email: "content@gmail.com" },
+  { role: "accounting", name: "Nhân viên kế toán", email: "accounting@gmail.com" },
 ];
+
+function buildSeedUsers() {
+  const adminPassword =
+    process.env.SEED_ADMIN_PASSWORD || "12345678";
+  const userPassword =
+    process.env.SEED_USER_PASSWORD || "12345678";
+  const staffPassword =
+    process.env.SEED_STAFF_PASSWORD || "12345678";
+  for (const password of [adminPassword, userPassword, staffPassword]) {
+    if (password.length < 8 || Buffer.byteLength(password, "utf8") > 72) {
+      throw new Error("Seed passwords must be 8+ characters and at most 72 bytes");
+    }
+  }
+  return {
+    adminPassword,
+    userPassword,
+    staffPassword,
+    users: [
+      {
+        name: "Admin",
+        email: "admin@gmail.com",
+        password: adminPassword,
+        role: "admin",
+      },
+      ...STAFF_SEEDS.map((staff) => ({ ...staff, password: staffPassword })),
+      {
+        name: "Nguyễn Văn A",
+        email: "user@gmail.com",
+        password: userPassword,
+        role: "user",
+      },
+    ],
+  };
+}
 
 const day = 24 * 3600_000;
 const now = Date.now();
@@ -129,6 +181,72 @@ const books = [
   },
 ];
 
+const loyaltyGifts = [
+  {
+    code: "GIAM20K",
+    name: "Voucher giảm 20.000đ",
+    description: "Áp dụng cho đơn từ 150.000đ.",
+    pointsCost: 50,
+    voucherTemplate: {
+      type: "fixed",
+      scope: "order",
+      value: 20_000,
+      minOrder: 150_000,
+      validDays: 30,
+    },
+    perUserLimit: 3,
+    sortOrder: 1,
+  },
+  {
+    code: "FREESHIP",
+    name: "Miễn phí vận chuyển",
+    description: "Giảm tối đa 30.000đ phí vận chuyển.",
+    pointsCost: 80,
+    voucherTemplate: {
+      type: "percent",
+      scope: "shipping",
+      value: 100,
+      maxDiscount: 30_000,
+      validDays: 30,
+    },
+    perUserLimit: 2,
+    sortOrder: 2,
+  },
+  {
+    code: "GIAM10PT",
+    name: "Voucher giảm 10%",
+    description: "Giảm 10% giá trị đơn, tối đa 50.000đ.",
+    pointsCost: 150,
+    voucherTemplate: {
+      type: "percent",
+      scope: "order",
+      value: 10,
+      minOrder: 200_000,
+      maxDiscount: 50_000,
+      validDays: 45,
+    },
+    perUserLimit: 1,
+    sortOrder: 3,
+  },
+  {
+    code: "VANG50K",
+    name: "Voucher hạng Vàng 50.000đ",
+    description: "Ưu đãi riêng cho thành viên hạng Vàng trở lên.",
+    pointsCost: 300,
+    minTierKey: "gold",
+    voucherTemplate: {
+      type: "fixed",
+      scope: "order",
+      value: 50_000,
+      minOrder: 300_000,
+      validDays: 60,
+    },
+    stock: 100,
+    perUserLimit: 1,
+    sortOrder: 4,
+  },
+];
+
 const vouchers = [
   {
     code: "WELCOME10",
@@ -141,6 +259,7 @@ const vouchers = [
     usageLimit: 500,
     usedCount: 128,
     active: true,
+    publicVisible: true,
     description: "Giảm 10% cho khách hàng mới",
   },
   {
@@ -154,6 +273,7 @@ const vouchers = [
     usageLimit: 1000,
     usedCount: 412,
     active: true,
+    publicVisible: true,
     description: "Miễn phí vận chuyển đơn từ 150k",
   },
   {
@@ -167,12 +287,15 @@ const vouchers = [
     usageLimit: 100,
     usedCount: 0,
     active: true,
+    publicVisible: true,
     description: "Khuyến mãi Black Friday",
   },
 ];
 
 async function seed() {
   try {
+    assertSeedAllowed();
+    const { users, adminPassword, userPassword, staffPassword } = buildSeedUsers();
     console.log("🔗 Connecting to MongoDB...");
     await mongoose.connect(MONGO_URI);
     console.log("✅ Connected to MongoDB");
@@ -187,7 +310,29 @@ async function seed() {
       Voucher.deleteMany({}),
       Conversation.deleteMany({}),
       Message.deleteMany({}),
+      AnalyticsEvent.deleteMany({}),
+      AuthSession.deleteMany({}),
+      Cart.deleteMany({}),
+      Notification.deleteMany({}),
+      Post.deleteMany({}),
+      PostCategory.deleteMany({}),
+      Promotion.deleteMany({}),
+      PromotionAlertDelivery.deleteMany({}),
+      LoyaltyGift.deleteMany({}),
+      LoyaltyGiftRedemption.deleteMany({}),
+      // The ledger refuses deleteMany through Mongoose by design, so the wipe
+      // goes through the driver. LoyaltyProgram is left alone: like Role, it is
+      // configuration rather than sample data.
+      LoyaltyLedger.collection.deleteMany({}),
     ]);
+
+    // Roles are configuration, not sample data, so they are not wiped above —
+    // but the staff users below need them to exist.
+    console.log("🔑 Ensuring roles...");
+    const roleResult = await seedRoles();
+    console.log(
+      `   ✅ Roles ready (${roleResult.created.length} created)`
+    );
 
     console.log("👤 Seeding users...");
     const createdUsers = [];
@@ -209,6 +354,27 @@ async function seed() {
 
     await Voucher.insertMany(vouchers);
     console.log(`   ✅ Created ${vouchers.length} vouchers`);
+
+    console.log("🎁 Seeding loyalty programme...");
+    // getConfig upserts the singleton with its defaults, so the programme is
+    // usable straight after a seed without an admin having to visit the page.
+    const program = await LoyaltyProgram.getConfig({ bypassCache: true });
+    await LoyaltyGift.insertMany(loyaltyGifts);
+
+    // Give the demo customer something to spend, written through the ledger so
+    // the balance and its history agree from the very first run.
+    const demoCustomer = createdUsers.find((u) => u.role === "user");
+    if (demoCustomer) {
+      await loyaltyService.adjustPoints({
+        userId: demoCustomer._id,
+        points: 500,
+        reason: "Điểm khởi tạo cho tài khoản demo",
+        performedBy: createdUsers.find((u) => u.role === "admin")?._id || null,
+      });
+    }
+    console.log(
+      `   ✅ Created ${loyaltyGifts.length} gifts, ${program.tiers.length} tiers`
+    );
 
     console.log("💬 Seeding conversations...");
     const customer = createdUsers.find((u) => u.role === "user");
@@ -244,14 +410,22 @@ async function seed() {
 
     console.log("\n🎉 Database seeded successfully!");
     console.log("\n📋 Login credentials:");
-    console.log("   Admin: admin@bookshop.com / admin123");
-    console.log("   User:  user@bookshop.com  / user123\n");
-
-    process.exit(0);
+    console.log(`   Admin: admin@gmail.com / ${adminPassword}`);
+    console.log(`   User:  user@gmail.com  / ${userPassword}`);
+    for (const staff of STAFF_SEEDS) {
+      console.log(`   ${staff.role.padEnd(10)} ${staff.email} / ${staffPassword}`);
+    }
+    console.log("");
   } catch (error) {
     console.error("❌ Seed error:", error);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await mongoose.disconnect().catch(() => null);
   }
 }
 
-seed();
+if (require.main === module) {
+  seed();
+}
+
+module.exports = { STAFF_SEEDS, assertSeedAllowed, buildSeedUsers, seed };
