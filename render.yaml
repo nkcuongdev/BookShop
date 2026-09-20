@@ -11,6 +11,61 @@ services:
     healthCheckPath: /api/health/ready
     envVars:
       - fromGroup: bookshop-shared
+      - key: RATE_LIMIT_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: bookshop-rate-limit
+          property: connectionString
+      - key: MONGO_URI
+        sync: false
+      - key: APP_PUBLIC_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: GHN_SANDBOX_TOKEN
+        sync: false
+      - key: GHN_SANDBOX_SHOP_ID
+        sync: false
+      - key: GHN_SANDBOX_FROM_DISTRICT_ID
+        sync: false
+      - key: GHN_SANDBOX_FROM_WARD_CODE
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: VNPAY_TMN_CODE
+        sync: false
+      - key: VNPAY_HASH_SECRET
+        sync: false
+      - key: VNPAY_API_URL
+        sync: false
+      - key: VNPAY_REFUND_IP
+        sync: false
+      - key: VNPAY_RETURN_URL
+        sync: false
+      - key: MOMO_PARTNER_CODE
+        sync: false
+      - key: MOMO_ACCESS_KEY
+        sync: false
+      - key: MOMO_SECRET_KEY
+        sync: false
+      - key: MOMO_REFUND_ENDPOINT
+        sync: false
+      - key: MOMO_REDIRECT_URL
+        sync: false
+      - key: MOMO_IPN_URL
+        sync: false
       - key: VITE_SOCIAL_FACEBOOK_URL
         sync: false
       - key: VITE_SOCIAL_INSTAGRAM_URL
@@ -19,6 +74,14 @@ services:
         sync: false
       - key: VITE_SOCIAL_YOUTUBE_URL
         sync: false
+
+  - type: keyvalue
+    name: bookshop-rate-limit
+    plan: free
+    region: singapore
+    maxmemoryPolicy: allkeys-lru
+    persistenceMode: "off"
+    ipAllowList: []
 
   - type: cron
     name: bookshop-maintenance
@@ -31,6 +94,61 @@ services:
     startCommand: cd backend && npm run maintenance
     envVars:
       - fromGroup: bookshop-shared
+      - key: RATE_LIMIT_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: bookshop-rate-limit
+          property: connectionString
+      - key: MONGO_URI
+        sync: false
+      - key: APP_PUBLIC_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: GHN_SANDBOX_TOKEN
+        sync: false
+      - key: GHN_SANDBOX_SHOP_ID
+        sync: false
+      - key: GHN_SANDBOX_FROM_DISTRICT_ID
+        sync: false
+      - key: GHN_SANDBOX_FROM_WARD_CODE
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: VNPAY_TMN_CODE
+        sync: false
+      - key: VNPAY_HASH_SECRET
+        sync: false
+      - key: VNPAY_API_URL
+        sync: false
+      - key: VNPAY_REFUND_IP
+        sync: false
+      - key: VNPAY_RETURN_URL
+        sync: false
+      - key: MOMO_PARTNER_CODE
+        sync: false
+      - key: MOMO_ACCESS_KEY
+        sync: false
+      - key: MOMO_SECRET_KEY
+        sync: false
+      - key: MOMO_REFUND_ENDPOINT
+        sync: false
+      - key: MOMO_REDIRECT_URL
+        sync: false
+      - key: MOMO_IPN_URL
+        sync: false
 
 envVarGroups:
   - name: bookshop-shared
@@ -45,14 +163,10 @@ envVarGroups:
         value: 15m
       - key: JWT_REFRESH_EXPIRES_IN
         value: 7d
-      - key: MONGO_URI
-        sync: false
-      - key: APP_PUBLIC_URL
-        sync: false
-      - key: RATE_LIMIT_REDIS_URL
-        sync: false
       - key: ANALYTICS_RETENTION_DAYS
         value: 365
+      - key: ANALYTICS_TIMEZONE
+        value: Asia/Ho_Chi_Minh
       - key: COD_PENDING_TTL_MINUTES
         value: 1440
       - key: MAX_PENDING_COD_PER_USER
@@ -65,61 +179,55 @@ envVarGroups:
         value: 3
       - key: PAYMENT_RETRY_COOLDOWN_SECONDS
         value: 30
-      - key: RESEND_API_KEY
-        sync: false
-      - key: MAIL_FROM
-        sync: false
       - key: MAIL_REQUEST_TIMEOUT_MS
         value: 8000
-      - key: GHN_SANDBOX_TOKEN
-        sync: false
-      - key: GHN_SANDBOX_SHOP_ID
-        sync: false
-      - key: GHN_SANDBOX_FROM_DISTRICT_ID
-        sync: false
-      - key: GHN_SANDBOX_FROM_WARD_CODE
-        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_SECURE
+        value: false
       - key: GHN_SANDBOX_REQUEST_TIMEOUT_MS
         value: 8000
       - key: GHN_SANDBOX_SIMULATION_ENABLED
         value: true
       - key: GHN_SANDBOX_SIMULATION_STEP_MS
         value: 10000
-      - key: CLOUDINARY_CLOUD_NAME
-        sync: false
-      - key: CLOUDINARY_API_KEY
-        sync: false
-      - key: CLOUDINARY_API_SECRET
-        sync: false
       - key: CLOUDINARY_FOLDER
         value: bookshop/books
+      - key: CART_REMINDER_ENABLED
+        value: true
+      - key: CART_REMINDER_IDLE_HOURS
+        value: 6
+      - key: CART_REMINDER_SECOND_HOURS
+        value: 72
+      - key: CART_REMINDER_MAX_AGE_DAYS
+        value: 30
+      - key: CART_REMINDER_MAX_PER_TICK
+        value: 50
+      - key: CART_REMINDER_MAX_ITEMS
+        value: 4
+      - key: SUPPORT_BUSINESS_HOURS
+        value: true
+      - key: SUPPORT_HOUR_START
+        value: 8
+      - key: SUPPORT_HOUR_END
+        value: 21
+      - key: SUPPORT_BUSINESS_DAYS
+        value: 1,2,3,4,5,6
+      - key: SUPPORT_TIMEZONE
+        value: Asia/Ho_Chi_Minh
+      - key: SUPPORT_WAITING_CUSTOMER_DAYS
+        value: 7
+      - key: SUPPORT_MAX_OPEN_TICKETS_PER_ORDER
+        value: 3
+      - key: INVENTORY_DEFAULT_REORDER_POINT
+        value: 5
+      - key: INVENTORY_LOW_STOCK_COOLDOWN_HOURS
+        value: 24
       - key: PAYMENT_MOCK_ENABLED
         value: false
-      - key: VNPAY_TMN_CODE
-        sync: false
-      - key: VNPAY_HASH_SECRET
-        sync: false
       - key: VNPAY_PAYMENT_URL
         value: https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
-      - key: VNPAY_API_URL
-        sync: false
-      - key: VNPAY_REFUND_IP
-        sync: false
-      - key: VNPAY_RETURN_URL
-        sync: false
-      - key: MOMO_PARTNER_CODE
-        sync: false
-      - key: MOMO_ACCESS_KEY
-        sync: false
-      - key: MOMO_SECRET_KEY
-        sync: false
       - key: MOMO_ENDPOINT
         value: https://test-payment.momo.vn/v2/gateway/api/create
-      - key: MOMO_REFUND_ENDPOINT
-        sync: false
-      - key: MOMO_REDIRECT_URL
-        sync: false
-      - key: MOMO_IPN_URL
-        sync: false
       - key: PAYMENT_WEBHOOK_SECRET
         generateValue: true
