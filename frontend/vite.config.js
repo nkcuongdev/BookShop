@@ -13,12 +13,44 @@ const DEFAULT_CSP_IMG_SRC = [
   "https://via.placeholder.com",
 ];
 
+const DEFAULT_CSP_CONNECT_SRC = [
+  "http://localhost:5000",
+  "ws://localhost:5000",
+];
+
+function connectSources(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.startsWith("/")) return [];
+
+  try {
+    const url = new URL(
+      /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+    );
+    const socketProtocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return [url.origin, `${socketProtocol}//${url.host}`];
+  } catch {
+    return [];
+  }
+}
+
 function cspPlugin(env, isDev) {
   const extra = String(env.VITE_ALLOWED_IMAGE_ORIGINS || "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
   const imgSrc = [...new Set([...DEFAULT_CSP_IMG_SRC, ...extra])].join(" ");
+  const extraConnect = String(env.VITE_ALLOWED_CONNECT_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const connectSrc = [
+    ...new Set([
+      ...DEFAULT_CSP_CONNECT_SRC,
+      ...connectSources(env.VITE_API_HOST),
+      ...connectSources(env.VITE_API_BASE_URL),
+      ...extraConnect.flatMap(connectSources),
+    ]),
+  ].join(" ");
   // The dev server injects the react-refresh preamble and the HMR client as
   // inline module scripts, so serve mode needs 'unsafe-inline'. The production
   // build only emits external bundles, so it keeps the strict 'self' policy.
@@ -28,6 +60,7 @@ function cspPlugin(env, isDev) {
     transformIndexHtml(html) {
       return html
         .replaceAll("%VITE_CSP_IMG_SRC%", imgSrc)
+        .replaceAll("%VITE_CSP_CONNECT_SRC%", connectSrc)
         .replaceAll("%VITE_CSP_SCRIPT_SRC%", scriptSrc);
     },
   };
