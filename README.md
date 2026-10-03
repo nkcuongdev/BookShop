@@ -1,696 +1,265 @@
 # BookShop — MERN Online Bookstore
 
-BookShop là một ứng dụng thương mại điện tử bán sách được xây dựng với MERN Stack, bao gồm storefront cho khách hàng và hệ thống quản trị theo quyền hạn cho nhân viên. Project giải quyết trọn vẹn hành trình mua sách trực tuyến: khám phá sản phẩm, giỏ hàng, checkout, thanh toán, giao vận, đổi trả, chăm sóc khách hàng và vận hành kho. Đối tượng sử dụng gồm khách mua sách, quản trị viên, nhân viên kho, chăm sóc khách hàng, nội dung và kế toán.
+BookShop là ứng dụng thương mại điện tử bán sách gồm storefront cho khách hàng và hệ thống quản trị theo quyền hạn cho nhân viên. Project triển khai trọn vẹn các bài toán backend quan trọng của e-commerce: xác thực phiên, checkout nhất quán, quản lý vòng đời đơn hàng, thanh toán/hoàn tiền, tồn kho có ledger, phân quyền và các tác vụ vận hành nền.
 
-> Đây là một portfolio project thiên về backend/full-stack. README này được tổng hợp trực tiếp từ source code, route, model, service, test, `package.json`, `.env.example`, Docker và cấu hình Render hiện có trong repository.
+Đây là một portfolio project Backend/Full-stack. Nội dung bên dưới được tổng hợp trực tiếp từ source code hiện tại; project chưa có screenshot, video hoặc live demo công khai.
 
 ## Table of Contents
 
-- [Features](#-features)
-- [Tech Stack](#-tech-stack)
-- [Architecture / System Overview](#-architecture--system-overview)
-- [Project Structure](#-project-structure)
-- [Main Modules](#-main-modules)
-- [Database Models](#-database-models)
-- [Main Business Flows](#-main-business-flows)
-- [API Overview](#-api-overview)
-- [Environment Variables](#-environment-variables)
-- [Installation & Running Locally](#-installation--running-locally)
-- [Roles & Permissions](#-roles--permissions)
-- [Testing](#-testing)
-- [Deployment](#-deployment)
+- [Engineering Highlights](#engineering-highlights)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Architecture](#architecture)
+- [Core Business Flows](#core-business-flows)
+- [API & Data Model](#api--data-model)
+- [Roles & Permissions](#roles--permissions)
+- [Run Locally](#run-locally)
+- [Testing](#testing)
+- [Deployment](#deployment)
 
-## ✨ Features
+## Engineering Highlights
 
-### Customer Features
+- **Transactional checkout:** tạo order, giữ tồn kho, voucher và loyalty points được phối hợp trong MongoDB transaction. Backend bắt buộc MongoDB replica set/sharded cluster và fail-fast nếu database không hỗ trợ transaction.
+- **Idempotent order/payment flow:** tạo đơn hỗ trợ `Idempotency-Key`; payment attempt có trạng thái riêng, giới hạn retry và xử lý callback đến muộn hoặc trùng lặp.
+- **Explicit order state machine:** kiểm soát transition giữa `PENDING`, `PAID`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `FAILED`, `REFUNDING` và `REFUNDED`.
+- **Payment recovery:** hỗ trợ COD, VNPay, MoMo và mock gateway ở development; callback/webhook được xác minh, refund được lưu trước khi gọi gateway và có job reconciliation cho trạng thái chưa kết thúc.
+- **Inventory accounting:** phân biệt sellable stock và reserved stock; mọi biến động quan trọng đi qua `StockLedger`, phiếu nhập/xuất/kiểm kho, moving-average cost và optimistic guards để tránh ghi đè dữ liệu mới.
+- **Secure session model:** access/refresh JWT trong HttpOnly cookie, refresh-token rotation, session revoke, CSRF double-submit, bcrypt, Helmet/CSP, CORS allowlist và distributed rate limit bằng Redis ở production.
+- **Database-backed RBAC:** role/permission lưu trong MongoDB, route guard kiểm tra quyền phía backend, cache registry và fail-closed khi không thể phân giải quyền.
+- **Operational reliability:** health/readiness endpoint, audit log, order outbox, cleanup/reconciliation jobs và cron maintenance cho order, refund, inventory, shipping, support và reminders.
+- **Testable design:** backend có unit/integration test với Node Test Runner, Supertest và `mongodb-memory-server`; frontend dùng Vitest, Testing Library và jsdom.
 
-- Đăng ký, đăng nhập, đăng xuất và tự làm mới phiên đăng nhập bằng access/refresh JWT.
-- Xác minh email, quên mật khẩu, đặt lại mật khẩu, đổi mật khẩu và cập nhật hồ sơ.
-- Quản lý tối đa 10 địa chỉ giao hàng, địa chỉ mặc định và danh sách yêu thích.
-- Duyệt sách mới, sách bán chạy và các nhóm sách trên trang chủ.
-- Tìm kiếm full-text; lọc theo danh mục, tác giả, tag, khoảng giá, rating; sắp xếp và phân trang.
-- Xem chi tiết sách, metadata xuất bản, tồn kho, gallery, đánh giá và giá khuyến mãi đang hiệu lực.
-- Gợi ý sách cá nhân hóa từ lượt xem, thao tác giỏ hàng, lịch sử mua, wishlist và độ mới của tín hiệu; fallback về sách phổ biến khi chưa đủ dữ liệu.
-- Giỏ hàng cho khách vãng lai lưu trên `localStorage`; tự merge vào giỏ hàng MongoDB sau khi đăng nhập.
-- Mua ngay hoặc checkout từ giỏ hàng; server kiểm tra lại giá, khuyến mãi, tồn kho, voucher, điểm thưởng và cước vận chuyển.
-- Nhận báo giá vận chuyển từ GHN Sandbox theo địa chỉ và thông tin kiện hàng.
-- Thanh toán COD, VNPay, MoMo; có mock gateway cho môi trường development.
-- Theo dõi đơn hàng, timeline, thanh toán, vận chuyển; thử thanh toán lại và hủy đơn khi trạng thái cho phép.
-- Gửi yêu cầu đổi/trả theo từng sản phẩm, đính kèm ảnh và theo dõi xử lý/hoàn tiền.
-- Đánh giá sách đã mua trong đơn đã giao, đính kèm ảnh, sửa/xóa đánh giá và báo cáo nội dung không phù hợp.
-- Tích/tiêu điểm, theo dõi lịch sử điểm và hạng thành viên, đổi quà thành voucher cá nhân.
-- Nhận thông báo trong ứng dụng theo thời gian thực và tùy chỉnh thông báo email/in-app theo từng loại sự kiện.
-- Chat realtime với bộ phận hỗ trợ, có auto-reply cơ bản và chuyển tiếp cho nhân viên.
-- Tạo ticket hỗ trợ gắn với đơn hàng, nhắn tin, gửi bằng chứng và theo dõi SLA/trạng thái xử lý.
-- Đọc tin/bài viết; đăng ký newsletter theo luồng xác nhận email và hủy đăng ký bằng token.
+## Features
 
-### Admin Features
+| Customer | Admin / Staff |
+| --- | --- |
+| Đăng ký, đăng nhập, refresh session, xác minh email và khôi phục mật khẩu | Dashboard, analytics, funnel và báo cáo lợi nhuận/đơn hàng |
+| Tìm kiếm/lọc sách, giá promotion, recommendation và wishlist | Quản lý sách, danh mục, bài viết, review và newsletter |
+| Guest cart, cart merge, buy-now và checkout từ giỏ hàng | Xử lý order state, payment audit, refund, return và GHN Sandbox shipment |
+| Voucher, loyalty points/tier/gift và báo giá vận chuyển | Quản lý supplier, receipt, issue, stock count, ledger và low-stock |
+| COD, VNPay, MoMo; retry payment và theo dõi order timeline | Quản lý voucher, promotion, loyalty program và member points |
+| Verified-purchase review, return request, realtime notification | User administration, custom roles, permission matrix và audit log |
+| Chat realtime, support ticket có SLA và newsletter double opt-in | Support queue, live chat, assignee, refund/reship resolution |
 
-- Dashboard với thống kê đơn hàng, người dùng, doanh thu, biểu đồ, top sách, hoạt động và funnel analytics.
-- CRUD sách và danh mục; quản lý metadata như ISBN, tác giả, nhà xuất bản, edition, ảnh, thuộc tính, kích thước và thông tin tồn kho.
-- Quản lý đơn hàng theo state machine; xác nhận COD, hủy, tạo/hủy vận đơn, mô phỏng giao hàng, đánh dấu giao thành công và xem payment audit.
-- Xử lý yêu cầu đổi/trả, hoàn tiền qua gateway hoặc đánh dấu cần hoàn thủ công.
-- Xuất đơn hàng và báo cáo lợi nhuận dạng CSV.
-- Quản lý nhà cung cấp, phiếu nhập, phiếu xuất, kiểm kho, stock ledger, hàng sắp hết, định giá tồn và đối soát tồn kho.
-- Quản lý voucher theo đơn/phí vận chuyển và promotion theo sản phẩm/danh mục.
-- Cấu hình chương trình loyalty, tier, tỷ lệ tích/đổi điểm, thành viên, điều chỉnh điểm và danh mục quà.
-- Quản lý bài viết, danh mục bài viết, trạng thái publish/unpublish và newsletter.
-- Kiểm duyệt đánh giá và xử lý report.
-- Quản lý user, khóa/mở tài khoản, gán role; tạo role tùy chỉnh từ permission catalog.
-- Vận hành live chat, hàng đợi support ticket, assignee, SLA và phương án bồi hoàn/gửi lại hàng.
-- Upload ảnh có kiểm tra định dạng/kích thước, chuyển sang WebP và theo dõi vòng đời asset.
-- Xem audit log quản trị, metadata log và export dữ liệu.
-- Các maintenance job cho đơn hết hạn, hủy/hoàn tiền, mô phỏng giao hàng, cảnh báo khuyến mãi, dọn asset, nhắc giỏ hàng, SLA ticket và đối soát tồn.
-
-## 🛠 Tech Stack
+## Tech Stack
 
 | Layer | Công nghệ |
 | --- | --- |
-| Frontend | React 18, Vite 6, React Router 7, Tailwind CSS 3 |
-| UI & Forms | Radix UI primitives, Lucide React, React Hook Form, Zod, Sonner |
-| Client Data | TanStack Query, Context API, Fetch API |
-| Tables & Charts | TanStack Table, TanStack Virtual, Recharts |
-| Backend | Node.js, Express 4, CommonJS |
-| Database | MongoDB 7, Mongoose 9, MongoDB transactions/replica set |
-| Authentication | JWT access/refresh token, server-side `AuthSession`, HttpOnly cookies, CSRF double-submit protection |
-| Authorization | Database-backed RBAC, permission catalog, route-level permission guards |
-| Security | bcryptjs, Helmet/CSP, CORS allowlist, express-rate-limit, Redis-backed shared rate limits, request/error sanitization |
-| Realtime | Socket.IO / Socket.IO Client |
-| Payment | COD, VNPay, MoMo, development mock gateway; signed callbacks/webhooks and refund reconciliation |
-| Shipping | GHN Sandbox quotes, shipment creation/cancel, verified webhook and simulation |
-| Storage | Cloudinary in production; local upload fallback in development; Multer + Sharp/WebP processing |
-| Email | Resend HTTP API hoặc SMTP qua Nodemailer |
-| Testing | Node Test Runner, Supertest, mongodb-memory-server, Vitest, Testing Library, jsdom |
-| Operations | Docker Compose, Render Blueprint, scheduled maintenance job, health/readiness endpoints |
+| Frontend | React 18, Vite 6, React Router 7, Tailwind CSS, TanStack Query/Table, React Hook Form, Zod, Radix UI, Recharts |
+| Backend | Node.js, Express 4, Mongoose 9, Socket.IO |
+| Database & cache | MongoDB 7 replica set, Redis rate-limit store |
+| Security | JWT, bcryptjs, HttpOnly cookies, CSRF, Helmet/CSP, CORS, express-rate-limit |
+| Integrations | VNPay, MoMo, GHN Sandbox, Cloudinary, Resend/SMTP |
+| Testing & Ops | Node Test Runner, Supertest, mongodb-memory-server, Vitest, Testing Library, Docker Compose, Render |
 
-## 🏗 Architecture / System Overview
+## Architecture
 
-Frontend React gọi REST API dưới prefix `/api` và kết nối Socket.IO tới cùng backend. Express xác thực phiên, CSRF và permission trước khi chuyển request tới route/service; service thực thi nghiệp vụ trong MongoDB transaction khi cần. MongoDB là nguồn dữ liệu chính, Redis chia sẻ state rate-limit ở production, còn payment, email, Cloudinary và GHN là các tích hợp ngoài.
+Frontend React gọi REST API dưới `/api` và kết nối Socket.IO tới cùng backend. Express xử lý authentication, CSRF, rate limit và permission trước khi chuyển sang route/service. Domain services thực thi nghiệp vụ, dùng MongoDB transaction cho các thay đổi nhiều tài nguyên và tích hợp với payment, shipping, storage hoặc email provider.
 
 ```mermaid
 flowchart LR
-    U[Customer / Staff Browser] --> FE[React + Vite SPA]
-    FE -->|HTTPS REST /api| API[Express API]
-    FE <-->|Socket.IO| RT[Realtime Layer]
-    RT --> API
-    API --> MW[Auth · CSRF · RBAC · Rate Limit]
-    MW --> SVC[Routes + Domain Services]
-    SVC -->|Mongoose transactions| DB[(MongoDB Replica Set)]
-    MW --> REDIS[(Redis Rate-limit Store)]
-    SVC --> PAY[VNPay / MoMo]
-    SVC --> SHIP[GHN Sandbox]
-    SVC --> MEDIA[Cloudinary / Local Storage]
-    SVC --> MAIL[Resend / SMTP]
+    Browser[React SPA] -->|REST /api| API[Express API]
+    Browser <-->|Socket.IO| API
+    API --> Guard[Auth · CSRF · RBAC · Rate Limit]
+    Guard --> Services[Domain Services]
+    Services -->|Transactions| Mongo[(MongoDB Replica Set)]
+    Guard --> Redis[(Redis)]
+    Services --> Payment[VNPay · MoMo]
+    Services --> Shipping[GHN Sandbox]
+    Services --> Storage[Cloudinary / Local]
+    Services --> Email[Resend / SMTP]
 ```
 
-Trong production, Express phục vụ luôn static build tại `frontend/dist`. Business logic hiện được tổ chức chủ yếu trong `backend/src/services/` và một phần route handler; project không có thư mục `controllers/` riêng.
-
-## 📁 Project Structure
+Source được tổ chức theo các phần chính:
 
 ```text
-BookShop/
-├── backend/
-│   ├── src/
-│   │   ├── config/          # DB, runtime config, role/permission catalog
-│   │   ├── jobs/            # Maintenance, reconcile, backfill và simulation jobs
-│   │   ├── middleware/      # Auth/RBAC, CSRF và error handling
-│   │   ├── models/          # Mongoose schemas và state models
-│   │   ├── routes/          # REST endpoints, validation và route guards
-│   │   ├── serializers/     # Public/customer-safe response mapping
-│   │   ├── services/        # Nghiệp vụ order, payment, inventory, loyalty, support...
-│   │   ├── utils/           # Transaction, security, validation helpers
-│   │   ├── validators/      # Book/post input validation
-│   │   ├── index.js         # Express + HTTP + Socket.IO bootstrap
-│   │   └── seed.js          # Seed dữ liệu demo có destructive guard
-│   ├── test/                # Backend unit/integration tests
-│   ├── .env.example
-│   └── package.json
-├── frontend/
-│   ├── public/
-│   ├── scripts/             # Bundle budget và SEO file generation
-│   ├── src/
-│   │   ├── app/             # Shared providers
-│   │   ├── components/      # Storefront, admin, checkout, order, UI components
-│   │   ├── context/         # Auth, cart và category state
-│   │   ├── features/        # Feature hooks/schema/constants
-│   │   ├── hooks/           # Wishlist, recently viewed, metadata, support events...
-│   │   ├── layouts/         # Main, profile và admin layouts
-│   │   ├── lib/             # Query client, RBAC và UI utilities
-│   │   ├── pages/           # Customer/profile/admin route pages
-│   │   ├── services/        # API client, Socket.IO và administrative data
-│   │   ├── utils/           # Address, buy-now, loyalty, navigation, formatting
-│   │   ├── App.jsx          # Frontend route tree + permission gates
-│   │   └── main.jsx         # React application bootstrap
-│   ├── .env.example
-│   └── package.json
-├── .github/                 # Repository automation/configuration
-├── docker-compose.yml       # MongoDB 7 replica set for local development
-├── render.yaml              # Render web service + maintenance cron Blueprint
-└── README.md
+backend/src/
+├── models/        # Mongoose schemas và state models
+├── routes/        # REST endpoints + route guards
+├── services/      # Order, payment, inventory, loyalty, support...
+├── middleware/    # Authentication, RBAC, CSRF, error handling
+├── jobs/          # Maintenance, reconciliation và backfill
+└── config/        # Runtime config, database, permission catalog
+
+frontend/src/
+├── pages/         # Storefront, profile và admin screens
+├── components/    # Shared/domain UI
+├── services/      # REST client và Socket.IO
+├── context/       # Auth, cart, category state
+└── features/      # Feature-specific hooks, schema và constants
 ```
 
-> Dependency và script của ứng dụng nằm trong `backend/package.json` và `frontend/package.json`. Root `package.json` không phải monorepo runner của BookShop, vì vậy các lệnh local bên dưới luôn chạy trong đúng thư mục con hoặc dùng `--prefix`.
+## Core Business Flows
 
-## 📦 Main Modules
+### Authentication & Authorization
 
-| Module | Trách nhiệm chính |
+1. Register/login tạo `AuthSession`, access JWT, refresh JWT và CSRF token.
+2. Access/refresh token được đặt trong HttpOnly cookie; unsafe request phải gửi `X-CSRF-Token` hợp lệ.
+3. Frontend tự refresh phiên; backend rotate refresh token và có thể revoke một hoặc toàn bộ session.
+4. Sau authentication, permission guard tra role registry trong MongoDB. Frontend permission gate chỉ phục vụ UX; backend mới là lớp kiểm soát bắt buộc.
+
+### Checkout, Order & Payment
+
+1. Client lấy shipping quote, chọn cart/buy-now, voucher, loyalty points và payment method.
+2. Backend tải lại Book, giá promotion, tồn kho, voucher, điểm và cước vận chuyển; không tin giá từ client.
+3. Transaction tạo Order, reserve inventory và ghi các movement liên quan. `Idempotency-Key` ngăn tạo trùng khi client retry.
+4. COD chờ staff xác nhận; VNPay/MoMo tạo payment attempt và trả payment URL.
+5. Callback/IPN/webhook hợp lệ cập nhật payment/order state; transition sẽ commit hoặc release inventory tương ứng.
+6. Hủy đơn/return có thể đi vào refund workflow; maintenance job đối soát các refund/callback chưa kết thúc.
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> PAID: online payment confirmed
+    PENDING --> PROCESSING: COD confirmed
+    PENDING --> CANCELLED: cancel / timeout
+    PENDING --> FAILED: payment failed
+    PAID --> PROCESSING
+    PROCESSING --> SHIPPED
+    SHIPPED --> DELIVERED
+    PAID --> REFUNDING
+    PROCESSING --> REFUNDING
+    SHIPPED --> REFUNDING
+    DELIVERED --> REFUNDING
+    REFUNDING --> REFUNDED
+```
+
+Sơ đồ trên chỉ thể hiện luồng chính; model còn có trạng thái trung gian `CANCELLING` và các transition phục hồi cho callback/refund bất đồng bộ.
+
+### Inventory & Returns
+
+- `Book.stock` là lượng còn bán được; `Book.reserved` là lượng đã giữ cho order nhưng còn vật lý trong kho.
+- Phiếu nhập cập nhật stock và moving-average cost; phiếu xuất, fulfillment, cancellation và stock count đều tạo ledger entry.
+- Stock count dùng giá trị snapshot/guard để từ chối dữ liệu cũ thay vì ghi đè một biến động vừa xảy ra.
+- Review chỉ được tạo cho sách thuộc order đã `DELIVERED`. Return request hỗ trợ partial quantity, evidence, refund/reship và điều chỉnh lại inventory/loyalty.
+
+## API & Data Model
+
+API base URL khi chạy local: `http://localhost:5000/api`.
+
+| Domain | Endpoint tiêu biểu |
 | --- | --- |
-| Authentication & Account | Đăng ký/đăng nhập, refresh rotation, session revoke, CSRF, xác minh email, reset password, profile, address, wishlist |
-| Catalog & Discovery | CRUD sách/danh mục, metadata, full-text search, facets, filter/sort, home collections và personalized recommendations |
-| Cart & Checkout | Guest cart, cart merge, stock normalization, buy-now, server-authoritative pricing, shipping quote, voucher và points preview |
-| Orders | Idempotent order creation, order state machine, inventory reservation/commit/release, cancellation, status timeline và outbox events |
-| Payments | COD, VNPay, MoMo, mock gateway, signed return/IPN/webhook, retry, duplicate payment handling và refund reconciliation |
-| Shipping | GHN Sandbox master data, quote, shipment lifecycle, simulation và webhook verification |
-| Reviews | Verified-purchase review, rating aggregate, image evidence, report và admin moderation |
-| Returns & Support | Return eligibility, partial quantities, refund/reship resolution, support ticket, messages, SLA và evidence |
-| Inventory | Supplier, receipt, issue, stock count, ledger, moving-average cost, low-stock alert, valuation và reconciliation |
-| Promotions & Vouchers | Product/category promotion; order/shipping voucher; usage reservation và per-user limits |
-| Loyalty | Earn/redeem, ledger, debt handling after refunds, tiers, member recalculation và gift-to-voucher redemption |
-| Content & Newsletter | Posts, post categories, view counting, publish workflow, double opt-in newsletter và admin send |
-| Notifications & Chat | In-app/email preference, Socket.IO notifications, customer/staff chat và automated reply |
-| Admin & Governance | Dashboard, analytics funnel, profit/order reports, custom RBAC, user administration và audit trail |
-| Media Lifecycle | Upload validation, Sharp normalization, Cloudinary/local storage, managed assets và cleanup |
+| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/reset-password` |
+| Catalog & cart | `GET /books`, `GET /books/:id`, `GET /books/recommendations`, `/cart/*` |
+| Order & payment | `POST /orders`, `POST /orders/:id/retry-payment`, `POST /orders/:id/cancel`, payment return/webhook routes |
+| Shipping & returns | `POST /shipping/quotes`, `POST /orders/:id/return-request`, `/admin/orders/*` |
+| Inventory | `/admin/inventory/*`, `/admin/stock-receipts/*`, `/admin/stock-issues/*`, `/admin/stock-counts/*` |
+| Operations | `/admin/analytics/*`, `/admin/reports/*`, `/admin/audit-logs/*`, `GET /health/ready` |
 
-## 🗄 Database Models
+Các model được chia theo domain thay vì một schema lớn:
 
-Các model chính và quan hệ đáng chú ý:
+- **Commerce:** `User`, `Book`, `Category`, `Cart`, `Order`, `ReturnRequest`, `Review`.
+- **Payment & pricing:** payment data nằm trong Order; `Voucher`, `VoucherRedemption`, `Promotion`.
+- **Inventory:** `Supplier`, `StockLedger`, `StockReceipt`, `StockIssue`, `StockCount`.
+- **Security & governance:** `AuthSession`, `Role`, `AuditLog`.
+- **Engagement:** loyalty models, `Notification`, `Conversation`, `Message`, `SupportTicket`, `Post`, `NewsletterSubscription`.
+- **Operations:** `AnalyticsEvent`, `UploadedAsset`, `OrderOutboxEvent` và các delivery/reminder records.
 
-| Nhóm | Models | Mục đích / quan hệ |
-| --- | --- | --- |
-| Identity & Access | `User`, `AuthSession`, `Role`, `AuditLog` | User chứa profile, address, wishlist, role và loyalty snapshot; session giữ refresh-token hash; Role lưu permission; audit log theo dõi thao tác quản trị |
-| Catalog | `Book`, `Category`, `Author`, `Publisher` | Book tham chiếu author/publisher/default supplier/edition group; giữ giá, sellable stock, reserved stock, metadata và rating aggregate |
-| Cart & Order | `Cart`, `Order`, `OrderOutboxEvent`, `ReturnRequest` | Cart thuộc một User và tham chiếu Book; Order snapshot item/giá/chi phí/voucher/payment/shipping; ReturnRequest thuộc Order + User và chứa các item đổi trả |
-| Review | `Review`, `ReviewReport` | Review liên kết Book + User; report liên kết Review + người báo cáo |
-| Pricing | `Voucher`, `VoucherRedemption`, `Promotion` | Voucher có usage/per-user limit; redemption ghi nhận user sử dụng; Promotion áp dụng theo Book hoặc category |
-| Inventory | `Supplier`, `StockLedger`, `StockReceipt`, `StockIssue`, `StockCount`, `Counter` | Chứng từ kho tham chiếu Book/Supplier/User; ledger là lịch sử biến động; Counter tạo mã chứng từ tuần tự |
-| Loyalty | `LoyaltyProgram`, `LoyaltyLedger`, `LoyaltyGift`, `LoyaltyGiftRedemption`, `LoyaltyDebtEvent` | Program cấu hình rate/tier; ledger là nguồn sự thật cho điểm; gift redemption tạo voucher; debt event theo dõi điểm cần thu hồi sau refund |
-| Support & Realtime | `Conversation`, `Message`, `SupportTicket`, `SupportTicketMessage`, `Notification` | Conversation thuộc User; message thuộc conversation; ticket liên kết User, Order, ReturnRequest và assignee; notification phát tới user/role |
-| Content | `Post`, `PostCategory`, `NewsletterSubscription` | Post tham chiếu category và author; subscription quản lý confirm/unsubscribe token state |
-| Operations | `AnalyticsEvent`, `UploadedAsset`, `PromotionAlertDelivery`, `CartReminderDelivery` | Theo dõi funnel, vòng đời upload và chống gửi trùng các alert/reminder |
+Danh sách route đầy đủ nằm tại `backend/src/routes/`; Mongoose schemas nằm tại `backend/src/models/`.
 
-MongoDB phải hỗ trợ transaction. Backend kiểm tra replica set hoặc sharded cluster khi khởi động và sẽ fail-fast nếu kết nối tới standalone MongoDB.
+## Roles & Permissions
 
-## 🔄 Main Business Flows
-
-### 1. Register / Login
-
-1. Client gọi `POST /api/auth/register` hoặc `POST /api/auth/login`.
-2. Backend validate input, hash password bằng bcrypt và áp dụng rate limit theo IP/tài khoản.
-3. Backend tạo `AuthSession`, access JWT, refresh JWT và CSRF token.
-4. Access/refresh token được lưu trong HttpOnly cookie; request thay đổi dữ liệu phải gửi `X-CSRF-Token` khớp cookie/session.
-   Production dùng `SameSite=Lax` khi web/API chung origin; với hai HTTPS origin khác nhau, cookie dùng `SameSite=None; Secure; Partitioned`. Frontend xác nhận cookie qua `GET /api/auth/me` trước khi hiển thị trạng thái đăng nhập thành công.
-5. Khi access token hết hạn, frontend gọi `/api/auth/csrf` rồi `/api/auth/refresh`; refresh token được rotate.
-6. Email verification và password recovery dùng token hash có hạn, gửi qua Resend hoặc SMTP.
-
-### 2. Browse / Search / Recommend Books
-
-1. Trang sản phẩm gọi `GET /api/books` cùng query filter/sort/page hoặc các endpoint home collections.
-2. Backend xây dựng MongoDB filter, tính facets và decorate giá theo promotion đang chạy.
-3. Lượt xem/add-to-cart được ghi qua analytics event.
-4. `GET /api/books/recommendations` chấm điểm từ view, cart, order, wishlist và recency; sách đã mua/đã trả được xử lý trong tín hiệu đề xuất.
-
-### 3. Cart
-
-1. Khách chưa đăng nhập thao tác trên guest cart trong `localStorage`.
-2. Khi đăng nhập, frontend gọi `POST /api/cart/merge` để hợp nhất guest cart với cart của User.
-3. Backend loại/đánh dấu sách không còn khả dụng, giới hạn quantity theo tồn thực tế và trả về giá promotion hiện tại.
-4. Cart server hỗ trợ thêm, cập nhật, xóa item và xóa toàn bộ giỏ.
-
-### 4. Checkout / Create Order / Payment
-
-1. User chọn địa chỉ, phương thức vận chuyển và gọi `POST /api/shipping/quotes`.
-2. Client có thể validate voucher, preview điểm và chọn checkout từ cart hoặc buy-now.
-3. `POST /api/orders` bắt buộc đăng nhập, shipping option hợp lệ và hỗ trợ `Idempotency-Key`.
-4. Trong transaction, backend tải lại Book, giá/promotion, voucher, loyalty và cước vận chuyển; kiểm tra expected total; giữ tồn kho và tạo Order.
-5. COD tạo đơn chờ xác nhận. VNPay/MoMo tạo payment attempt và trả về payment URL; development có mock URL.
-6. Return URL, IPN hoặc webhook đã xác minh cập nhật payment/order state và commit/release stock theo state machine.
-
-### 5. Fulfillment / Cancellation / Return
-
-1. Nhân viên có permission xác nhận COD/đơn đã thanh toán, tạo vận đơn GHN Sandbox và chuyển `PROCESSING → SHIPPED → DELIVERED`.
-2. Hủy đơn sẽ giải phóng hoặc hoàn kho; đơn online đã thu tiền đi qua workflow refund.
-3. Với đơn đã giao, khách có thể tạo return request: 7 ngày cho đổi ý, hoặc 30 ngày cho lỗi thuộc cửa hàng theo policy trong service.
-4. Staff duyệt/từ chối, theo dõi hàng trả, hoàn tiền hoặc gửi lại hàng; loyalty và inventory được điều chỉnh tương ứng.
-
-### 6. Review / Support / Notifications
-
-1. Chỉ User đã mua Book trong Order `DELIVERED` mới được tạo review.
-2. Customer chat, ticket message, order/payment/shipping/refund và loyalty event có thể phát thông báo qua Socket.IO.
-3. Notification preference quyết định in-app/email; email chỉ bật khi tài khoản đã xác minh.
-4. Support ticket có SLA, assignee, message/evidence và resolution gắn với order/return workflow.
-
-## 🔌 API Overview
-
-Base URL khi chạy local: `http://localhost:5000/api`.
-
-### Health, Authentication & Profile
-
-```http
-GET    /api/health/live
-GET    /api/health/ready
-POST   /api/auth/register
-POST   /api/auth/login
-GET    /api/auth/csrf
-POST   /api/auth/refresh
-POST   /api/auth/logout
-GET    /api/auth/me
-PUT    /api/auth/me
-PATCH  /api/auth/me/password
-POST   /api/auth/forgot-password
-POST   /api/auth/reset-password
-POST   /api/auth/email-verification/request
-POST   /api/auth/email-verification/verify
-GET    /api/auth/me/addresses
-POST   /api/auth/me/addresses
-PUT    /api/auth/me/addresses/:addressId
-DELETE /api/auth/me/addresses/:addressId
-PATCH  /api/auth/me/addresses/:addressId/default
-GET    /api/auth/me/wishlist
-POST   /api/auth/me/wishlist/:bookId
-DELETE /api/auth/me/wishlist
-```
-
-### Catalog, Reviews & Cart
-
-```http
-GET    /api/books
-GET    /api/books/home
-GET    /api/books/recommendations
-GET    /api/books/best-sellers
-GET    /api/books/new-arrivals
-GET    /api/books/facets
-GET    /api/books/:id
-GET    /api/books/:id/reviews
-POST   /api/books/:id/reviews
-PATCH  /api/books/:id/reviews/:reviewId
-DELETE /api/books/:id/reviews/:reviewId
-POST   /api/books/:id/reviews/:reviewId/report
-GET    /api/categories
-GET    /api/cart
-POST   /api/cart/items
-PATCH  /api/cart/items/:bookId
-DELETE /api/cart/items/:bookId
-DELETE /api/cart
-POST   /api/cart/merge
-```
-
-### Checkout, Orders, Payments & Shipping
-
-```http
-GET    /api/vouchers/available
-POST   /api/vouchers/validate
-POST   /api/shipping/quotes
-POST   /api/orders
-GET    /api/orders
-GET    /api/orders/code/:orderCode
-GET    /api/orders/:id
-POST   /api/orders/:id/retry-payment
-POST   /api/orders/:id/cancel
-POST   /api/orders/:id/return-request
-GET    /api/orders/payment-return/vnpay
-GET    /api/orders/payment-return/momo
-POST   /api/orders/webhook/momo
-POST   /api/orders/webhook/payment
-POST   /api/orders/webhook/refund
-POST   /api/shipping/webhooks/ghn
-```
-
-### Loyalty, Notifications & Customer Service
-
-```http
-GET    /api/loyalty/me
-GET    /api/loyalty/history
-POST   /api/loyalty/preview-redeem
-GET    /api/loyalty/gifts
-POST   /api/loyalty/gifts/:id/redeem
-GET    /api/loyalty/my-gifts
-GET    /api/notifications
-GET    /api/notifications/preferences
-PATCH  /api/notifications/preferences
-PATCH  /api/notifications/read-all
-PATCH  /api/notifications/:id/read
-GET    /api/chat/me
-POST   /api/chat/me/messages
-GET    /api/support-tickets
-POST   /api/support-tickets
-GET    /api/support-tickets/:id
-GET    /api/support-tickets/:id/messages
-POST   /api/support-tickets/:id/messages
-POST   /api/uploads/review-images
-POST   /api/uploads/support-ticket-images
-POST   /api/uploads/return-images
-```
-
-### Content, Newsletter, Analytics & Administrative Data
-
-```http
-GET    /api/posts
-GET    /api/posts/latest
-GET    /api/posts/categories
-GET    /api/posts/:slug
-POST   /api/newsletter/subscribe
-POST   /api/newsletter/confirm
-POST   /api/newsletter/unsubscribe
-POST   /api/events
-GET    /api/administrative/provinces
-GET    /api/administrative/districts
-GET    /api/administrative/wards
-```
-
-### Admin APIs
-
-```http
-# Dashboard, analytics, audit
-GET    /api/admin/stats
-GET    /api/admin/analytics/revenue-series
-GET    /api/admin/analytics/category-share
-GET    /api/admin/analytics/activity
-GET    /api/admin/analytics/funnel
-GET    /api/admin/audit-logs
-GET    /api/admin/audit-logs/export
-
-# Books, categories, reviews
-POST   /api/books
-PUT    /api/books/:id
-DELETE /api/books/:id
-POST   /api/categories
-PUT    /api/categories/:id
-DELETE /api/categories/:id
-GET    /api/admin/reviews
-PATCH  /api/admin/reviews/:id/moderation
-
-# Orders and reports
-GET    /api/admin/orders
-GET    /api/admin/orders/export.csv
-GET    /api/admin/orders/:id
-POST   /api/admin/orders/:id/confirm
-POST   /api/admin/orders/:id/cancel
-POST   /api/admin/orders/:id/shipment
-POST   /api/admin/orders/:id/ship
-POST   /api/admin/orders/:id/deliver
-PATCH  /api/admin/orders/:id/return-request
-GET    /api/admin/reports/profit
-GET    /api/admin/reports/profit/export.csv
-
-# Inventory and suppliers
-GET    /api/admin/suppliers
-POST   /api/admin/suppliers
-GET    /api/admin/inventory/ledger
-POST   /api/admin/inventory/adjust
-GET    /api/admin/inventory/low-stock
-GET    /api/admin/inventory/valuation
-GET    /api/admin/stock-receipts
-POST   /api/admin/stock-receipts
-POST   /api/admin/stock-receipts/:id/confirm
-GET    /api/admin/stock-issues
-POST   /api/admin/stock-issues
-POST   /api/admin/stock-issues/:id/confirm
-GET    /api/admin/stock-counts
-POST   /api/admin/stock-counts
-POST   /api/admin/stock-counts/:id/complete
-
-# Promotions, loyalty, users and roles
-GET    /api/admin/vouchers
-POST   /api/admin/vouchers
-GET    /api/admin/promotions
-POST   /api/admin/promotions
-GET    /api/admin/loyalty/program
-PUT    /api/admin/loyalty/program
-GET    /api/admin/loyalty/members
-POST   /api/admin/loyalty/members/:userId/adjust
-GET    /api/admin/users
-PATCH  /api/admin/users/:id/role
-PATCH  /api/admin/users/:id/status
-GET    /api/admin/roles
-POST   /api/admin/roles
-PUT    /api/admin/roles/:key
-DELETE /api/admin/roles/:key
-
-# Content and support
-POST   /api/posts/admin
-PUT    /api/posts/admin/:id
-PATCH  /api/posts/admin/:id/publish
-GET    /api/admin/newsletter
-POST   /api/admin/newsletter/send
-GET    /api/admin/chat/conversations
-POST   /api/admin/chat/conversations/:id/messages
-GET    /api/admin/support-tickets
-POST   /api/admin/support-tickets/:id/resolution
-POST   /api/admin/uploads/images
-```
-
-Các endpoint admin đều đi qua authentication và permission guard tương ứng; prefix `/admin` không đồng nghĩa mọi staff đều có toàn quyền.
-
-## ⚙️ Environment Variables
-
-Không commit file `.env` hoặc credential thật. Hãy bắt đầu từ các file mẫu đã có:
-
-```bash
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
-```
-
-PowerShell tương đương:
-
-```powershell
-Copy-Item backend/.env.example backend/.env
-Copy-Item frontend/.env.example frontend/.env
-```
-
-### Backend — cấu hình local tối thiểu
-
-```env
-PORT=5000
-NODE_ENV=development
-MONGO_URI=mongodb://localhost:27017/bookshop?replicaSet=rs0
-
-JWT_SECRET=<random-secret-at-least-32-bytes>
-JWT_REFRESH_SECRET=<different-random-secret-at-least-32-bytes>
-JWT_EXPIRES_IN=15m
-JWT_REFRESH_EXPIRES_IN=7d
-
-FRONTEND_URL=http://localhost:5173
-API_PUBLIC_URL=http://localhost:5000
-
-PAYMENT_MOCK_ENABLED=true
-# Để trống ở local để dùng in-memory limiter, hoặc điền URL nếu đã chạy Redis.
-RATE_LIMIT_REDIS_URL=
-```
-
-Trong development, backend có fallback JWT và in-memory rate-limit; tuy nhiên nên cấu hình secret riêng. Trong production, code bắt buộc JWT secrets khác nhau và dài ít nhất 32 bytes, `MONGO_URI`, Redis, Cloudinary, `MAIL_FROM` và một mail provider hợp lệ.
-
-### Backend — biến theo nhóm chức năng
-
-| Nhóm | Biến |
+| System role | Phạm vi chính |
 | --- | --- |
-| Seed demo | `SEED_CONFIRM`, `SEED_ADMIN_PASSWORD`, `SEED_USER_PASSWORD`, `SEED_STAFF_PASSWORD` |
-| Order limits | `COD_PENDING_TTL_MINUTES`, `MAX_PENDING_COD_PER_USER`, `ONLINE_PAYMENT_TTL_MINUTES`, `MAX_PENDING_ONLINE_PER_USER`, `MAX_PAYMENT_ATTEMPTS_PER_ORDER`, `PAYMENT_RETRY_COOLDOWN_SECONDS` |
-| Payment mock/webhook | `PAYMENT_MOCK_ENABLED`, `PAYMENT_MOCK_REFUND_PENDING`, `PAYMENT_MOCK_REFUND_SETTLE_AFTER`, `PAYMENT_WEBHOOK_SECRET` |
-| VNPay | `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_PAYMENT_URL`, `VNPAY_API_URL`, `VNPAY_REFUND_IP`, `VNPAY_RETURN_URL` |
-| MoMo | `MOMO_PARTNER_CODE`, `MOMO_ACCESS_KEY`, `MOMO_SECRET_KEY`, `MOMO_ENDPOINT`, `MOMO_REFUND_ENDPOINT`, `MOMO_REDIRECT_URL`, `MOMO_IPN_URL` |
-| Image storage | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER`, `ALLOWED_IMAGE_ORIGINS` |
-| Email | `RESEND_API_KEY` hoặc `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`; dùng chung `MAIL_FROM`, `MAIL_REQUEST_TIMEOUT_MS` |
-| GHN Sandbox | `GHN_SANDBOX_TOKEN`, `GHN_SANDBOX_SHOP_ID`, `GHN_SANDBOX_FROM_DISTRICT_ID`, `GHN_SANDBOX_FROM_WARD_CODE`, `GHN_SANDBOX_REQUEST_TIMEOUT_MS`, `GHN_SANDBOX_SIMULATION_ENABLED`, `GHN_SANDBOX_SIMULATION_STEP_MS` |
-| Support SLA | `SUPPORT_BUSINESS_HOURS`, `SUPPORT_HOUR_START`, `SUPPORT_HOUR_END`, `SUPPORT_BUSINESS_DAYS`, `SUPPORT_TIMEZONE`, `SUPPORT_WAITING_CUSTOMER_DAYS`, `SUPPORT_MAX_OPEN_TICKETS_PER_ORDER` |
-| Cart reminder | `CART_REMINDER_ENABLED`, `CART_REMINDER_IDLE_HOURS`, `CART_REMINDER_SECOND_HOURS`, `CART_REMINDER_MAX_AGE_DAYS`, `CART_REMINDER_MAX_PER_TICK`, `CART_REMINDER_MAX_ITEMS` |
-| Analytics & inventory | `ANALYTICS_RETENTION_DAYS`, `INVENTORY_DEFAULT_REORDER_POINT`, `INVENTORY_LOW_STOCK_COOLDOWN_HOURS` |
+| `user` | Tài khoản mua hàng, không có quyền quản trị |
+| `admin` | Wildcard `*`, toàn quyền; role bị khóa |
+| `warehouse` | Inventory, supplier, fulfillment và upload |
+| `support` | Order support, ticket, chat, customer lookup; đọc loyalty/inventory |
+| `content` | Book, category, post, newsletter và review moderation |
+| `accounting` | Analytics, reports, payment audit, voucher, promotion và loyalty |
 
-Code cũng hỗ trợ các alias deploy như `APP_PUBLIC_URL`, `FRONTEND_HOST`, `API_PUBLIC_HOST`, `RENDER_EXTERNAL_HOSTNAME` và `REDIS_URL`.
+Admin có thể tạo role tùy chỉnh nhưng chỉ từ permission catalog trong source. Các quyền nhạy cảm như `inventory.adjust`, `loyalty.adjust`, `order.payment.audit`, `user.manage`, `role.manage` và `audit.read` được bảo vệ riêng.
 
-### Frontend
-
-```env
-VITE_API_BASE_URL=http://localhost:5000/api
-VITE_ALLOWED_IMAGE_ORIGINS=
-VITE_SITE_URL=http://localhost:5173
-# TODO: biến này đang có trong .env.example nhưng service hiện gọi qua backend proxy.
-VITE_VN_ADMIN_API_URL=https://provinces.open-api.vn/api
-VITE_SOCIAL_FACEBOOK_URL=
-VITE_SOCIAL_INSTAGRAM_URL=
-VITE_SOCIAL_ZALO_URL=
-VITE_SOCIAL_YOUTUBE_URL=
-```
-
-`VITE_API_HOST` và `VITE_SITE_HOST` cũng được source hỗ trợ cho môi trường host-managed. `VITE_VN_ADMIN_API_URL` hiện chưa được đọc: frontend gọi `/api/administrative/*`, còn backend đang dùng trực tiếp `https://provinces.open-api.vn/api`; cần xóa biến thừa hoặc nối nó vào config nếu muốn thay nguồn. Không đặt secret trong biến `VITE_*` vì chúng được bundle vào browser.
-
-## 🚀 Installation & Running Locally
+## Run Locally
 
 ### Requirements
 
-- Node.js và npm. Repository chưa pin phiên bản bằng `engines`, `.nvmrc` hoặc `.node-version`; **TODO:** bổ sung version Node chuẩn của project.
-- Docker Desktop / Docker Engine + Compose để chạy MongoDB replica set theo cấu hình có sẵn.
-- Redis là tùy chọn ở development nhưng bắt buộc trong production.
-- Git.
+- Node.js + npm. Repository hiện chưa pin Node version bằng `engines` hoặc `.nvmrc`.
+- Docker + Docker Compose.
+- Redis là tùy chọn ở development và bắt buộc ở production.
 
-### 1. Clone repository
+### Setup
 
 ```bash
 git clone https://github.com/nkcuongdev/BookShop.git
 cd BookShop
-```
 
-### 2. Start MongoDB replica set
-
-```bash
+# MongoDB 7 replica set; healthcheck tự khởi tạo rs0
 docker compose up -d mongo
-```
 
-Healthcheck trong `docker-compose.yml` tự khởi tạo replica set `rs0`. Không thay bằng MongoDB standalone vì backend yêu cầu transaction.
-
-### 3. Install dependencies
-
-```bash
 npm ci --prefix backend
 npm ci --prefix frontend
-```
 
-### 4. Configure environment
-
-```bash
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 ```
 
-Điền `JWT_SECRET`, `JWT_REFRESH_SECRET` và các tích hợp cần dùng. Local có thể giữ `PAYMENT_MOCK_ENABLED=true`; ảnh sẽ lưu tại `backend/data/uploads` nếu chưa cấu hình Cloudinary.
-
-### 5. Run development servers
-
-Terminal 1 — API tại `http://localhost:5000`:
-
-```bash
-cd backend
-npm run dev
-```
-
-Terminal 2 — frontend tại `http://localhost:5173`:
-
-```bash
-cd frontend
-npm run dev
-```
-
-### 6. Optional: seed demo data
-
-`npm run seed` là destructive seed và chỉ chạy khi:
+Backend local cần tối thiểu:
 
 ```env
-SEED_CONFIRM=RESET_BOOKSHOP_DATA
-SEED_ADMIN_PASSWORD=12345678
-SEED_USER_PASSWORD=12345678
-SEED_STAFF_PASSWORD=12345678
+PORT=5000
+MONGO_URI=mongodb://localhost:27017/bookshop?replicaSet=rs0
+JWT_SECRET=<random-secret-at-least-32-bytes>
+JWT_REFRESH_SECRET=<different-random-secret-at-least-32-bytes>
+FRONTEND_URL=http://localhost:5173
+API_PUBLIC_URL=http://localhost:5000
+PAYMENT_MOCK_ENABLED=true
+RATE_LIMIT_REDIS_URL=
 ```
 
-Sau khi cấu hình:
+Frontend:
 
-```bash
-cd backend
-npm run seed
+```env
+VITE_API_BASE_URL=http://localhost:5000/api
+VITE_SITE_URL=http://localhost:5173
 ```
 
-Seed tạo các tài khoản mặc định sau (tất cả dùng mật khẩu `12345678`):
+Cloudinary, Resend/SMTP, VNPay, MoMo, GHN Sandbox và các giới hạn nghiệp vụ đều đã có placeholder trong hai file `.env.example`. Không đưa secret vào biến `VITE_*`.
 
-| Role | Email |
-| --- | --- |
-| `admin` | `admin@gmail.com` |
-| `warehouse` | `warehouse@gmail.com` |
-| `support` | `support@gmail.com` |
-| `content` | `content@gmail.com` |
-| `accounting` | `accounting@gmail.com` |
-| `user` | `user@gmail.com` |
-
-Có thể đổi riêng mật khẩu admin, khách hàng và nhóm nhân viên qua `SEED_ADMIN_PASSWORD`, `SEED_USER_PASSWORD` và `SEED_STAFF_PASSWORD`. Không dùng password demo trong production.
-
-### Production build locally
+### Start development
 
 ```bash
-npm run build --prefix frontend
-NODE_ENV=production npm start --prefix backend
+# Terminal 1
+npm run dev --prefix backend
+
+# Terminal 2
+npm run dev --prefix frontend
 ```
 
-Trên PowerShell, đặt biến môi trường bằng `$env:NODE_ENV = "production"` trước khi chạy `npm start --prefix backend`. Frontend build còn chạy bundle-budget check và sinh SEO files theo scripts thật trong `frontend/package.json`.
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:5000`
+- Readiness: `http://localhost:5000/api/health/ready`
 
-## 🔐 Roles & Permissions
+Optional destructive demo seed: cấu hình `SEED_CONFIRM=RESET_BOOKSHOP_DATA` cùng các seed password trong `backend/.env`, sau đó chạy `npm run seed --prefix backend`.
 
-Role được lưu trong MongoDB và có thể tạo/sửa ở runtime. Permission vocabulary được khóa trong source; role tùy chỉnh chỉ được chọn từ catalog đã định nghĩa. Nếu không đọc được role registry, authorization fail-closed.
+## Testing
 
-| Role hệ thống | Quyền chính |
-| --- | --- |
-| `user` | Khách hàng; không có quyền vào admin. Đây là role mặc định khi đăng ký |
-| `admin` | Wildcard `*`, toàn quyền; role bị khóa để tránh tự mất quyền |
-| `warehouse` | Sách read-only, tồn kho, chứng từ kho, supplier, fulfillment, upload |
-| `support` | Đơn hàng hỗ trợ, ticket, chat, tra cứu khách, loyalty read-only, tồn kho read-only |
-| `content` | Sách, danh mục, bài viết, newsletter, review moderation, upload |
-| `accounting` | Dashboard/analytics, order report/payment audit, voucher, promotion, loyalty và inventory read-only |
-
-Một số permission tiêu biểu: `admin.access`, `book.write`, `order.fulfill`, `order.support`, `inventory.write`, `loyalty.manage`, `ticket.resolve`, `review.moderate`, `user.manage`, `role.manage`, `audit.read`. Các quyền nhạy cảm và admin-only được đánh dấu trong permission catalog; frontend gate chỉ phục vụ UX, backend route guard mới là lớp kiểm soát bắt buộc.
-
-## 🧪 Testing
-
-Project có test thật ở cả hai phía:
-
-- Backend: Node Test Runner + Supertest + `mongodb-memory-server`; gồm unit và integration test cho auth, order, inventory, payment, shipping, loyalty, support, security, RBAC, analytics và các module khác.
-- Frontend: Vitest + Testing Library + jsdom; bao phủ component, context, API client, utility và các race/hydration flow quan trọng.
+Backend test bao phủ auth/session, security headers, order/payment, inventory ledger, shipping, return/refund, loyalty, RBAC, analytics và support. Frontend test bao phủ context, API client, form/component và các race/hydration flow quan trọng.
 
 ```bash
-# Backend — toàn bộ test
+# Backend
 npm test --prefix backend
-
-# Backend — unit test theo danh sách của scripts/run-unit-tests.js
 npm run test:unit --prefix backend
 
-# Backend — watch
-npm run test:watch --prefix backend
-
-# Frontend — toàn bộ test
+# Frontend
 npm test --prefix frontend
 
-# Frontend — watch
-npm run test:watch --prefix frontend
-
-# Lint riêng từng app
+# Static checks
 npm run lint --prefix backend
 npm run lint --prefix frontend
 ```
 
-Một số integration test yêu cầu MongoDB hỗ trợ transaction; local Docker Compose đã cung cấp replica set phù hợp.
+Watch mode: `npm run test:watch --prefix backend` hoặc `npm run test:watch --prefix frontend`.
 
-## 🌐 Deployment
+## Deployment
 
-Repository có sẵn `render.yaml` cho Render Blueprint:
+`render.yaml` định nghĩa hạ tầng Render hiện tại:
 
-- Web service `bookshop-api`, Node runtime, branch `main`, region Singapore, auto deploy.
-- Build command cài dependencies backend/frontend và build frontend.
-- Start command chạy `npm start` trong backend.
-- Health check: `/api/health/ready`.
-- Express phục vụ `frontend/dist` trong `NODE_ENV=production`, nên frontend và API dùng chung origin.
-- Cron service `bookshop-maintenance` chạy `npm run maintenance` mỗi 5 phút.
-- Shared environment group `bookshop-shared` chứa runtime, database, security, mail, shipping, payment và storage configuration.
+- Web service `bookshop-api` cài dependencies, build React và chạy Express.
+- Express phục vụ `frontend/dist` trong production, nên SPA và API dùng chung origin.
+- Render Key Value cung cấp Redis cho distributed rate limiting.
+- Health check dùng `/api/health/ready`.
+- Cron `bookshop-maintenance` chạy mỗi 5 phút cho các tác vụ cleanup, timeout, reconciliation, alert và reminder.
+- Shared environment group chứa cấu hình runtime; credential MongoDB, mail, storage, payment và GHN được khai báo `sync: false` hoặc inject từ service.
 
-Để deploy thực tế cần cung cấp ít nhất:
-
-1. MongoDB connection hỗ trợ transaction (replica set hoặc sharded cluster).
-2. Redis URL cho distributed rate limiting.
-3. Cloudinary credentials.
-4. Resend API key hoặc đầy đủ SMTP credentials, cùng `MAIL_FROM`.
-5. `APP_PUBLIC_URL`/public URL chính xác cho callback và frontend.
-6. Credential sandbox/merchant cho payment và GHN nếu bật các tích hợp này.
-
-`render.yaml` hiện chưa pin Node version; **TODO:** thêm `engines.node` hoặc biến runtime version sau khi chọn phiên bản Node chuẩn cho production.
-
-### Web và API ở hai tên miền Render
-
-Nếu giữ Static Site `https://bookshop-web.onrender.com` và API `https://bookshop-api-2osm.onrender.com` riêng biệt, đặt biến môi trường của API:
-
-```env
-NODE_ENV=production
-FRONTEND_URL=https://bookshop-web.onrender.com
-API_PUBLIC_URL=https://bookshop-api-2osm.onrender.com
-```
-
-Ở Static Site, giữ `VITE_API_HOST=bookshop-api-2osm.onrender.com` (hoặc xóa biến này và đặt `VITE_API_BASE_URL=https://bookshop-api-2osm.onrender.com/api`). Deploy lại cả API và Static Site sau khi cập nhật source/biến môi trường. Backend tự chọn cookie theo hai public URL, áp dụng cùng thuộc tính khi tạo, refresh và xóa cookie; CSRF vẫn được kiểm tra bằng header, cookie và JWT. Cookie partitioned dành cho trình duyệt hiện đại; trình duyệt cũ hoặc chặn toàn bộ cookie có thể cần mô hình chung origin theo Blueprint ở trên.
-
-Nếu chuyển sang Blueprint chung origin, để Root Directory trống, dùng build/start command trong `render.yaml`, xóa `VITE_API_HOST` và đặt `VITE_API_BASE_URL=/api`. Đặt các public URL về cùng địa chỉ dịch vụ và truy cập storefront qua địa chỉ đó. Việc chỉ cập nhật `render.yaml` trong Git không tự sửa cấu hình của dịch vụ được tạo thủ công trong Dashboard.
-
----
-
-Nếu thay đổi route, model, biến môi trường hoặc workflow nghiệp vụ, hãy cập nhật README cùng với `.env.example` để tài liệu tiếp tục phản ánh đúng source code.
+Production cần MongoDB hỗ trợ transaction, Redis, Cloudinary và một mail provider hợp lệ. Payment/GHN cần credential tương ứng nếu bật tích hợp thật; source chỉ cho phép GHN Sandbox.
