@@ -198,6 +198,7 @@ MongoDB phải hỗ trợ transaction. Backend kiểm tra replica set hoặc sha
 2. Backend validate input, hash password bằng bcrypt và áp dụng rate limit theo IP/tài khoản.
 3. Backend tạo `AuthSession`, access JWT, refresh JWT và CSRF token.
 4. Access/refresh token được lưu trong HttpOnly cookie; request thay đổi dữ liệu phải gửi `X-CSRF-Token` khớp cookie/session.
+   Production dùng `SameSite=Lax` khi web/API chung origin; với hai HTTPS origin khác nhau, cookie dùng `SameSite=None; Secure; Partitioned`. Frontend xác nhận cookie qua `GET /api/auth/me` trước khi hiển thị trạng thái đăng nhập thành công.
 5. Khi access token hết hạn, frontend gọi `/api/auth/csrf` rồi `/api/auth/refresh`; refresh token được rotate.
 6. Email verification và password recovery dùng token hash có hạn, gửi qua Resend hoặc SMTP.
 
@@ -675,6 +676,20 @@ Repository có sẵn `render.yaml` cho Render Blueprint:
 6. Credential sandbox/merchant cho payment và GHN nếu bật các tích hợp này.
 
 `render.yaml` hiện chưa pin Node version; **TODO:** thêm `engines.node` hoặc biến runtime version sau khi chọn phiên bản Node chuẩn cho production.
+
+### Web và API ở hai tên miền Render
+
+Nếu giữ Static Site `https://bookshop-web.onrender.com` và API `https://bookshop-api-2osm.onrender.com` riêng biệt, đặt biến môi trường của API:
+
+```env
+NODE_ENV=production
+FRONTEND_URL=https://bookshop-web.onrender.com
+API_PUBLIC_URL=https://bookshop-api-2osm.onrender.com
+```
+
+Ở Static Site, giữ `VITE_API_HOST=bookshop-api-2osm.onrender.com` (hoặc xóa biến này và đặt `VITE_API_BASE_URL=https://bookshop-api-2osm.onrender.com/api`). Deploy lại cả API và Static Site sau khi cập nhật source/biến môi trường. Backend tự chọn cookie theo hai public URL, áp dụng cùng thuộc tính khi tạo, refresh và xóa cookie; CSRF vẫn được kiểm tra bằng header, cookie và JWT. Cookie partitioned dành cho trình duyệt hiện đại; trình duyệt cũ hoặc chặn toàn bộ cookie có thể cần mô hình chung origin theo Blueprint ở trên.
+
+Nếu chuyển sang Blueprint chung origin, để Root Directory trống, dùng build/start command trong `render.yaml`, xóa `VITE_API_HOST` và đặt `VITE_API_BASE_URL=/api`. Đặt các public URL về cùng địa chỉ dịch vụ và truy cập storefront qua địa chỉ đó. Việc chỉ cập nhật `render.yaml` trong Git không tự sửa cấu hình của dịch vụ được tạo thủ công trong Dashboard.
 
 ---
 

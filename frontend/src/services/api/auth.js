@@ -1,4 +1,41 @@
-import { request } from "./client";
+import { ApiError, request } from "./client";
+
+async function confirmSession(response, { registered = false } = {}) {
+  if (!response.success) return response;
+
+  let session;
+  try {
+    // A successful login response does not guarantee the browser accepted its
+    // cookies. Confirm before exposing a signed-in user or starting sockets.
+    session = await request("/auth/me", {}, {
+      allowRefresh: false,
+      redirectOnUnauthorized: false,
+      logErrors: false,
+    });
+  } catch (error) {
+    if (error.status !== 401) throw error;
+    throw new ApiError(
+      `${registered ? "Tài khoản đã được tạo, nhưng trình duyệt" : "Trình duyệt"} không lưu được phiên đăng nhập. Vui lòng cho phép cookie của trang hoặc thử trình duyệt mới nhất${registered ? " rồi đăng nhập lại" : ""}.`,
+      {
+        status: error.status,
+        code: "SESSION_COOKIE_BLOCKED",
+        requestId: error.requestId,
+        cause: error,
+      }
+    );
+  }
+
+  if (!session.success || !session.data?.user) {
+    throw new ApiError("Không thể xác nhận phiên đăng nhập. Vui lòng thử lại.", {
+      code: "INVALID_SESSION_RESPONSE",
+    });
+  }
+  response.data.user = session.data.user;
+  localStorage.setItem("bookshop_user", JSON.stringify(session.data.user));
+  localStorage.setItem("bookshop_csrf", response.data.csrfToken);
+  localStorage.removeItem("bookshop_token");
+  return response;
+}
 
 export const authAPI = {
   login: async (email, password) => {
@@ -6,12 +43,7 @@ export const authAPI = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    if (response.success) {
-      localStorage.setItem("bookshop_user", JSON.stringify(response.data.user));
-      localStorage.setItem("bookshop_csrf", response.data.csrfToken);
-      localStorage.removeItem("bookshop_token");
-    }
-    return response;
+    return confirmSession(response);
   },
 
   register: async (name, email, password) => {
@@ -19,12 +51,7 @@ export const authAPI = {
       method: "POST",
       body: JSON.stringify({ name, email, password }),
     });
-    if (response.success) {
-      localStorage.setItem("bookshop_user", JSON.stringify(response.data.user));
-      localStorage.setItem("bookshop_csrf", response.data.csrfToken);
-      localStorage.removeItem("bookshop_token");
-    }
-    return response;
+    return confirmSession(response, { registered: true });
   },
 
   logout: async () => {

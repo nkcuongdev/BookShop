@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const config = require("../config");
 const AuthSession = require("../models/AuthSession");
 const User = require("../models/User");
+const { sessionCookieOptions } = require("../utils/sessionCookieOptions");
 
 const ACCESS_COOKIE = "bookshop_access";
 const REFRESH_COOKIE = "bookshop_refresh";
@@ -194,13 +195,11 @@ async function rotateSession(refreshToken, req) {
 }
 
 function cookieBase() {
-  const isProduction = process.env.NODE_ENV === "production";
-  return {
-    // Production serves the SPA and API from one origin, so authentication no
-    // longer depends on browsers accepting third-party cookies.
-    sameSite: "lax",
-    secure: isProduction,
-  };
+  return sessionCookieOptions({
+    isProduction: process.env.NODE_ENV === "production",
+    frontendUrl: config.frontendUrl,
+    apiPublicUrl: config.apiPublicUrl,
+  });
 }
 
 function setSessionCookies(res, tokens) {
