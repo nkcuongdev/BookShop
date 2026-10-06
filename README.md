@@ -24,7 +24,7 @@ BookShop là ứng dụng thương mại điện tử bán sách gồm storefron
 - **Explicit order state machine:** kiểm soát transition giữa `PENDING`, `PAID`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `FAILED`, `REFUNDING` và `REFUNDED`.
 - **Payment recovery:** hỗ trợ COD, VNPay, MoMo và mock gateway ở development; callback/webhook được xác minh, refund được lưu trước khi gọi gateway và có job reconciliation cho trạng thái chưa kết thúc.
 - **Inventory accounting:** phân biệt sellable stock và reserved stock; mọi biến động quan trọng đi qua `StockLedger`, phiếu nhập/xuất/kiểm kho, moving-average cost và optimistic guards để tránh ghi đè dữ liệu mới.
-- **Secure session model:** access/refresh JWT trong HttpOnly cookie, refresh-token rotation, session revoke, CSRF double-submit, bcrypt, Helmet/CSP, CORS allowlist và distributed rate limit bằng Redis ở production.
+- **Secure session model:** access/refresh JWT trong HttpOnly cookie, refresh-token rotation, session revoke, CSRF double-submit, bcrypt, Helmet/CSP, CORS allowlist và rate limiting cho các endpoint nhạy cảm.
 - **Database-backed RBAC:** role/permission lưu trong MongoDB, route guard kiểm tra quyền phía backend, cache registry và fail-closed khi không thể phân giải quyền.
 - **Operational reliability:** health/readiness endpoint, audit log, order outbox, cleanup/reconciliation jobs và cron maintenance cho order, refund, inventory, shipping, support và reminders.
 - **Testable design:** backend có unit/integration test với Node Test Runner, Supertest và `mongodb-memory-server`; frontend dùng Vitest, Testing Library và jsdom.
@@ -47,10 +47,10 @@ BookShop là ứng dụng thương mại điện tử bán sách gồm storefron
 | --- | --- |
 | Frontend | React 18, Vite 6, React Router 7, Tailwind CSS, TanStack Query/Table, React Hook Form, Zod, Radix UI, Recharts |
 | Backend | Node.js, Express 4, Mongoose 9, Socket.IO |
-| Database & cache | MongoDB 7 replica set, Redis rate-limit store |
+| Database | MongoDB 7 replica set |
 | Security | JWT, bcryptjs, HttpOnly cookies, CSRF, Helmet/CSP, CORS, express-rate-limit |
 | Integrations | VNPay, MoMo, GHN Sandbox, Cloudinary, Resend/SMTP |
-| Testing & Ops | Node Test Runner, Supertest, mongodb-memory-server, Vitest, Testing Library, Docker Compose, Render |
+| Testing & Ops | Node Test Runner, Supertest, mongodb-memory-server, Vitest, Testing Library; cấu hình triển khai Render |
 
 ## Architecture
 
@@ -63,7 +63,6 @@ flowchart LR
     API --> Guard[Auth · CSRF · RBAC · Rate Limit]
     Guard --> Services[Domain Services]
     Services -->|Transactions| Mongo[(MongoDB Replica Set)]
-    Guard --> Redis[(Redis)]
     Services --> Payment[VNPay · MoMo]
     Services --> Shipping[GHN Sandbox]
     Services --> Storage[Cloudinary / Local]
@@ -175,26 +174,23 @@ Admin có thể tạo role tùy chỉnh nhưng chỉ từ permission catalog tro
 ### Requirements
 
 - Node.js + npm. Repository hiện chưa pin Node version bằng `engines` hoặc `.nvmrc`.
-- Docker + Docker Compose.
-- Redis là tùy chọn ở development và bắt buộc ở production.
+- MongoDB hỗ trợ transaction (replica set hoặc sharded cluster), cài trực tiếp hoặc dùng dịch vụ MongoDB bên ngoài.
 
 ### Setup
+
+Chuẩn bị một MongoDB instance hỗ trợ transaction trước khi khởi động backend. Backend và frontend chạy bằng Node.js/npm.
 
 ```bash
 git clone https://github.com/nkcuongdev/BookShop.git
 cd BookShop
 
-# MongoDB 7 replica set; healthcheck tự khởi tạo rs0
-docker compose up -d mongo
-
 npm ci --prefix backend
 npm ci --prefix frontend
 
-cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 ```
 
-Backend local cần tối thiểu:
+Tạo `backend/.env` với cấu hình local tối thiểu bên dưới. Ví dụ `MONGO_URI` dùng replica set local tên `rs0`; thay bằng connection string của MongoDB instance đã chuẩn bị nếu dùng cấu hình khác.
 
 ```env
 PORT=5000
@@ -204,7 +200,6 @@ JWT_REFRESH_SECRET=<different-random-secret-at-least-32-bytes>
 FRONTEND_URL=http://localhost:5173
 API_PUBLIC_URL=http://localhost:5000
 PAYMENT_MOCK_ENABLED=true
-RATE_LIMIT_REDIS_URL=
 ```
 
 Frontend:
@@ -253,13 +248,12 @@ Watch mode: `npm run test:watch --prefix backend` hoặc `npm run test:watch --p
 
 ## Deployment
 
-`render.yaml` định nghĩa hạ tầng Render hiện tại:
+`render.yaml` cung cấp cấu hình triển khai trên Render. Các thành phần ứng dụng chính gồm:
 
 - Web service `bookshop-api` cài dependencies, build React và chạy Express.
 - Express phục vụ `frontend/dist` trong production, nên SPA và API dùng chung origin.
-- Render Key Value cung cấp Redis cho distributed rate limiting.
 - Health check dùng `/api/health/ready`.
 - Cron `bookshop-maintenance` chạy mỗi 5 phút cho các tác vụ cleanup, timeout, reconciliation, alert và reminder.
 - Shared environment group chứa cấu hình runtime; credential MongoDB, mail, storage, payment và GHN được khai báo `sync: false` hoặc inject từ service.
 
-Production cần MongoDB hỗ trợ transaction, Redis, Cloudinary và một mail provider hợp lệ. Payment/GHN cần credential tương ứng nếu bật tích hợp thật; source chỉ cho phép GHN Sandbox.
+Trước khi triển khai, đối chiếu đầy đủ các biến môi trường trong `render.yaml` và các điều kiện khởi động tại `backend/src/config/index.js`. MongoDB phải hỗ trợ transaction; upload và email cần cấu hình provider hợp lệ. Payment/GHN cần credential tương ứng nếu bật tích hợp thật; source chỉ cho phép GHN Sandbox.
