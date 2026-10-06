@@ -34,7 +34,7 @@ test("API responses include baseline browser security headers", async () => {
   assert.ok(response.headers["referrer-policy"]);
 });
 
-test("destructive seed requires explicit development confirmation and strong credentials", () => {
+test("destructive seed requires explicit development confirmation and uses demo password defaults", () => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousConfirm = process.env.SEED_CONFIRM;
   const previousAdminPassword = process.env.SEED_ADMIN_PASSWORD;
@@ -51,10 +51,9 @@ test("destructive seed requires explicit development confirmation and strong cre
 
     delete process.env.SEED_ADMIN_PASSWORD;
     delete process.env.SEED_USER_PASSWORD;
-    const generated = buildSeedUsers();
-    assert.ok(generated.adminPassword.length >= 20);
-    assert.ok(generated.userPassword.length >= 20);
-    assert.notEqual(generated.adminPassword, generated.userPassword);
+    const seedUsers = buildSeedUsers();
+    assert.equal(seedUsers.adminPassword, "12345678");
+    assert.equal(seedUsers.userPassword, "12345678");
   } finally {
     process.env.NODE_ENV = previousNodeEnv;
     if (previousConfirm === undefined) delete process.env.SEED_CONFIRM;
