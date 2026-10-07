@@ -26,6 +26,10 @@ export const bookGridVariants = cva("grid gap-4 lg:gap-5", {
  * @param books      book objects
  * @param variant    full | with-sidebar | compact
  * @param badgeFirst mark the first card as a bestseller (Home rails do this)
+ * @param mobileScroll below sm, lay the cards out as a swipeable row instead
+ *                   of two columns — five books in two columns leave one
+ *                   orphan and make a long page longer. The grid from sm up
+ *                   is unchanged.
  * @param stagger    fade the cards up in sequence. Opt-in, not default: a grid
  *                   that re-renders on every filter change would replay the
  *                   animation each time, which reads as flicker.
@@ -35,6 +39,7 @@ export default function BookGrid({
   books = [],
   variant,
   badgeFirst = false,
+  mobileScroll = false,
   stagger = false,
   onQuickView,
   className,
@@ -42,7 +47,13 @@ export default function BookGrid({
 }) {
   return (
     <div
-      className={cn(bookGridVariants({ variant }), stagger && "stagger-in", className)}
+      className={cn(
+        bookGridVariants({ variant }),
+        mobileScroll &&
+          "max-sm:no-scrollbar max-sm:-mx-4 max-sm:flex max-sm:snap-x max-sm:snap-mandatory max-sm:scroll-px-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-2",
+        stagger && "stagger-in",
+        className
+      )}
     >
       {children ??
         books.map((book, i) => (
@@ -51,6 +62,11 @@ export default function BookGrid({
             book={book}
             badge={badgeFirst && i === 0 ? "bestseller" : undefined}
             onQuickView={onQuickView}
+            className={
+              mobileScroll
+                ? "max-sm:w-[160px] max-sm:shrink-0 max-sm:snap-start"
+                : undefined
+            }
           />
         ))}
     </div>

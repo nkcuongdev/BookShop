@@ -159,6 +159,20 @@
 }
 
 /**
+ * Homepage carousel progress. The active dot's fill IS the autoplay timer: the
+ * carousel advances on `animationend`, so pausing the animation (hover, focus,
+ * touch) pauses the countdown exactly where it is instead of restarting it.
+ */
+@keyframes banner-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/**
  * Skeleton shimmer.
  *
  * The Skeleton primitive was plain `animate-pulse` — an opacity breathe, which

@@ -8,6 +8,8 @@ export const categorySchema = z.object({
     .regex(/^[a-z0-9-]+$/, "Slug chỉ chứa chữ thường, số, dấu gạch"),
   description: z.string().optional().default(""),
   image: z.string().optional().default(""),
+  // Storefront icon key from features/categories/categoryIcons.js; "" = auto.
+  icon: z.string().optional().default(""),
 });
 
 export function generateSlug(name = "") {

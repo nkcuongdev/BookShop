@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { FormProvider, useForm } from "react-hook-form";
+import { useMemo, useRef, useState } from "react";
+import { FormProvider, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   FolderTree,
@@ -15,6 +15,8 @@ import { DataTableToolbar } from "@/components/admin/common/DataTableToolbar";
 import { EmptyState } from "@/components/admin/common/EmptyState";
 import { FormField } from "@/components/admin/common/FormField";
 import { ImageUploader } from "@/components/admin/common/ImageUploader";
+import { CategoryIconPicker } from "@/components/admin/categories/CategoryIconPicker";
+import CategoryIcon from "@/components/common/CategoryIcon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,6 +34,7 @@ import {
   useUpdateCategory,
 } from "@/features/admin/categories/hooks";
 import { categorySchema, generateSlug } from "@/features/admin/categories/schema";
+import { guessCategoryIcon } from "@/features/categories/categoryIcons";
 import { useConfirm } from "@/hooks/useConfirm";
 import useDebounce from "@/hooks/useDebounce";
 import { formatDateVN } from "@/utils/format";
@@ -45,6 +48,8 @@ export default function CategoriesList() {
   const [editing, setEditing] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const debounced = useDebounce(search, 200);
+  // Once the admin picks an icon by hand, typing the name stops re-suggesting.
+  const iconTouched = useRef(false);
   const confirm = useConfirm();
 
   const categoriesQ = useCategories();
@@ -54,7 +59,12 @@ export default function CategoriesList() {
 
   const methods = useForm({
     resolver: zodResolver(categorySchema),
-    defaultValues: { name: "", slug: "", description: "", image: "" },
+    defaultValues: { name: "", slug: "", description: "", image: "", icon: "" },
+  });
+
+  const [watchedName, watchedSlug] = useWatch({
+    control: methods.control,
+    name: ["name", "slug"],
   });
 
   const filtered = useMemo(() => {
@@ -68,17 +78,20 @@ export default function CategoriesList() {
 
   const openCreate = () => {
     setEditing(null);
-    methods.reset({ name: "", slug: "", description: "", image: "" });
+    iconTouched.current = false;
+    methods.reset({ name: "", slug: "", description: "", image: "", icon: "" });
     setDialogOpen(true);
   };
 
   const openEdit = (c) => {
     setEditing(c);
+    iconTouched.current = true;
     methods.reset({
       name: c.name || "",
       slug: c.slug || "",
       description: c.description || "",
       image: c.image || "",
+      icon: c.icon || "",
     });
     setDialogOpen(true);
   };
@@ -108,18 +121,7 @@ export default function CategoriesList() {
       header: "Tên danh mục",
       cell: ({ row }) => (
         <div className="flex items-center gap-3">
-          {row.original.image ? (
-            <img
-              src={row.original.image}
-              alt={row.original.name}
-              className="size-10 shrink-0 rounded-lg object-cover"
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
-            />
-          ) : (
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary">
-              <FolderTree className="size-4" />
-            </div>
-          )}
+          <CategoryIcon category={row.original} size="lg" />
           <span className="font-medium text-foreground">{row.original.name}</span>
         </div>
       ),
@@ -233,7 +235,7 @@ export default function CategoriesList() {
       />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editing ? "Chỉnh sửa danh mục" : "Thêm danh mục mới"}
@@ -252,6 +254,14 @@ export default function CategoriesList() {
                         methods.setValue("slug", generateSlug(e.target.value), {
                           shouldValidate: true,
                         });
+                        // Pre-select the icon the name suggests; "" (auto)
+                        // when nothing matches.
+                        if (!iconTouched.current) {
+                          methods.setValue(
+                            "icon",
+                            guessCategoryIcon(e.target.value)?.key || ""
+                          );
+                        }
                       }
                     }}
                   />
@@ -259,6 +269,23 @@ export default function CategoriesList() {
               </FormField>
               <FormField name="slug" label="Slug" required description="Dùng trong URL">
                 {(field) => <Input placeholder="van-hoc" {...field} />}
+              </FormField>
+              <FormField
+                name="icon"
+                label="Biểu tượng"
+                description="Hiện trong menu Danh mục trên website. Nếu có ảnh danh mục, ảnh được ưu tiên."
+              >
+                {(field) => (
+                  <CategoryIconPicker
+                    value={field.value}
+                    onChange={(key) => {
+                      iconTouched.current = true;
+                      field.onChange(key);
+                    }}
+                    name={watchedName}
+                    slug={watchedSlug}
+                  />
+                )}
               </FormField>
               <FormField name="image" label="Ảnh danh mục">
                 {(field) => (

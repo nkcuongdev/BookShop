@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  ArrowRight,
   BookOpen,
   ChevronDown,
   LayoutGrid,
@@ -53,6 +54,8 @@ import {
   AvatarImage,
 } from "@/components/ui/avatar";
 import BookCover from "@/components/book/BookCover";
+import BrandLogo from "@/components/common/BrandLogo";
+import CategoryIcon from "@/components/common/CategoryIcon";
 
 function SearchBox({ onSubmit, autoFocus = false, placeholder }) {
   const [query, setQuery] = useState("");
@@ -206,7 +209,7 @@ function SearchBox({ onSubmit, autoFocus = false, placeholder }) {
           aria-autocomplete="list"
           autoComplete="off"
           placeholder={placeholder || "Tìm sách, tác giả, thể loại..."}
-          className="w-full pl-11 pr-10 h-11 rounded-xl border border-border bg-muted focus:bg-card focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+          className="w-full pl-11 pr-10 h-11 rounded-lg border border-border bg-muted focus:bg-card focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
         />
         {query && (
           <button
@@ -299,38 +302,70 @@ function SearchBox({ onSubmit, autoFocus = false, placeholder }) {
   );
 }
 
-function CategoryMegaMenu({ categories }) {
-  if (!categories?.length) return null;
+function CategoryMegaMenu({ categories = [], loading = false }) {
+  const [open, setOpen] = useState(false);
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button className="hidden lg:inline-flex items-center gap-1.5 h-11 px-3 text-sm font-medium text-foreground hover:text-primary hover:bg-primary-50 rounded-xl transition-colors">
-          <LayoutGrid className="size-4" />
+        <button
+          type="button"
+          className="group hidden h-11 shrink-0 items-center gap-2 rounded-lg border border-primary-300 bg-card px-3.5 text-sm font-semibold text-foreground transition-colors duration-fast ease-out-soft hover:border-primary hover:text-primary data-[state=open]:border-primary data-[state=open]:text-primary lg:inline-flex"
+        >
+          <LayoutGrid className="size-4 text-primary" />
           Danh mục
-          <ChevronDown className="size-4" />
+          <ChevronDown className="size-4 transition-transform duration-base ease-out-soft group-data-[state=open]:rotate-180" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[560px] p-3">
-        <DropdownMenuLabel>Tất cả danh mục</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <div className="grid grid-cols-2 gap-1 p-1">
-          {categories.map((cat) => {
-            const slug = cat.slug || cat._id || cat.id;
-            return (
-              <DropdownMenuItem key={slug} asChild>
-                <Link
-                  to={`/products?category=${slug}`}
-                  className="flex items-center gap-3 rounded-lg"
-                >
-                  <div className="size-8 rounded-lg bg-primary-50 text-primary flex items-center justify-center shrink-0">
-                    <BookOpen className="size-4" />
-                  </div>
-                  <span className="truncate font-medium">{cat.name}</span>
-                </Link>
-              </DropdownMenuItem>
-            );
-          })}
+      <DropdownMenuContent
+        align="start"
+        sideOffset={10}
+        className="w-[min(600px,calc(100vw-2rem))] p-0"
+      >
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <DropdownMenuLabel className="p-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Danh mục sách
+          </DropdownMenuLabel>
+          <Link
+            to="/products"
+            onClick={() => setOpen(false)}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary-50"
+          >
+            Xem tất cả sách
+            <ArrowRight className="size-3.5" />
+          </Link>
         </div>
+        <DropdownMenuSeparator className="m-0" />
+        {categories.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+            {loading ? "Đang tải danh mục..." : "Chưa có danh mục nào"}
+          </p>
+        ) : (
+          <div className="grid max-h-[min(26rem,70vh)] grid-cols-2 gap-1 overflow-y-auto p-2">
+            {categories.map((cat) => {
+              const slug = cat.slug || cat._id || cat.id;
+              return (
+                <DropdownMenuItem key={slug} asChild>
+                  <Link
+                    to={`/products?category=${slug}`}
+                    className="flex items-center gap-3 rounded-lg px-2.5 py-2"
+                  >
+                    <CategoryIcon category={cat} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-foreground">
+                        {cat.name}
+                      </span>
+                      {cat.description && (
+                        <span className="block truncate text-xs font-normal text-muted-foreground">
+                          {cat.description}
+                        </span>
+                      )}
+                    </span>
+                  </Link>
+                </DropdownMenuItem>
+              );
+            })}
+          </div>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -543,7 +578,7 @@ function NotificationMenu({ user }) {
 export default function Header() {
   const { user, logout } = useAuth();
   const { items, totalItems, totalPrice } = useCart();
-  const { categories } = useCategories();
+  const { categories, loading: categoriesLoading } = useCategories();
   const navigate = useNavigate();
   const [cartOpen, setCartOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -579,11 +614,8 @@ export default function Header() {
             </SheetTrigger>
             <SheetContent side="left" className="w-80 p-0">
               <SheetHeader className="p-5 border-b border-border">
-                <SheetTitle className="flex items-center gap-2">
-                  <div className="size-9 bg-gradient-to-br from-primary-600 to-primary-800 rounded-xl flex items-center justify-center">
-                    <BookOpen className="size-4 text-white" />
-                  </div>
-                  BookShop
+                <SheetTitle>
+                  <BrandLogo className="h-6" />
                 </SheetTitle>
               </SheetHeader>
               <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-80px)]">
@@ -627,8 +659,9 @@ export default function Header() {
                           key={slug}
                           to={`/products?category=${slug}`}
                           onClick={() => setMenuOpen(false)}
-                          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-muted"
+                          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-foreground hover:bg-muted"
                         >
+                          <CategoryIcon category={cat} size="sm" />
                           {cat.name}
                         </Link>
                       );
@@ -640,17 +673,18 @@ export default function Header() {
           </Sheet>
 
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 group shrink-0">
-            <div className="size-10 bg-gradient-to-br from-primary-600 to-primary-800 rounded-xl flex items-center justify-center shadow-primary-glow group-hover:shadow-primary-glow-lg transition-all">
-              <BookOpen className="size-5 text-white" />
-            </div>
-            <span className="text-xl font-display font-bold text-foreground hidden sm:block">
-              BookShop
-            </span>
+          {/* Mark alone on phones, where the header row is full; the full
+              logo from sm up. */}
+          <Link
+            to="/"
+            className="mr-1 shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 lg:mr-4"
+          >
+            <BrandLogo variant="mark" className="size-10 sm:hidden" />
+            <BrandLogo className="hidden h-8 sm:block lg:h-9" />
           </Link>
 
-          {/* Category mega menu (desktop) */}
-          <CategoryMegaMenu categories={categories} />
+          {/* Category mega menu (desktop) — sits beside "Tin tức". */}
+          <CategoryMegaMenu categories={categories} loading={categoriesLoading} />
 
           {/* News link (desktop) */}
           <Link

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  BookOpen,
   Mail,
   Phone,
   MapPin,
@@ -12,6 +11,7 @@ import {
   Video,
 } from "lucide-react";
 import { useCategories } from "@/context/CategoryContext.jsx";
+import BrandLogo from "@/components/common/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
@@ -96,11 +96,8 @@ export default function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
-            <Link to="/" className="flex items-center gap-2 mb-4">
-              <div className="size-10 bg-gradient-to-br from-primary-600 to-primary-800 rounded-xl flex items-center justify-center shadow-primary-glow">
-                <BookOpen className="size-5 text-white" />
-              </div>
-              <span className="text-xl font-display font-bold">BookShop</span>
+            <Link to="/" className="mb-4 inline-block">
+              <BrandLogo tone="light" className="h-7" />
             </Link>
             <p className="text-sm text-white/60 mb-5 leading-relaxed">
               Thế giới sách phong phú, giá tốt, giao nhanh và dịch vụ tận tâm.

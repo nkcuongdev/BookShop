@@ -200,16 +200,24 @@ export default function BookCard({
           {book.author}
         </p>
 
-        {/* Rating */}
-        <div className="flex items-center gap-1 mt-2">
-          <Star className="size-4 fill-warning text-warning" />
-          <span className="text-xs font-semibold text-foreground">
-            {Number(book.rating || 0).toFixed(1)}
-          </span>
-          <span className="text-xs text-muted-foreground/70">
-            ({book.reviewCount || 0})
-          </span>
-        </div>
+        {/* Rating. A filled star beside "0.0" read as a poor score; with no
+            reviews there is no score, so say so. Same row height either way,
+            so cards in a row stay aligned. */}
+        {Number(book.reviewCount) > 0 ? (
+          <div className="flex items-center gap-1 mt-2 h-4">
+            <Star className="size-4 fill-warning text-warning" />
+            <span className="text-xs font-semibold text-foreground">
+              {Number(book.rating || 0).toFixed(1)}
+            </span>
+            <span className="text-xs text-muted-foreground/70">
+              ({book.reviewCount})
+            </span>
+          </div>
+        ) : (
+          <p className="mt-2 flex h-4 items-center text-xs text-muted-foreground/70">
+            Chưa có đánh giá
+          </p>
+        )}
 
         {/* Price */}
         <div className="mt-auto pt-2.5 flex items-end justify-between gap-2">

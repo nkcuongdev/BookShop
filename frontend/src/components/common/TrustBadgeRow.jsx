@@ -47,6 +47,38 @@ export default function TrustBadgeRow({
     );
   }
 
+  // One slim bar for the home page, between the banners and the first product
+  // row: titles only on small screens, the detail line from lg up.
+  if (variant === "strip") {
+    return (
+      <ul
+        className={cn(
+          "grid grid-cols-2 gap-y-1 rounded-lg bg-card px-2 py-2 shadow-rest ring-1 ring-foreground/[0.06] sm:grid-cols-4 sm:divide-x sm:divide-border sm:py-3",
+          className
+        )}
+      >
+        {items.map((item) => (
+          <li
+            key={item.title}
+            className="flex min-w-0 items-center gap-2.5 px-2 py-1 sm:justify-center sm:px-3 lg:gap-3"
+          >
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary-50 text-primary lg:size-10">
+              <item.icon className="size-4 lg:size-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-[13px] font-semibold leading-tight text-foreground lg:text-sm">
+                {item.title}
+              </span>
+              <span className="mt-0.5 hidden truncate text-xs text-muted-foreground lg:block">
+                {item.desc}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   return (
     <div
       className={cn(

@@ -11,6 +11,26 @@ const {
 
 const router = express.Router();
 
+const ICON_KEY = /^(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$/;
+
+/**
+ * Normalises the optional `icon` field. Returns undefined when it was not
+ * sent, the cleaned key otherwise, or null when it is not a valid key.
+ */
+function parseIcon(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return "";
+  if (typeof value !== "string") return null;
+  const key = value.trim().toLowerCase();
+  return key.length <= 40 && ICON_KEY.test(key) ? key : null;
+}
+
+const invalidIcon = (res) =>
+  res.status(400).json({
+    success: false,
+    message: "Biểu tượng danh mục không hợp lệ",
+  });
+
 // GET /api/categories - Get all categories (public)
 router.get("/", async (req, res) => {
   try {
@@ -35,6 +55,7 @@ router.get("/", async (req, res) => {
 router.post("/", auth, requirePermission("category.manage"), async (req, res) => {
   try {
     const { name, slug, description, image } = req.body;
+    const icon = parseIcon(req.body.icon);
 
     if (!name || !slug) {
       return res.status(400).json({
@@ -42,6 +63,7 @@ router.post("/", auth, requirePermission("category.manage"), async (req, res) =>
         message: "Tên và slug là bắt buộc",
       });
     }
+    if (icon === null) return invalidIcon(res);
 
     // Check unique slug
     const existing = await Category.findOne({ slug: slug.toLowerCase() });
@@ -64,6 +86,7 @@ router.post("/", auth, requirePermission("category.manage"), async (req, res) =>
             slug: slug.toLowerCase(),
             description,
             image,
+            icon: icon || "",
           }],
           { session }
         );
@@ -106,6 +129,8 @@ router.post("/", auth, requirePermission("category.manage"), async (req, res) =>
 router.put("/:id", auth, requirePermission("category.manage"), async (req, res) => {
   try {
     const { name, slug, description, image } = req.body;
+    const icon = parseIcon(req.body.icon);
+    if (icon === null) return invalidIcon(res);
     const existingCategory = await Category.findById(req.params.id);
     if (!existingCategory) {
       return res.status(404).json({
@@ -135,6 +160,7 @@ router.put("/:id", auth, requirePermission("category.manage"), async (req, res) 
     if (name !== undefined) update.name = String(name).trim();
     if (description !== undefined) update.description = description;
     if (image !== undefined) update.image = image;
+    if (icon !== undefined) update.icon = icon;
 
     const session = await mongoose.startSession();
     let category;

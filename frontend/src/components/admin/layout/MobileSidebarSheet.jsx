@@ -1,5 +1,5 @@
 import { NavLink, Link, useLocation } from "react-router-dom";
-import { BookOpen, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -7,6 +7,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import BrandLogo from "@/components/common/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { visibleNav, itemMatches } from "./navConfig";
 import { useAuth } from "@/context/AuthContext.jsx";
@@ -26,11 +27,11 @@ export function MobileSidebarSheet() {
       </SheetTrigger>
       <SheetContent side="left" className="w-72 p-0">
         <SheetHeader className="border-b border-border p-4">
-          <Link to="/" className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary-600 to-primary-800 text-white">
-              <BookOpen className="size-4" />
-            </div>
-            <SheetTitle>BookShop Admin</SheetTitle>
+          <Link to="/" className="flex items-end gap-2">
+            <BrandLogo className="h-6" />
+            <SheetTitle className="text-xs font-semibold text-muted-foreground">
+              Admin
+            </SheetTitle>
           </Link>
         </SheetHeader>
         <nav className="p-3">

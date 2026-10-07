@@ -1,7 +1,8 @@
 import { NavLink, Link, useLocation } from "react-router-dom";
-import { BookOpen, ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { visibleNav, itemMatches } from "./navConfig";
 import { useStockValuation } from "@/features/admin/inventory/hooks";
+import BrandLogo from "@/components/common/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext.jsx";
 import { can } from "@/lib/rbac";
@@ -26,15 +27,12 @@ export function AdminSidebar({ collapsed, onToggle }) {
     >
       <div className="flex h-16 items-center justify-between border-b border-border px-4">
         <Link to="/" className="flex items-center gap-2.5 min-w-0">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary-600 to-primary-800 text-white shadow-primary-glow">
-            <BookOpen className="size-4" />
-          </div>
-          {!collapsed && (
+          {collapsed ? (
+            <BrandLogo variant="mark" className="size-9 shrink-0" />
+          ) : (
             <div className="min-w-0">
-              <p className="truncate font-display text-sm font-bold text-foreground">
-                BookShop
-              </p>
-              <p className="truncate text-[11px] text-muted-foreground">
+              <BrandLogo className="h-6" />
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                 Admin Panel
               </p>
             </div>

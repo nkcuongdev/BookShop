@@ -101,16 +101,16 @@ export const BookCover = React.forwardRef(
     },
     ref
   ) => {
-    const [failed, setFailed] = React.useState(false);
-    const [loaded, setLoaded] = React.useState(false);
+    // Both flags remember WHICH src they describe, so swapping the book prop
+    // resets them without an effect. The old reset-in-effect ran after mount
+    // and could wipe an error that had already fired (a CSP-blocked or cached
+    // 404 errors almost immediately), leaving an invisible opacity-0 image
+    // instead of the fallback tile.
+    const [failedSrc, setFailedSrc] = React.useState(null);
+    const [loadedSrc, setLoadedSrc] = React.useState(null);
+    const failed = Boolean(src) && failedSrc === src;
+    const loaded = Boolean(src) && loadedSrc === src;
     const showFallback = !src || failed;
-
-    // Reset when the URL changes — otherwise a previously failed cover keeps
-    // showing the fallback after the book prop is swapped.
-    React.useEffect(() => {
-      setFailed(false);
-      setLoaded(false);
-    }, [src]);
 
     return (
       <div
@@ -136,8 +136,8 @@ export const BookCover = React.forwardRef(
             loading={priority ? "eager" : "lazy"}
             decoding="async"
             fetchpriority={priority ? "high" : undefined}
-            onLoad={() => setLoaded(true)}
-            onError={() => setFailed(true)}
+            onLoad={() => setLoadedSrc(src)}
+            onError={() => setFailedSrc(src)}
             className={cn(
               "h-full w-full object-cover transition-opacity duration-slow ease-out-soft",
               loaded ? "opacity-100" : "opacity-0",

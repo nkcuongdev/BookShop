@@ -1,18 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Flame, Sparkles } from "lucide-react";
+import { ArrowRight, Flame } from "lucide-react";
 import { booksAPI, categoriesAPI, eventsAPI } from "@/services/api";
 import { BookGridSkeleton } from "@/components/book/BookCardSkeleton";
 import RecommendationRail from "@/components/book/RecommendationRail";
-import HomeHero from "@/components/layout/HomeHero";
+import HomeBanners from "@/components/home/HomeBanners";
+import MemberStrip from "@/components/home/MemberStrip";
 import CategoryPills from "@/components/common/CategoryPills";
 import CountdownTimer from "@/components/common/CountdownTimer";
 import TrustBadgeRow from "@/components/common/TrustBadgeRow";
 import EmptyState from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import useRecentlyViewed from "@/hooks/useRecentlyViewed";
-import BookCover from "@/components/book/BookCover";
 import SectionHeader from "@/components/common/SectionHeader";
 import BookGrid from "@/components/book/BookGrid";
 
@@ -82,6 +81,12 @@ export default function Home() {
     flashSale: flashSaleBooks,
     booksByCategory,
   } = homeBooks;
+  const categorySections = categories
+    .map((category) => {
+      const slug = category.slug || category._id || category.id;
+      return { category, slug, books: booksByCategory[slug] || [] };
+    })
+    .filter((entry) => entry.books.length > 0);
   const hasBooks =
     bestSellers.length > 0 ||
     newArrivals.length > 0 ||
@@ -89,21 +94,19 @@ export default function Home() {
 
   return (
     <div>
-      {/* The hero's shelf is fixed artwork, so it takes no data and renders
-          complete on first paint — no placeholder, no shift when the API
-          answers. `homeBooks` still drives every real product section below. */}
-      <HomeHero />
+      {/* Banner cluster: image carousel + two fixed banners. Static artwork
+          configured in features/home/banners.js — no API data involved. */}
+      <HomeBanners />
 
-      {/* Trust strip. Was pulled up with -mt-6 to overlap the old hero's dark
-          gradient and hide the seam; the light hero has no seam to hide, so it
-          is a normal section now. */}
-      <section className="page-container section-tight">
-        <TrustBadgeRow />
+      {/* Service commitments as one slim bar, directly under the banners. */}
+      <section className="page-container pt-3 sm:pt-4">
+        <TrustBadgeRow variant="strip" />
       </section>
 
-      {/* Category pills */}
+      {/* Desktop reaches categories from the header's "Danh mục" menu; the
+          pills stay for touch screens, where that menu lives in the drawer. */}
       {categories.length > 0 && (
-        <section className="page-container section-tight">
+        <section className="page-container pt-4 lg:hidden">
           <CategoryPills categories={categories} />
         </section>
       )}
@@ -129,6 +132,50 @@ export default function Home() {
         </section>
       ) : (
         <>
+          {/* Two related rails share one section so they read as a pair.
+              Previously each carried its own py-8, producing 64px of dead space
+              between the two most closely related blocks on the page. First
+              after the banners, with a short top gap, so products show early. */}
+          <div className="page-container space-y-12 pb-12 pt-8 lg:pb-16 lg:pt-10">
+            <RecommendationRail
+              title="Sách bán chạy"
+              subtitle="Được hàng ngàn độc giả yêu thích"
+              books={bestSellers}
+              action={
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="hidden lg:inline-flex"
+                >
+                  <Link to="/products?sort=bestseller">
+                    Xem tất cả
+                    <ArrowRight className="size-4" />
+                  </Link>
+                </Button>
+              }
+            />
+
+            <RecommendationRail
+              title="Sách mới ra mắt"
+              subtitle="Những tựa sách mới nhất dành cho bạn"
+              books={newArrivals}
+              action={
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="hidden lg:inline-flex"
+                >
+                  <Link to="/products?sort=newest">
+                    Xem tất cả
+                    <ArrowRight className="size-4" />
+                  </Link>
+                </Button>
+              }
+            />
+          </div>
+
           {/* Flash Sale */}
           {flashSaleBooks.length > 0 && (
             <section className="section-base bg-gradient-to-br from-danger-muted via-brand-muted to-primary-50">
@@ -167,146 +214,53 @@ export default function Home() {
             </section>
           )}
 
-          {/* Two related rails share one section so they read as a pair.
-              Previously each carried its own py-8, producing 64px of dead space
-              between the two most closely related blocks on the page. */}
-          <div className="page-container section-base space-y-12">
-            <RecommendationRail
-              title="Bán chạy nhất"
-              subtitle="Được hàng ngàn độc giả yêu thích"
-              books={bestSellers}
-              action={
-                <Button
-                  asChild
-                  variant="ghost"
-                  size="sm"
-                  className="hidden lg:inline-flex"
-                >
-                  <Link to="/products?sort=bestseller">
-                    Xem tất cả
-                    <ArrowRight className="size-4" />
-                  </Link>
-                </Button>
-              }
-            />
-
-            <RecommendationRail
-              title="Mới ra mắt"
-              subtitle="Những tựa sách mới nhất dành cho bạn"
-              books={newArrivals}
-              action={
-                <Button
-                  asChild
-                  variant="ghost"
-                  size="sm"
-                  className="hidden lg:inline-flex"
-                >
-                  <Link to="/products?sort=newest">
-                    Xem tất cả
-                    <ArrowRight className="size-4" />
-                  </Link>
-                </Button>
-              }
-            />
-          </div>
-
-          {/* By Category */}
-          {categories.map((category) => {
-            const slug = category.slug || category._id || category.id;
-            const books = booksByCategory[slug] || [];
-            if (books.length === 0) return null;
-            return (
-              /* Previously alternated bg-card / bg-muted by index — but the page
-                 itself is bg-muted (MainLayout), so every other stripe was
-                 invisible and the pattern depended on how many categories had
-                 books. Now every category section is a card surface, separated
-                 by rhythm rather than a data-dependent stripe. */
-              <section key={slug} className="section-base bg-card">
-                <div className="page-container">
-                  <SectionHeader
-                    title={category.name}
-                    subtitle={`${books.length} sản phẩm`}
-                    size="lg"
-                    action={
-                      <Button asChild variant="ghost" size="sm">
-                        <Link to={`/products?category=${slug}`}>
-                          Xem tất cả
-                          <ArrowRight className="size-4" />
-                        </Link>
-                      </Button>
-                    }
-                  />
-                  <BookGrid books={books.slice(0, 5)} badgeFirst stagger />
-                </div>
-              </section>
-            );
-          })}
+          {/* By category. These sit on the page background like the rails
+              above instead of on full-width white slabs: four identical white
+              blocks read as one repeated pattern, and the last one left a grey
+              seam above the footer. The member strip after the second section
+              breaks the run. On phones each row swipes sideways, so five books
+              don't stack into three rows with an orphan. */}
+          {categorySections.length > 0 && (
+            <div className="page-container space-y-10 pb-4 lg:space-y-14 lg:pb-6">
+              {categorySections.map(({ category, slug, books }, index) => (
+                <Fragment key={slug}>
+                  <section>
+                    <SectionHeader
+                      title={category.name}
+                      size="lg"
+                      action={
+                        <Button asChild variant="ghost" size="sm">
+                          <Link to={`/products?category=${slug}`}>
+                            Xem tất cả
+                            <ArrowRight className="size-4" />
+                          </Link>
+                        </Button>
+                      }
+                    />
+                    <BookGrid
+                      books={books.slice(0, 5)}
+                      badgeFirst
+                      stagger
+                      mobileScroll
+                    />
+                  </section>
+                  {index === Math.min(1, categorySections.length - 1) && (
+                    <MemberStrip />
+                  )}
+                </Fragment>
+              ))}
+            </div>
+          )}
 
           {/* Recently viewed */}
           {recentlyViewed.length > 0 && (
-            /* bg-card was on the max-w element itself, producing a 1280px slab
-               with hard edges unlike every other full-bleed section. */
-            <section className="section-base bg-card">
-              <div className="page-container">
-                <RecommendationRail
-                  title="Đã xem gần đây"
-                  subtitle="Tiếp tục khám phá những cuốn sách bạn đã quan tâm"
-                  books={recentlyViewed}
-                />
-              </div>
-            </section>
-          )}
-
-          {/* Categories overview */}
-          {categories.length > 0 && (
-            <section className="section-loose border-t border-border bg-card">
-              <div className="page-container">
-                <div className="text-center mb-8">
-                  <Badge variant="secondary" className="mb-3">
-                    <Sparkles className="size-3" />
-                    Khám phá theo thể loại
-                  </Badge>
-                  <h2 className="text-h3 lg:text-h2 font-display font-bold text-foreground">
-                    Tất cả danh mục
-                  </h2>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                  {categories.map((cat) => {
-                    const slug = cat.slug || cat._id || cat.id;
-                    const catBooks = booksByCategory[slug] || [];
-                    return (
-                      <Link
-                        key={slug}
-                        to={`/products?category=${slug}`}
-                        className="group relative overflow-hidden rounded-2xl aspect-[4/5]"
-                      >
-                        {/* Was falling back to a hardcoded Unsplash URL — a
-                            third-party request that renders broken if it fails.
-                            BookCover degrades to a tinted initial instead. */}
-                        <BookCover
-                          src={cat.image || catBooks[0]?.imageUrl}
-                          title={cat.name}
-                          size="full"
-                          ratio="free"
-                          zoomOnHover
-                          className="h-full w-full rounded-none"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                        <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/30 transition-colors duration-300" />
-                        <div className="absolute bottom-0 left-0 right-0 p-4">
-                          <h3 className="text-white font-semibold text-sm lg:text-base line-clamp-1">
-                            {cat.name}
-                          </h3>
-                          <p className="text-white/70 text-xs mt-0.5">
-                            {catBooks.length} sách
-                          </p>
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
+            <div className="page-container pb-12 lg:pb-16">
+              <RecommendationRail
+                title="Đã xem gần đây"
+                subtitle="Tiếp tục khám phá những cuốn sách bạn đã quan tâm"
+                books={recentlyViewed}
+              />
+            </div>
           )}
         </>
       )}
