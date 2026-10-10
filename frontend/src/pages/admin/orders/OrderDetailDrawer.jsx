@@ -88,16 +88,22 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
   const returnRequestAction = useReturnRequestAction();
   const confirm = useConfirm();
   const { user } = useAuth();
+  // Sau khi huỷ vận đơn GHN, mã cũ đã chết: không điền sẵn vào form bàn giao
+  // thủ công để tránh bàn giao bằng mã vận đơn không còn hiệu lực.
+  const deadGhnTracking = Boolean(order?.shipment?.cancelledAt);
   const shippingVersion = [
     order?._id || order?.id || "",
     order?.carrier || "",
     order?.trackingNumber || "",
     order?.estimatedDelivery || "",
+    deadGhnTracking ? "cancelled" : "",
   ].join("|");
   const defaultShippingForm = {
-    carrier: order?.carrier || "",
-    trackingNumber: order?.trackingNumber || "",
-    estimatedDelivery: order?.estimatedDelivery?.slice?.(0, 10) || "",
+    carrier: deadGhnTracking ? "" : order?.carrier || "",
+    trackingNumber: deadGhnTracking ? "" : order?.trackingNumber || "",
+    estimatedDelivery: deadGhnTracking
+      ? ""
+      : order?.estimatedDelivery?.slice?.(0, 10) || "",
   };
   const [shippingDraft, setShippingDraft] = useState({
     version: "",

@@ -855,19 +855,37 @@ async function cancelGhnShipmentAtProvider(order) {
 }
 
 async function cancelGhnShipment(order) {
-  const changed = await cancelGhnShipmentAtProvider(order);
-  if (!changed) return order;
-  order.shipment.providerStatus = "cancel";
-  order.shipment.cancelledAt = new Date();
-  order.shipment.simulation.enabled = false;
-  order.shipment.simulation.nextAt = null;
-  order.trackingEvents.push({
+  // Stop the sandbox simulation before calling GHN, so it cannot hand the
+  // parcel to the carrier (SHIPPED) while the cancellation is in flight.
+  const current = await Order.findOneAndUpdate(
+    { _id: order._id, status: Order.STATUS.PROCESSING, "shipment.cancelledAt": null },
+    {
+      $set: {
+        "shipment.simulation.enabled": false,
+        "shipment.simulation.nextAt": null,
+      },
+    },
+    { returnDocument: "after" }
+  );
+  if (!current) {
+    throw shippingError(
+      "Chỉ có thể hủy vận đơn trước khi GHN nhận hàng",
+      "SHIPMENT_NOT_CANCELLABLE",
+      409
+    );
+  }
+  const changed = await cancelGhnShipmentAtProvider(current);
+  if (!changed) return current;
+  current.shipment.providerStatus = "cancel";
+  current.shipment.cancelledAt = new Date();
+  current.trackingEvents.push({
     status: "CANCELLED",
     description: "Đã hủy vận đơn GHN Sandbox",
     at: new Date(),
   });
-  await order.save();
-  return order;
+  current.$where = { status: Order.STATUS.PROCESSING };
+  await current.save();
+  return current;
 }
 
 function webhookEventKey(payload) {

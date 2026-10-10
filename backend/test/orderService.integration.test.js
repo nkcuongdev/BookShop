@@ -458,6 +458,69 @@ test("a shipment created while the order is being cancelled is cancelled at GHN"
   assert.equal((await Book.findById(book._id)).stock, 10);
 });
 
+test("cancelling a GHN shipment pauses the sandbox simulation first", async () => {
+  const book = await createBook({ weight: 400 });
+  const { order } = await orderService.createOrder(
+    orderInput(book, { idempotencyKey: "ghn-cancel-vs-simulation" })
+  );
+  await orderService.adminApproveOrder(order._id, new mongoose.Types.ObjectId());
+  await Order.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        carrier: "GHN Sandbox",
+        trackingNumber: "GHN-SIM-CANCEL",
+        "shipment.provider": "ghn",
+        "shipment.environment": "sandbox",
+        "shipment.providerOrderCode": "GHN-SIM-CANCEL",
+        "shipment.providerStatus": "ready_to_pick",
+        "shipment.simulation.enabled": true,
+        "shipment.simulation.step": 0,
+        "shipment.simulation.nextAt": new Date(0),
+      },
+    }
+  );
+
+  const originalFetch = global.fetch;
+  const originalGhn = { ...config.shipping.ghn };
+  Object.assign(config.shipping.ghn, { enabled: true, token: "ghn-test-token", shopId: 12345 });
+  let simulationDuringCancel;
+  global.fetch = async (url, options) => {
+    assert.ok(new URL(url).pathname.endsWith("/switch-status/cancel"));
+    // The simulation worker fires while GHN is processing the cancel.
+    simulationDuringCancel = await shippingService.advanceSandboxSimulation(order._id);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 200,
+        data: [{ order_code: JSON.parse(options.body).order_codes[0], result: true }],
+      }),
+    };
+  };
+  let cancelled;
+  try {
+    cancelled = await shippingService.cancelGhnShipment(await Order.findById(order._id));
+  } finally {
+    global.fetch = originalFetch;
+    Object.assign(config.shipping.ghn, originalGhn);
+  }
+
+  assert.equal(simulationDuringCancel.advanced, false);
+  assert.equal(cancelled.status, Order.STATUS.PROCESSING);
+  const stored = await Order.findById(order._id);
+  assert.equal(stored.status, Order.STATUS.PROCESSING);
+  assert.ok(stored.shipment.cancelledAt);
+  assert.equal(stored.shipment.providerStatus, "cancel");
+  assert.equal(stored.shipment.simulation.enabled, false);
+  assert.equal(stored.shipment.simulation.step, 0);
+
+  await assert.rejects(
+    shippingService.cancelGhnShipment(stored),
+    (error) => error.code === "SHIPMENT_NOT_CANCELLABLE"
+  );
+});
+
 test("online payment creation runs only after the order transaction commits", async () => {
   const book = await createBook();
   const originalCreatePaymentUrl = paymentGateway.createPaymentUrl;

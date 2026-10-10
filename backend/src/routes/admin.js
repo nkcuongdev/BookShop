@@ -588,11 +588,11 @@ router.delete("/orders/:id/shipment", requirePermission("order.fulfill"), async 
         message: "Chỉ có thể hủy vận đơn trước khi GHN nhận hàng",
       });
     }
-    await shippingService.cancelGhnShipment(order);
+    const updated = await shippingService.cancelGhnShipment(order);
     return res.json({
       success: true,
       message: "Đã hủy vận đơn GHN Sandbox",
-      data: { order: { ...order.toObject(), id: order._id } },
+      data: { order: { ...updated.toObject(), id: updated._id } },
     });
   } catch (error) {
     return res.status(error.statusCode || 400).json({
