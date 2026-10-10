@@ -72,8 +72,9 @@ export function useOrderAction() {
 export function useReturnRequestAction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, status, adminNote, restock, refundTransactionId }) =>
+    mutationFn: ({ id, returnRequestId, status, adminNote, restock, refundTransactionId }) =>
       adminAPI.resolveReturnRequest(id, {
+        returnRequestId,
         status,
         adminNote,
         restock,

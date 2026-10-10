@@ -343,7 +343,7 @@ async function createReturnRequest({
   }
 }
 
-async function resolveReturnRequest({ orderId, adminId, status, adminNote }) {
+async function resolveReturnRequest({ orderId, adminId, status, adminNote, returnRequestId = null }) {
   const normalizedStatus = String(status || "").trim().toUpperCase();
   const note = String(adminNote || "").trim();
   if (![ReturnRequest.STATUS.APPROVED, ReturnRequest.STATUS.REJECTED].includes(normalizedStatus)) {
@@ -366,6 +366,7 @@ async function resolveReturnRequest({ orderId, adminId, status, adminNote }) {
 
   const existing = await ReturnRequest.findOne({
     order: orderId,
+    ...(returnRequestId ? { _id: returnRequestId } : {}),
     status: ReturnRequest.STATUS.PENDING,
   }).sort({ createdAt: -1, _id: -1 }).populate(
     "order",
@@ -438,10 +439,11 @@ function calculateRefundAmount(order, items) {
   return Math.max(0, Math.round(returnedGross - allocatedDiscount));
 }
 
-async function receiveReturnRequest({ orderId, adminId, restock = true }) {
+async function receiveReturnRequest({ orderId, adminId, restock = true, returnRequestId = null }) {
   const result = await runInTransaction(async (session) => {
     const request = await ReturnRequest.findOne({
       order: orderId,
+      ...(returnRequestId ? { _id: returnRequestId } : {}),
       status: { $in: [ReturnRequest.STATUS.RETURNING, ReturnRequest.STATUS.APPROVED] },
     })
       .sort({ createdAt: -1, _id: -1 })
@@ -781,7 +783,7 @@ async function executeReturnRefund(requestId) {
   };
 }
 
-async function closeManualReturn({ orderId, transactionId }) {
+async function closeManualReturn({ orderId, transactionId, returnRequestId = null }) {
   const reference = String(transactionId || "").trim();
   if (reference.length < 3 || reference.length > 250) {
     throw serviceError(422, "Vui lÃ²ng nháº­p mÃ£ giao dá»‹ch hoÃ n tiá»n", "REFUND_REFERENCE_REQUIRED");
@@ -791,6 +793,7 @@ async function closeManualReturn({ orderId, transactionId }) {
     const closed = await ReturnRequest.findOneAndUpdate(
       {
         order: orderId,
+        ...(returnRequestId ? { _id: returnRequestId } : {}),
         status: ReturnRequest.STATUS.RECEIVED,
         "refund.status": ReturnRequest.REFUND_STATUS.MANUAL_REQUIRED,
       },
@@ -826,16 +829,30 @@ async function closeManualReturn({ orderId, transactionId }) {
   return request;
 }
 
-async function advanceReturnRequest({ orderId, adminId, status, adminNote, restock, refundTransactionId }) {
+// `returnRequestId` pins the action to the request the agent is looking at. An
+// order can carry several requests, and without it each step picks the newest
+// one in the expected state, which may be a different request.
+async function advanceReturnRequest({
+  orderId,
+  adminId,
+  status,
+  adminNote,
+  restock,
+  refundTransactionId,
+  returnRequestId = null,
+}) {
+  if (returnRequestId && !mongoose.isValidObjectId(returnRequestId)) {
+    throw serviceError(422, "Mã yêu cầu đổi trả không hợp lệ", "INVALID_RETURN_REQUEST_ID");
+  }
   const normalizedStatus = String(status || "").trim().toUpperCase();
   if ([ReturnRequest.STATUS.APPROVED, ReturnRequest.STATUS.REJECTED].includes(normalizedStatus)) {
-    return resolveReturnRequest({ orderId, adminId, status: normalizedStatus, adminNote });
+    return resolveReturnRequest({ orderId, adminId, status: normalizedStatus, adminNote, returnRequestId });
   }
   if (normalizedStatus === ReturnRequest.STATUS.RECEIVED) {
-    return receiveReturnRequest({ orderId, adminId, restock: restock !== false });
+    return receiveReturnRequest({ orderId, adminId, restock: restock !== false, returnRequestId });
   }
   if (normalizedStatus === ReturnRequest.STATUS.CLOSED) {
-    return closeManualReturn({ orderId, transactionId: refundTransactionId });
+    return closeManualReturn({ orderId, transactionId: refundTransactionId, returnRequestId });
   }
   throw serviceError(422, "Tráº¡ng thÃ¡i xá»­ lÃ½ khÃ´ng há»£p lá»‡", "INVALID_RETURN_STATUS");
 }

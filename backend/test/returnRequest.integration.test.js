@@ -963,3 +963,49 @@ test("closing a return and settling its refund headroom commit together", async 
   assert.equal(stored.supportCompensation.reservedRefundAmount, 0);
   assert.equal(stored.supportCompensation.refundedAmount, 90_000);
 });
+
+test("admin actions target the return request they were sent for", async () => {
+  const [customer, admin] = await User.create([
+    { name: "Two Requests", email: "two-requests@example.com", password: "secure-password" },
+    { name: "Two Admin", email: "two-requests-admin@example.com", password: "secure-password", role: "admin" },
+  ]);
+  const order = await Order.create(orderPayload(customer._id));
+  const line = (index) => ({
+    book: order.items[index].book,
+    title: order.items[index].title,
+    unitPrice: order.items[index].price,
+    orderedQuantity: order.items[index].quantity,
+    quantity: 1,
+  });
+  const older = await ReturnRequest.create({
+    order: order._id,
+    user: customer._id,
+    items: [line(0)],
+    reason: "DAMAGED",
+    details: "Sách bị rách nhiều trang khi mở kiện hàng.",
+    createdAt: new Date(Date.now() - 60_000),
+  });
+  const newer = await ReturnRequest.create({
+    order: order._id,
+    user: customer._id,
+    items: [line(1)],
+    reason: "DAMAGED",
+    details: "Bìa sách bị móp khi nhận hàng từ shipper.",
+  });
+  const { agent, csrf } = await sessionFor(admin);
+
+  const invalid = await agent
+    .patch(`/api/admin/orders/${order._id}/return-request`)
+    .set("x-csrf-token", csrf)
+    .send({ status: "APPROVED", returnRequestId: "not-an-id" });
+  assert.equal(invalid.status, 422, JSON.stringify(invalid.body));
+
+  const approved = await agent
+    .patch(`/api/admin/orders/${order._id}/return-request`)
+    .set("x-csrf-token", csrf)
+    .send({ status: "APPROVED", returnRequestId: String(older._id), adminNote: "Gửi về kho." });
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+
+  assert.equal((await ReturnRequest.findById(older._id)).status, "RETURNING");
+  assert.equal((await ReturnRequest.findById(newer._id)).status, "PENDING");
+});

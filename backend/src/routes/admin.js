@@ -1,4 +1,5 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const Order = require("../models/Order");
 const Book = require("../models/Book");
 const User = require("../models/User");
@@ -355,7 +356,13 @@ router.get("/orders/:id", requirePermission("order.read"), async (req, res) => {
 // PATCH /api/admin/orders/:id/return-request - Approve or reject a pending request.
 router.patch("/orders/:id([0-9a-fA-F]{24})/return-request", requirePermission("order.support"), async (req, res) => {
   try {
-    const previous = await ReturnRequest.findOne({ order: req.params.id })
+    const returnRequestId = req.body?.returnRequestId || null;
+    const previous = await ReturnRequest.findOne({
+      order: req.params.id,
+      ...(returnRequestId && mongoose.isValidObjectId(returnRequestId)
+        ? { _id: returnRequestId }
+        : {}),
+    })
       .select("status refund.amount")
       .sort({ createdAt: -1 })
       .lean();
@@ -366,6 +373,7 @@ router.patch("/orders/:id([0-9a-fA-F]{24})/return-request", requirePermission("o
       adminNote: req.body?.adminNote,
       restock: req.body?.restock,
       refundTransactionId: req.body?.refundTransactionId,
+      returnRequestId,
     });
     const notificationByStatus = {
       [ReturnRequest.STATUS.RETURNING]: [

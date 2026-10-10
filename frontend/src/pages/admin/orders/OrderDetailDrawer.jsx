@@ -246,17 +246,30 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
             <StatusTimeline order={order} current={normalizedStatus} />
           </div>
 
-          {order.returnRequest && (
+          {/* Một đơn có thể có nhiều hồ sơ đổi trả: hiện tất cả và gửi kèm id hồ sơ
+              để thao tác đúng hồ sơ đang xem. */}
+          {(order.returnRequests?.length
+            ? order.returnRequests
+            : order.returnRequest
+              ? [order.returnRequest]
+              : []
+          ).map((request) => (
             <AdminReturnRequestCard
-              key={order.returnRequest._id || order.returnRequest.id}
-              request={order.returnRequest}
+              key={request._id || request.id}
+              request={request}
               readOnly={!can(user, "order.support")}
               resolving={returnRequestAction.isPending}
               onResolve={(status, adminNote, options = {}) =>
-                returnRequestAction.mutate({ id, status, adminNote, ...options })
+                returnRequestAction.mutate({
+                  id,
+                  returnRequestId: request._id || request.id,
+                  status,
+                  adminNote,
+                  ...options,
+                })
               }
             />
-          )}
+          ))}
 
           {(order.carrier || order.trackingNumber || order.estimatedDelivery) && (
               <div className="rounded-xl border border-border p-4">
