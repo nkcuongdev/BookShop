@@ -9,6 +9,7 @@ const { auth, requirePermission } = require("../middleware/auth");
 const roleRegistry = require("../services/roleRegistry");
 const { syncManagedAssets } = require("../services/assetLifecycleService");
 const notificationService = require("../services/notificationService");
+const auditLogService = require("../services/auditLogService");
 const shippingService = require("../services/shippingService");
 const {
   getReturnEligibility,
@@ -541,9 +542,27 @@ adminRouter.get("/:id/messages", async (req, res, next) => {
   }
 });
 
-async function resolutionResponse(req, res, result, message) {
+async function resolutionResponse(req, res, result, message, auditAction) {
   const ticket = await ticketDetailPopulate(SupportTicket.findById(req.params.id));
   emitTicket(req, "support:ticket", ticket);
+  // Resolutions move money and stock, so who chose which outcome is logged.
+  await auditLogService.record({
+    action: auditAction,
+    actor: req.user,
+    req,
+    targetType: "SupportTicket",
+    targetId: ticket._id,
+    targetLabel: ticket.ticketCode || String(ticket._id),
+    reason: [
+      ticket.resolution?.type,
+      ticket.resolution?.status,
+      ticket.resolution?.amount ? `${ticket.resolution.amount}đ` : "",
+      req.body?.transactionId ? `mã ${req.body.transactionId}` : "",
+      ticket.resolution?.note,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  });
   await notificationService.notifyUser(
     ticket.user?._id || ticket.user,
     {
@@ -570,7 +589,13 @@ adminRouter.post("/:id/resolution", requirePermission("ticket.resolve"), async (
       adminId: req.user._id,
       payload: req.body,
     });
-    return await resolutionResponse(req, res, result, "BookShop đã cập nhật phương án xử lý cho đơn hàng của bạn.");
+    return await resolutionResponse(
+      req,
+      res,
+      result,
+      "BookShop đã cập nhật phương án xử lý cho đơn hàng của bạn.",
+      auditLogService.ACTIONS.SUPPORT_RESOLUTION
+    );
   } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json({ success: false, message: error.message, code: error.code });
@@ -586,7 +611,13 @@ adminRouter.patch("/:id/resolution/refund", requirePermission("ticket.resolve"),
       adminId: req.user._id,
       transactionId: req.body?.transactionId,
     });
-    return await resolutionResponse(req, res, result, "Khoản hoàn tiền đã được ghi nhận hoàn tất.");
+    return await resolutionResponse(
+      req,
+      res,
+      result,
+      "Khoản hoàn tiền đã được ghi nhận hoàn tất.",
+      auditLogService.ACTIONS.SUPPORT_REFUND_CONFIRM
+    );
   } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json({ success: false, message: error.message, code: error.code });
@@ -602,7 +633,13 @@ adminRouter.patch("/:id/resolution/reship", requirePermission("ticket.resolve"),
       adminId: req.user._id,
       payload: req.body,
     });
-    return await resolutionResponse(req, res, result, "Phiếu giao bù/giao lại đã được cập nhật.");
+    return await resolutionResponse(
+      req,
+      res,
+      result,
+      "Phiếu giao bù/giao lại đã được cập nhật.",
+      auditLogService.ACTIONS.SUPPORT_RESOLUTION
+    );
   } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json({ success: false, message: error.message, code: error.code });

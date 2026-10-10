@@ -20,6 +20,11 @@ const ACTION_LABELS = Object.freeze({
   [ACTIONS.LOYALTY_POINTS_ADJUST]: "Điều chỉnh điểm thưởng",
   [ACTIONS.LOYALTY_PROGRAM_UPDATE]: "Sửa chương trình điểm thưởng",
   [ACTIONS.LOYALTY_GIFT_UPDATE]: "Sửa quà đổi điểm",
+  [ACTIONS.SUPPORT_RESOLUTION]: "Xử lý ticket hỗ trợ",
+  [ACTIONS.SUPPORT_REFUND_CONFIRM]: "Xác nhận hoàn tiền thủ công (ticket)",
+  [ACTIONS.SHIPMENT_CREATE]: "Tạo vận đơn",
+  [ACTIONS.SHIPMENT_CANCEL]: "Huỷ vận đơn",
+  [ACTIONS.SHIPMENT_SIMULATION]: "Điều khiển mô phỏng vận chuyển",
 });
 
 const CATEGORY_LABELS = Object.freeze({

@@ -61,6 +61,18 @@ async function recordOrderStatusChange(req, order, previousStatus, reason = "") 
   });
 }
 
+async function recordShipmentAction(req, order, action, reason) {
+  await auditLogService.record({
+    action,
+    actor: req.user,
+    req,
+    targetType: "Order",
+    targetId: order._id,
+    targetLabel: order.orderCode || String(order._id),
+    reason,
+  });
+}
+
 /** The status an order is currently in, for the before-half of the entry. */
 async function currentOrderStatus(orderId) {
   const order = await Order.findById(orderId).select("status").lean();
@@ -515,6 +527,12 @@ router.post("/orders/:id/shipment", requirePermission("order.fulfill"), async (r
       req.params.id
     );
     if (!replayed) {
+      await recordShipmentAction(
+        req,
+        order,
+        auditLogService.ACTIONS.SHIPMENT_CREATE,
+        `GHN ${order.trackingNumber}`
+      );
       await notificationService.notifyUser(
         order.user,
         {
@@ -551,6 +569,12 @@ router.post("/orders/:id/shipment/simulation", requirePermission("order.fulfill"
     const result = await shippingService.controlSandboxSimulation(
       req.params.id,
       req.body?.action
+    );
+    await recordShipmentAction(
+      req,
+      result.order,
+      auditLogService.ACTIONS.SHIPMENT_SIMULATION,
+      `${result.action || "advance"}${result.status ? ` → ${result.status}` : ""}`
     );
     return res.json({
       success: true,
@@ -597,6 +621,12 @@ router.delete("/orders/:id/shipment", requirePermission("order.fulfill"), async 
       });
     }
     const updated = await shippingService.cancelGhnShipment(order);
+    await recordShipmentAction(
+      req,
+      updated,
+      auditLogService.ACTIONS.SHIPMENT_CANCEL,
+      `GHN ${updated.shipment?.providerOrderCode || updated.trackingNumber || ""}`
+    );
     return res.json({
       success: true,
       message: "Đã hủy vận đơn GHN Sandbox",

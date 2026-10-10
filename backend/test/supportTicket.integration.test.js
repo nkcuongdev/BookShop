@@ -549,3 +549,36 @@ test("the same COD refund cannot be confirmed twice concurrently", async () => {
   assert.equal(stored.supportCompensation.refundedAmount, 120000);
   assert.equal(stored.supportCompensation.reservedRefundAmount, 120000, "the other ticket keeps its reservation");
 });
+
+test("support resolutions and manual refund confirmations are audited", async () => {
+  const AuditLog = require("../src/models/AuditLog");
+  const customer = await User.create({ name: "M11 Customer", email: "m11-customer@example.com", password: "secure-password" });
+  const admin = await User.create({ name: "M11 Admin", email: "m11-admin@example.com", password: "secure-password", role: "admin" });
+  const book = await Book.create({ title: "M11 Book", author: "Author", category: "fiction", price: 120000, stock: 5 });
+  const order = await createDeliveredOrder(customer, book);
+  const customerSession = await sessionFor(customer);
+  const adminSession = await sessionFor(admin);
+  const ticket = await createTicketThroughApi(customerSession, order, "ITEM_FAULT", { itemIssue: "DAMAGED" });
+
+  const created = await adminSession.agent
+    .post(`/api/admin/support-tickets/${ticket._id}/resolution`)
+    .set("x-csrf-token", adminSession.csrf)
+    .send({ type: "PARTIAL_REFUND", items: [{ bookId: String(book._id), quantity: 1 }] });
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  const confirmed = await adminSession.agent
+    .patch(`/api/admin/support-tickets/${ticket._id}/resolution/refund`)
+    .set("x-csrf-token", adminSession.csrf)
+    .send({ transactionId: "BANK-AUDIT-001" });
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+
+  const entries = await AuditLog.find({ targetType: "SupportTicket", targetId: ticket._id })
+    .sort({ createdAt: 1 })
+    .lean();
+  assert.deepEqual(
+    entries.map((entry) => entry.action),
+    ["SUPPORT_RESOLUTION", "SUPPORT_REFUND_CONFIRM"]
+  );
+  assert.equal(String(entries[0].actor), String(admin._id));
+  assert.match(entries[0].reason, /PARTIAL_REFUND/);
+  assert.match(entries[1].reason, /BANK-AUDIT-001/);
+});

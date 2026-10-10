@@ -25,6 +25,13 @@ const ACTIONS = Object.freeze({
   LOYALTY_POINTS_ADJUST: "LOYALTY_POINTS_ADJUST",
   LOYALTY_PROGRAM_UPDATE: "LOYALTY_PROGRAM_UPDATE",
   LOYALTY_GIFT_UPDATE: "LOYALTY_GIFT_UPDATE",
+  // Support resolutions can refund money, release or ship stock and approve or
+  // cancel orders; shipment operations create or cancel real carrier parcels.
+  SUPPORT_RESOLUTION: "SUPPORT_RESOLUTION",
+  SUPPORT_REFUND_CONFIRM: "SUPPORT_REFUND_CONFIRM",
+  SHIPMENT_CREATE: "SHIPMENT_CREATE",
+  SHIPMENT_CANCEL: "SHIPMENT_CANCEL",
+  SHIPMENT_SIMULATION: "SHIPMENT_SIMULATION",
 });
 
 // Which business area each action belongs to. Drives the filter chips in the
@@ -49,6 +56,11 @@ const ACTION_CATEGORY = Object.freeze({
   [ACTIONS.LOYALTY_POINTS_ADJUST]: CATEGORIES.LOYALTY,
   [ACTIONS.LOYALTY_PROGRAM_UPDATE]: CATEGORIES.LOYALTY,
   [ACTIONS.LOYALTY_GIFT_UPDATE]: CATEGORIES.LOYALTY,
+  [ACTIONS.SUPPORT_RESOLUTION]: CATEGORIES.ORDER,
+  [ACTIONS.SUPPORT_REFUND_CONFIRM]: CATEGORIES.REFUND,
+  [ACTIONS.SHIPMENT_CREATE]: CATEGORIES.ORDER,
+  [ACTIONS.SHIPMENT_CANCEL]: CATEGORIES.ORDER,
+  [ACTIONS.SHIPMENT_SIMULATION]: CATEGORIES.ORDER,
 });
 
 const TARGET_TYPES = [
@@ -58,6 +70,7 @@ const TARGET_TYPES = [
   "ReturnRequest",
   "LoyaltyProgram",
   "LoyaltyGift",
+  "SupportTicket",
 ];
 
 // One before/after pair. Values are stringified at write time: the log has to
