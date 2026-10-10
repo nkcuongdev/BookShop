@@ -118,6 +118,55 @@ test("admin order report filters by Vietnam order date and payment fields", asyn
   assert.equal(response.body.data.statusCounts.all, 1);
 });
 
+function createReturnRequest(order, status) {
+  return ReturnRequest.create({
+    order: order._id,
+    user: order.user,
+    items: [
+      {
+        book: order.items[0].book,
+        title: order.items[0].title,
+        unitPrice: order.items[0].price,
+        orderedQuantity: 1,
+        quantity: 1,
+      },
+    ],
+    reason: "DAMAGED",
+    details: "Sách bị rách bìa khi nhận hàng",
+    status,
+  });
+}
+
+test("approved return filter also finds requests approved into RETURNING", async () => {
+  const { agent } = await adminSession();
+  const customer = await User.create({
+    name: "Return Customer",
+    email: "return-customer@example.com",
+    password: "secure-password",
+  });
+  const delivered = { status: Order.STATUS.DELIVERED };
+  const legacy = await createOrder(customer._id, { ...delivered, customerName: "Legacy" });
+  const current = await createOrder(customer._id, { ...delivered, customerName: "Current" });
+  const received = await createOrder(customer._id, { ...delivered, customerName: "Received" });
+  await createReturnRequest(legacy, ReturnRequest.STATUS.APPROVED);
+  await createReturnRequest(current, ReturnRequest.STATUS.RETURNING);
+  await createReturnRequest(received, ReturnRequest.STATUS.RECEIVED);
+
+  const approved = await agent.get("/api/admin/orders?returnStatus=APPROVED");
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  assert.deepEqual(
+    approved.body.data.orders.map((order) => String(order._id)).sort(),
+    [String(legacy._id), String(current._id)].sort()
+  );
+
+  const receivedOnly = await agent.get("/api/admin/orders?returnStatus=RECEIVED");
+  assert.equal(receivedOnly.status, 200, JSON.stringify(receivedOnly.body));
+  assert.deepEqual(
+    receivedOnly.body.data.orders.map((order) => String(order._id)),
+    [String(received._id)]
+  );
+});
+
 test("CSV export streams every matching order and protects spreadsheet cells", async () => {
   const { agent } = await adminSession();
   const customer = await User.create({

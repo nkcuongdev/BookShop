@@ -134,7 +134,9 @@ export default function OrderActions({ order, onChanged }) {
         description={
           status === "PENDING"
             ? "Đơn hàng sẽ được huỷ và trả lại tồn kho ngay."
-            : "Đơn đã thanh toán sẽ chuyển sang trạng thái hoàn tiền. Thời gian hoàn có thể mất 3-7 ngày làm việc."
+            : order.payment?.status === "PAID"
+              ? "Đơn đã thanh toán sẽ chuyển sang trạng thái hoàn tiền. Thời gian hoàn có thể mất 3-7 ngày làm việc."
+              : "Đơn sẽ được huỷ sau khi cửa hàng huỷ vận đơn (nếu đã tạo). Đơn chưa thanh toán nên không phát sinh hoàn tiền."
         }
       />
     </>

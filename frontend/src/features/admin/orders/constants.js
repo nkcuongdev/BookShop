@@ -1,13 +1,18 @@
 // Đồng bộ với enum ORDER_STATUS ở backend/src/models/Order.js
+// Mỗi tab là một trạng thái vòng đời đơn (Order.status), không phải trạng thái
+// thanh toán. `tabLabel` (nếu có) chỉ dùng cho tab để nói rõ công việc của hàng
+// đợi; nơi khác (timeline) vẫn dùng `label`.
 export const ORDER_STATUSES = [
   { value: "PENDING", label: "Chờ xử lý" },
-  { value: "PAID", label: "Đã thanh toán" },
+  // Đơn online đã trả tiền và đang chờ CSKH duyệt; không phải mọi đơn đã thu tiền.
+  { value: "PAID", label: "Đã thanh toán", tabLabel: "Đã thanh toán, chờ duyệt" },
   { value: "PROCESSING", label: "Đang xử lý" },
   { value: "CANCELLING", label: "Đang huỷ đơn" },
   { value: "SHIPPED", label: "Đang giao" },
   { value: "DELIVERED", label: "Đã giao" },
   { value: "CANCELLED", label: "Đã huỷ" },
-  { value: "FAILED", label: "Thất bại" },
+  // Thất bại ở bước thanh toán online, không phải giao hàng thất bại.
+  { value: "FAILED", label: "Thất bại", tabLabel: "Thanh toán thất bại" },
   { value: "REFUNDING", label: "Đang hoàn tiền" },
   { value: "REFUNDED", label: "Đã hoàn tiền" },
 ];

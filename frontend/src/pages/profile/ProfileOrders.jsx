@@ -15,7 +15,8 @@ import BookCover from "@/components/book/BookCover";
 
 const FILTERS = [
   { value: "all", label: "Tất cả" },
-  { value: "PENDING", label: "Chờ thanh toán" },
+  // PENDING gồm cả COD chờ cửa hàng xác nhận, không chỉ đơn online chờ trả tiền.
+  { value: "PENDING", label: "Chờ xử lý" },
   { value: "PAID", label: "Đã thanh toán" },
   { value: "PROCESSING", label: "Đang xử lý" },
   { value: "CANCELLING", label: "Đang hủy đơn" },

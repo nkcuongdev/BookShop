@@ -39,21 +39,23 @@ import { useAuth } from "@/context/AuthContext.jsx";
 import { can } from "@/lib/rbac";
 import OrderReceiptPrintButton from "@/components/order/OrderReceipt";
 import AdminReturnRequestCard from "@/components/admin/orders/AdminReturnRequestCard";
+import { buildOrderTimeline } from "@/features/admin/orders/timeline";
 
-const STATUS_FLOW = ["PENDING", "PAID", "PROCESSING", "SHIPPED", "DELIVERED"];
-
-function StatusTimeline({ current }) {
-  const idx = STATUS_FLOW.indexOf(current);
+function StatusTimeline({ order, current }) {
+  const steps = buildOrderTimeline(order, current);
   return (
     <ol className="flex items-center gap-1 overflow-x-auto pb-1">
-      {STATUS_FLOW.map((s, i) => {
-        const reached = i <= idx && idx >= 0;
+      {steps.map(({ status: s, reached, exception }, i) => {
         const label = ORDER_STATUSES.find((x) => x.value === s)?.label || s;
         return (
           <li key={s} className="flex flex-1 items-center gap-1 min-w-[72px]">
             <div
               className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                reached ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                exception
+                  ? "bg-danger-muted text-danger-strong"
+                  : reached
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground"
               }`}
             >
               {i + 1}
@@ -66,10 +68,10 @@ function StatusTimeline({ current }) {
               >
                 {label}
               </span>
-              {i < STATUS_FLOW.length - 1 && (
+              {i < steps.length - 1 && (
                 <span
                   className={`mt-1 h-0.5 w-full ${
-                    i < idx ? "bg-primary-400" : "bg-border"
+                    steps[i + 1].reached ? "bg-primary-400" : "bg-border"
                   }`}
                 />
               )}
@@ -235,7 +237,7 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
 
         <div className="mt-6 space-y-6">
           <div className="rounded-xl border border-border bg-muted p-4">
-            <StatusTimeline current={normalizedStatus} />
+            <StatusTimeline order={order} current={normalizedStatus} />
           </div>
 
           {order.returnRequest && (

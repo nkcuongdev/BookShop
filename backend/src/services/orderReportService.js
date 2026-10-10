@@ -89,8 +89,15 @@ async function buildAdminOrderFilters(query = {}) {
     "Trạng thái đổi trả"
   );
   if (returnStatus) {
+    // Approval now stores RETURNING; APPROVED only survives on legacy requests,
+    // so the "approved" queue has to match both.
     const returnOrderIds = await ReturnRequest.distinct("order", {
-      status: returnStatus,
+      status:
+        returnStatus === ReturnRequest.STATUS.APPROVED
+          ? {
+              $in: [ReturnRequest.STATUS.APPROVED, ReturnRequest.STATUS.RETURNING],
+            }
+          : returnStatus,
     });
     baseFilter._id = { $in: returnOrderIds };
   }

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { adminAPI } from "@/services/api";
 
+const TERMINAL_ORDER_STATUSES = new Set(["CANCELLED", "FAILED", "REFUNDED"]);
+
 export function useOrders(params = {}) {
   return useQuery({
     queryKey: ["admin", "orders", params],
@@ -21,7 +23,13 @@ export function useOrder(id) {
     queryKey: ["admin", "order", id],
     enabled: !!id,
     queryFn: () => adminAPI.getOrderById(id).then((r) => r.data?.order),
-    refetchInterval: 2_000,
+    // Poll để thấy kết quả worker/callback/GHN; dừng khi lỗi (404/403) hoặc đơn
+    // đã ở trạng thái kết thúc không còn tiến trình tự động nào.
+    refetchInterval: (query) =>
+      query.state.status === "error" ||
+      TERMINAL_ORDER_STATUSES.has(query.state.data?.status)
+        ? false
+        : 2_000,
   });
 }
 
@@ -56,9 +64,8 @@ export function useOrderAction() {
       qc.invalidateQueries({ queryKey: ["admin", "order", vars.id] });
       toast.success(res?.message || "Đã cập nhật đơn hàng");
     },
-    onError: (err) => {
-      toast.error(err?.message || "Cập nhật đơn thất bại");
-    },
+    // Không đặt onError: handler mặc định ở queryClient đã báo lỗi và đổi 403
+    // thành thông báo thiếu quyền dễ hiểu; onError riêng sẽ ghi đè nó.
   });
 }
 
@@ -76,9 +83,6 @@ export function useReturnRequestAction() {
       qc.invalidateQueries({ queryKey: ["admin", "orders"] });
       qc.invalidateQueries({ queryKey: ["admin", "order", vars.id] });
       toast.success(response?.message || "Đã xử lý yêu cầu đổi trả");
-    },
-    onError: (error) => {
-      toast.error(error?.message || "Không thể xử lý yêu cầu đổi trả");
     },
   });
 }

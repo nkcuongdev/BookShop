@@ -14,7 +14,6 @@ import { DataTable } from "@/components/admin/common/DataTable";
 import { DataTableToolbar } from "@/components/admin/common/DataTableToolbar";
 import { DataTableColumnHeader } from "@/components/admin/common/DataTableColumnHeader";
 import { StatusBadge } from "@/components/admin/common/StatusBadge";
-import { ErrorState } from "@/components/admin/common/ErrorState";
 import { EmptyState } from "@/components/admin/common/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -224,7 +223,11 @@ export default function OrdersList() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => openDetail(row.original)}
+            onClick={(event) => {
+              // Hàng cũng mở chi tiết khi click; chặn nổi bọt để không navigate hai lần.
+              event.stopPropagation();
+              openDetail(row.original);
+            }}
           >
             <Eye className="size-4" />
             Xem
@@ -260,7 +263,13 @@ export default function OrdersList() {
         >
           <option value="all">Tất cả đổi trả</option>
           <option value="PENDING">Chờ duyệt ({returnCounts.PENDING || 0})</option>
-          <option value="APPROVED">Đã duyệt ({returnCounts.APPROVED || 0})</option>
+          {/* Hồ sơ duyệt mới lưu RETURNING; APPROVED chỉ còn ở dữ liệu cũ. Backend
+              lọc APPROVED theo cả hai giá trị nên số đếm cũng cộng cả hai. */}
+          <option value="APPROVED">
+            Đã duyệt, chờ nhận hàng ({(returnCounts.APPROVED || 0) + (returnCounts.RETURNING || 0)})
+          </option>
+          <option value="RECEIVED">Đã nhận, đang hoàn tiền ({returnCounts.RECEIVED || 0})</option>
+          <option value="CLOSED">Đã hoàn tất ({returnCounts.CLOSED || 0})</option>
           <option value="REJECTED">Đã từ chối ({returnCounts.REJECTED || 0})</option>
         </select>
         <select
@@ -272,7 +281,7 @@ export default function OrdersList() {
           }}
           className="h-9 rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
         >
-          <option value="all">Tất cả thanh toán</option>
+          <option value="all">Tất cả trạng thái thanh toán</option>
           {Object.entries(PAYMENT_STATUS_LABEL).map(([value, label]) => (
             <option key={value} value={value}>{label}</option>
           ))}
@@ -355,7 +364,10 @@ export default function OrdersList() {
           resetPage();
         }}
       >
-        <TabsList className="h-auto w-full flex-wrap justify-start">
+        <TabsList
+          aria-label="Lọc theo trạng thái đơn hàng"
+          className="h-auto w-full flex-wrap justify-start"
+        >
           <TabsTrigger value="all" className="gap-2">
             Tất cả
             <span className="rounded-full bg-border px-1.5 py-0.5 text-[10px] font-semibold text-foreground">
@@ -364,7 +376,7 @@ export default function OrdersList() {
           </TabsTrigger>
           {ORDER_STATUSES.map((s) => (
             <TabsTrigger key={s.value} value={s.value} className="gap-2">
-              {s.label}
+              {s.tabLabel || s.label}
               {counts[s.value] > 0 && (
                 <span className="rounded-full bg-border px-1.5 py-0.5 text-[10px] font-semibold text-foreground">
                   {counts[s.value]}
@@ -375,30 +387,30 @@ export default function OrdersList() {
         </TabsList>
       </Tabs>
 
-      {ordersQ.isError ? (
-        <ErrorState onRetry={() => ordersQ.refetch()} />
-      ) : (
-        <DataTable
-          columns={columns}
-          data={orders}
-          isLoading={ordersQ.isLoading}
-          toolbar={toolbar}
-          totalLabel="đơn"
-          pagination={pagination}
-          onPaginationChange={setPagination}
-          pageCount={ordersQ.data?.pagination?.totalPages || 1}
-          totalRows={ordersQ.data?.pagination?.total || 0}
-          getRowId={(r) => r._id || r.id}
-          onRowClick={openDetail}
-          emptyState={
-            <EmptyState
-              icon={ShoppingCart}
-              title="Không có đơn hàng"
-              description="Chưa có đơn hàng nào khớp với bộ lọc."
-            />
-          }
-        />
-      )}
+      {/* Lỗi hiển thị trong bảng để toolbar vẫn còn: lỗi thường do chính bộ lọc
+          (ví dụ từ ngày sau đến ngày), người dùng cần sửa/xoá lọc tại chỗ. */}
+      <DataTable
+        columns={columns}
+        data={orders}
+        isLoading={ordersQ.isLoading}
+        isError={ordersQ.isError}
+        onRetry={() => ordersQ.refetch()}
+        toolbar={toolbar}
+        totalLabel="đơn"
+        pagination={pagination}
+        onPaginationChange={setPagination}
+        pageCount={ordersQ.data?.pagination?.totalPages || 1}
+        totalRows={ordersQ.data?.pagination?.total || 0}
+        getRowId={(r) => r._id || r.id}
+        onRowClick={openDetail}
+        emptyState={
+          <EmptyState
+            icon={ShoppingCart}
+            title="Không có đơn hàng"
+            description="Chưa có đơn hàng nào khớp với bộ lọc."
+          />
+        }
+      />
 
       <OrderDetailDrawer
         order={orderDetailQ.data || orders.find((o) => (o._id || o.id) === id)}

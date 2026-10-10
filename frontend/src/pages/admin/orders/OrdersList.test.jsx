@@ -25,7 +25,12 @@ vi.mock("@/components/ui/sonner", () => ({
 }));
 
 vi.mock("@/components/admin/common/DataTable", () => ({
-  DataTable: ({ toolbar }) => <div>{toolbar}</div>,
+  DataTable: ({ toolbar, isError }) => (
+    <div>
+      {toolbar}
+      {isError && <p>orders-error</p>}
+    </div>
+  ),
 }));
 
 vi.mock("./OrderDetailDrawer", () => ({
@@ -135,6 +140,27 @@ describe("OrdersList report filters", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Xuất CSV" })).toBeNull();
+    expect(screen.getByLabelText("Lọc trạng thái thanh toán")).toBeTruthy();
+  });
+
+  // A rejected filter (e.g. dateFrom after dateTo) must not take away the
+  // toolbar the admin needs to correct it.
+  it("keeps the filter toolbar when the order list fails to load", () => {
+    mocks.useOrders.mockReturnValue({
+      data: undefined,
+      isError: true,
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/admin/orders"]}>
+        <OrdersList />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("orders-error")).toBeTruthy();
+    expect(screen.getByLabelText("Từ ngày đặt")).toBeTruthy();
     expect(screen.getByLabelText("Lọc trạng thái thanh toán")).toBeTruthy();
   });
 });
