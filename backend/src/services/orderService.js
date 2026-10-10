@@ -541,6 +541,16 @@ async function executeDuplicatePaymentRefund(orderId, providerOrderId) {
       new Error("Duplicate payment attempt is missing")
     );
   }
+  // Already accepted by the gateway: ask how it ended instead of submitting
+  // the same instruction again.
+  if (String(attempt.duplicateRefund?.refundTransactionId || "")) {
+    return reconcileAcceptedDuplicateRefund(
+      claimed,
+      attempt,
+      normalizedReference,
+      lockToken
+    );
+  }
 
   let gatewayResult;
   try {
@@ -620,6 +630,116 @@ async function executeDuplicatePaymentRefund(orderId, providerOrderId) {
     );
   }
   return { order: updated, attempted: true, completed };
+}
+
+async function reconcileAcceptedDuplicateRefund(
+  claimed,
+  attempt,
+  providerOrderId,
+  lockToken
+) {
+  let result;
+  try {
+    result = await paymentGateway.queryRefundStatus({
+      method: attempt.method,
+      providerOrderId: attempt.providerOrderId,
+      transactionId: attempt.gatewayTransactionId,
+      providerCreatedAt: attempt.createdAt || claimed.placedAt,
+      idempotencyKey: attempt.duplicateRefund.idempotencyKey,
+      amount: attempt.amount,
+      originalAmount: attempt.amount,
+      reason: `Duplicate payment for order ${claimed.orderCode}`,
+    });
+  } catch (error) {
+    result = { ok: false, error: error.message };
+  }
+  const now = new Date();
+  const prefix = "payment.attempts.$[attempt].duplicateRefund";
+  const retryCount = (Number(attempt.duplicateRefund.retryCount) || 0) + 1;
+  const completed = Boolean(result.ok && result.completed);
+  const failed = Boolean(result.ok && result.failed);
+  const set = {
+    [`${prefix}.lockUntil`]: null,
+    [`${prefix}.lockToken`]: "",
+  };
+  if (completed) {
+    Object.assign(set, {
+      [`${prefix}.status`]: DUPLICATE_REFUND_STATUS.REFUNDED,
+      [`${prefix}.refundedAt`]: now,
+      [`${prefix}.nextRetryAt`]: null,
+      [`${prefix}.lastError`]: "",
+    });
+  } else if (failed) {
+    // Terminal failure at the gateway: resubmit under a fresh key, as for the
+    // order-level refund.
+    Object.assign(set, {
+      [`${prefix}.refundTransactionId`]: "",
+      [`${prefix}.idempotencyKey`]: `duplicate-refund-retry:${providerOrderId}:${crypto.randomUUID()}`,
+      [`${prefix}.nextRetryAt`]: now,
+      [`${prefix}.lastError`]: String(
+        `Refund ${attempt.duplicateRefund.refundTransactionId} failed at the gateway (status ${result.status || "unknown"}); resubmitting`
+      ).slice(0, 500),
+    });
+  } else {
+    Object.assign(set, {
+      [`${prefix}.retryCount`]: retryCount,
+      [`${prefix}.nextRetryAt`]: new Date(now.getTime() + refundRetryDelay(retryCount)),
+      ...(result.ok ? {} : { [`${prefix}.lastError`]: String(result.error || "").slice(0, 500) }),
+    });
+  }
+  const order = await Order.findOneAndUpdate(
+    { _id: claimed._id },
+    { $set: set },
+    {
+      arrayFilters: [
+        {
+          "attempt.providerOrderId": providerOrderId,
+          "attempt.duplicateRefund.lockToken": lockToken,
+        },
+      ],
+      returnDocument: "after",
+    }
+  );
+  return { order, attempted: true, completed };
+}
+
+// Settles a duplicate-capture refund confirmed by a refund callback. Returns
+// whether this call changed anything, so a replayed callback is a no-op.
+async function settleDuplicatePaymentRefund(orderId, refundTransactionId) {
+  const reference = String(refundTransactionId || "").trim();
+  if (!reference) return false;
+  const prefix = "payment.attempts.$[attempt].duplicateRefund";
+  // The element match is in the filter, not only in arrayFilters: timestamps
+  // add updatedAt to every update, so modifiedCount alone cannot tell whether
+  // an attempt was actually settled.
+  const result = await Order.updateOne(
+    {
+      _id: orderId,
+      "payment.attempts": {
+        $elemMatch: {
+          "duplicateRefund.refundTransactionId": reference,
+          "duplicateRefund.status": DUPLICATE_REFUND_STATUS.PENDING,
+        },
+      },
+    },
+    {
+      $set: {
+        [`${prefix}.status`]: DUPLICATE_REFUND_STATUS.REFUNDED,
+        [`${prefix}.refundedAt`]: new Date(),
+        [`${prefix}.nextRetryAt`]: null,
+        [`${prefix}.lastError`]: "",
+      },
+    },
+    {
+      arrayFilters: [
+        {
+          "attempt.duplicateRefund.refundTransactionId": reference,
+          "attempt.duplicateRefund.status": DUPLICATE_REFUND_STATUS.PENDING,
+        },
+      ],
+    }
+  );
+  return result.modifiedCount === 1;
 }
 
 async function recordRefundAttemptFailure(claimed, lockToken, error) {
@@ -2590,6 +2710,7 @@ module.exports = {
   expirePendingOrders,
   executePendingRefund,
   executeDuplicatePaymentRefund,
+  settleDuplicatePaymentRefund,
   reconcilePendingRefunds,
   reconcileVoucherReleases,
   applyVoucher,

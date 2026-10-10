@@ -914,7 +914,7 @@ router.post("/webhook/refund", async (req, res) => {
     // Resolve exactly one owner by the refund id. Never "try" all workflows:
     // doing so lets a support refund complete the whole order and manufacture
     // a RETURN_IN movement for goods that are still lost with the carrier.
-    const [returnRequest, ticket] = await Promise.all([
+    const [returnRequest, ticket, duplicateCapture] = await Promise.all([
       ReturnRequest.findOne({
         order: order._id,
         "refund.transactionId": reference,
@@ -932,6 +932,13 @@ router.post("/webhook/refund", async (req, res) => {
         "resolution.refund.paymentMethod": { $in: ["VNPAY", "MOMO"] },
         "resolution.status": { $in: ["REFUND_PROCESSING", "REFUND_COMPLETED"] },
       }).select("+resolution.refund.idempotencyKey"),
+      // Refund of a second captured payment attempt on the same order.
+      Order.exists({
+        _id: order._id,
+        "payment.attempts": {
+          $elemMatch: { "duplicateRefund.refundTransactionId": reference },
+        },
+      }),
     ]);
     const owners = [
       ...(["VNPAY", "MOMO"].includes(order.payment?.method) &&
@@ -941,6 +948,7 @@ router.post("/webhook/refund", async (req, res) => {
         : []),
       ...(returnRequest ? [{ type: "return", record: returnRequest }] : []),
       ...(ticket ? [{ type: "support-ticket", record: ticket }] : []),
+      ...(duplicateCapture ? [{ type: "duplicate-payment", record: order }] : []),
     ];
     if (owners.length !== 1) {
       return res.status(409).json({
@@ -972,6 +980,8 @@ router.post("/webhook/refund", async (req, res) => {
         refundTransactionId: reference,
       });
       changed = Boolean(result?.changed);
+    } else if (owner.type === "duplicate-payment") {
+      changed = await orderService.settleDuplicatePaymentRefund(order._id, reference);
     } else {
       changed = await supportResolutionService.settleProcessingRefund(
         owner.record,

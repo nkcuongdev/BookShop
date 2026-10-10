@@ -1653,6 +1653,110 @@ test("a second captured payment attempt is durably refunded without changing the
   }
 });
 
+test("an accepted duplicate-capture refund is queried, not resubmitted", async () => {
+  const book = await createBook();
+  const { order } = await orderService.createOrder(
+    orderInput(book, {
+      idempotencyKey: "duplicate-capture-query-key",
+      paymentMethod: "VNPAY",
+    })
+  );
+  const olderReference = order.payment.providerOrderId;
+  await Order.updateOne({ _id: order._id }, { $set: { expiresAt: new Date(0) } });
+  const retried = await orderService.retryPayment({ orderId: order._id, userId });
+  await orderService.handlePaymentSuccess({
+    orderCode: order.orderCode,
+    method: "VNPAY",
+    providerOrderId: retried.order.payment.providerOrderId,
+    transactionId: "winning-capture-2",
+    amount: order.totalAmount,
+    rawPayload: {},
+  });
+
+  const originalRequestRefund = paymentGateway.requestRefund;
+  const originalQuery = paymentGateway.queryRefundStatus;
+  let refundCalls = 0;
+  let queryCalls = 0;
+  paymentGateway.requestRefund = async () => {
+    refundCalls += 1;
+    return { ok: true, completed: false, refundTransactionId: "dup-accepted-1" };
+  };
+  paymentGateway.queryRefundStatus = async () => {
+    queryCalls += 1;
+    return { ok: true, completed: queryCalls > 1, failed: false, status: queryCalls > 1 ? "00" : "01" };
+  };
+  const attemptOf = async () =>
+    (await Order.findById(order._id).select("+payment.attempts")).payment.attempts.find(
+      (attempt) => attempt.providerOrderId === olderReference
+    );
+  const makeDue = () =>
+    Order.updateOne(
+      { _id: order._id },
+      { $set: { "payment.attempts.$[attempt].duplicateRefund.nextRetryAt": new Date(0) } },
+      { arrayFilters: [{ "attempt.providerOrderId": olderReference }] }
+    );
+  try {
+    await orderService.handlePaymentSuccess({
+      orderCode: order.orderCode,
+      method: "VNPAY",
+      providerOrderId: olderReference,
+      transactionId: "duplicate-capture-2",
+      amount: order.totalAmount,
+      rawPayload: {},
+    });
+    assert.equal(refundCalls, 1);
+    assert.equal((await attemptOf()).duplicateRefund.status, "PENDING");
+
+    await makeDue();
+    await orderService.reconcilePendingRefunds();
+    assert.equal(refundCalls, 1, "the accepted refund is not submitted again");
+    assert.equal(queryCalls, 1);
+    assert.equal((await attemptOf()).duplicateRefund.status, "PENDING");
+
+    await makeDue();
+    await orderService.reconcilePendingRefunds();
+    assert.equal(refundCalls, 1);
+    assert.equal(queryCalls, 2);
+    const settled = await attemptOf();
+    assert.equal(settled.duplicateRefund.status, "REFUNDED");
+    assert.equal(settled.duplicateRefund.refundTransactionId, "dup-accepted-1");
+    assert.equal(await orderService.settleDuplicatePaymentRefund(order._id, "dup-accepted-1"), false);
+  } finally {
+    paymentGateway.requestRefund = originalRequestRefund;
+    paymentGateway.queryRefundStatus = originalQuery;
+  }
+});
+
+test("a refund callback settles an accepted duplicate-capture refund", async () => {
+  const book = await createBook();
+  const { order } = await orderService.createOrder(
+    orderInput(book, { idempotencyKey: "duplicate-capture-callback-key", paymentMethod: "VNPAY" })
+  );
+  const olderReference = order.payment.providerOrderId;
+  await Order.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        "payment.attempts.$[attempt].status": "SUCCEEDED",
+        "payment.attempts.$[attempt].duplicateRefund": {
+          status: "PENDING",
+          idempotencyKey: "dup-key",
+          refundTransactionId: "dup-callback-1",
+        },
+      },
+    },
+    { arrayFilters: [{ "attempt.providerOrderId": olderReference }] }
+  );
+  assert.equal(await orderService.settleDuplicatePaymentRefund(order._id, "dup-callback-1"), true);
+  assert.equal(await orderService.settleDuplicatePaymentRefund(order._id, "dup-callback-1"), false);
+  const stored = await Order.findById(order._id).select("+payment.attempts");
+  assert.equal(
+    stored.payment.attempts.find((attempt) => attempt.providerOrderId === olderReference)
+      .duplicateRefund.status,
+    "REFUNDED"
+  );
+});
+
 test("a failed older attempt does not close the active payment attempt", async () => {
   const book = await createBook();
   const { order } = await orderService.createOrder(
