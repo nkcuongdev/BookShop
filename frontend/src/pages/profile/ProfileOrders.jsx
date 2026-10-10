@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Package, Search } from "lucide-react";
+import { CreditCard, Package, Search } from "lucide-react";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,14 +18,37 @@ const FILTERS = [
   { value: "all", label: "Tất cả" },
   // PENDING gồm cả COD chờ cửa hàng xác nhận, không chỉ đơn online chờ trả tiền.
   { value: "PENDING", label: "Chờ xử lý" },
-  { value: "PAID", label: "Đã thanh toán" },
+  // PAID là đơn online đã trả và đang chờ cửa hàng xác nhận, không phải
+  // "mọi đơn đã trả tiền" (đơn COD đã giao cũng là đã trả).
+  { value: "PAID", label: "Chờ xác nhận" },
   { value: "PROCESSING", label: "Đang xử lý" },
   { value: "CANCELLING", label: "Đang hủy đơn" },
   { value: "SHIPPED", label: "Đang giao" },
   { value: "DELIVERED", label: "Đã giao" },
   { value: "CANCELLED", label: "Đã hủy" },
-  { value: "REFUNDING", label: "Hoàn tiền" },
+  { value: "FAILED", label: "Thanh toán thất bại" },
+  // Cả đang hoàn và đã hoàn; trước đây đơn REFUNDED không thuộc tab nào.
+  { value: "REFUNDING,REFUNDED", label: "Hoàn tiền" },
 ];
+
+const countFor = (statusCounts, value) =>
+  value === "all"
+    ? Object.values(statusCounts).reduce((sum, count) => sum + count, 0)
+    : value.split(",").reduce((sum, status) => sum + (statusCounts[status] || 0), 0);
+
+// 1: PENDING trộn hai việc rất khác nhau với khách.
+function paymentHint(order) {
+  const method = order.payment?.method;
+  if (order.status !== "PENDING") return null;
+  if (method === "COD") return { text: "Chờ cửa hàng xác nhận đơn COD", canPay: false };
+  if (order.payment?.status === "UNPAID") {
+    return {
+      text: `Chưa thanh toán · ${method === "MOMO" ? "MoMo" : method || "online"}`,
+      canPay: true,
+    };
+  }
+  return null;
+}
 
 function OrderRow({ order, onSelect }) {
   const orderId = order._id || order.id;
@@ -32,6 +56,27 @@ function OrderRow({ order, onSelect }) {
   const total = order.totalAmount || order.total || 0;
   const items = order.itemsPreview || order.items || [];
   const itemCount = order.itemCount ?? items.length;
+  const hint = paymentHint(order);
+  const [paying, setPaying] = useState(false);
+
+  // Same retry flow as the order detail's "Thanh toán ngay".
+  const pay = async (event) => {
+    event.stopPropagation();
+    setPaying(true);
+    try {
+      const res = await ordersAPI.retryPayment(orderId);
+      const url = res?.data?.paymentUrl;
+      if (url) {
+        window.location.href = url;
+        return;
+      }
+      toast.error("Không lấy được liên kết thanh toán");
+    } catch (err) {
+      toast.error(err.message || "Không thể thanh toán lúc này");
+    } finally {
+      setPaying(false);
+    }
+  };
 
   return (
     <Card
@@ -57,8 +102,8 @@ function OrderRow({ order, onSelect }) {
         </p>
       </div>
 
-      <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border">
-        <div className="flex -space-x-2">
+      <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-border">
+        <div className="flex shrink-0 -space-x-2">
           {items.slice(0, 4).map((item, idx) => (
             <BookCover
               key={idx}
@@ -69,10 +114,30 @@ function OrderRow({ order, onSelect }) {
             />
           ))}
         </div>
-        {itemCount > items.length && (
-          <span className="text-xs text-muted-foreground">
-            +{itemCount - items.length} sản phẩm
-          </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">
+            {items[0]?.title || "Sản phẩm"}
+          </p>
+          {itemCount > 1 && (
+            <p className="text-xs text-muted-foreground">+{itemCount - 1} sách khác</p>
+          )}
+        </div>
+        {hint && (
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs font-medium ${
+                hint.canPay ? "text-warning-strong" : "text-muted-foreground"
+              }`}
+            >
+              {hint.text}
+            </span>
+            {hint.canPay && (
+              <Button size="sm" onClick={pay} disabled={paying}>
+                <CreditCard className="size-4" />
+                Thanh toán ngay
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </Card>
@@ -87,6 +152,9 @@ export default function ProfileOrders() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
+  const [statusCounts, setStatusCounts] = useState({});
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const debouncedQuery = useDebounce(query, 250);
   const tabsListRef = useRef(null);
 
@@ -110,10 +178,13 @@ export default function ProfileOrders() {
         if (active && res.success) {
           setOrders(res.data.orders || []);
           setPagination(res.data.pagination || { total: 0, page: 1, totalPages: 1 });
+          setStatusCounts(res.data.statusCounts || {});
+          setLoadError(false);
         }
       } catch (e) {
         console.error(e);
-        if (active) setOrders([]);
+        // Một lỗi tải không có nghĩa là khách chưa có đơn nào.
+        if (active) setLoadError(true);
       } finally {
         if (active) setLoading(false);
       }
@@ -122,7 +193,7 @@ export default function ProfileOrders() {
     return () => {
       active = false;
     };
-  }, [page, filter, debouncedQuery]);
+  }, [page, filter, debouncedQuery, reloadKey]);
 
   return (
     <div className="space-y-4">
@@ -130,7 +201,9 @@ export default function ProfileOrders() {
         <h2 className="text-h3 font-display font-bold text-foreground">
           Đơn hàng của tôi
         </h2>
-        <p className="text-sm text-muted-foreground">{pagination.total} đơn hàng</p>
+        <p className="text-sm text-muted-foreground">
+          {countFor(statusCounts, "all")} đơn hàng
+        </p>
 
         <div className="mt-4 flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
@@ -160,8 +233,13 @@ export default function ProfileOrders() {
             className="w-full overflow-x-auto no-scrollbar justify-start"
           >
             {FILTERS.map((f) => (
-              <TabsTrigger key={f.value} value={f.value} className="shrink-0 px-3">
+              <TabsTrigger key={f.value} value={f.value} className="shrink-0 gap-1.5 px-3">
                 {f.label}
+                {countFor(statusCounts, f.value) > 0 && (
+                  <span className="rounded-full bg-border px-1.5 py-0.5 text-[10px] font-semibold text-foreground">
+                    {countFor(statusCounts, f.value)}
+                  </span>
+                )}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -174,6 +252,19 @@ export default function ProfileOrders() {
             <Skeleton key={i} className="h-28 rounded-2xl" />
           ))}
         </div>
+      ) : loadError ? (
+        <Card className="p-6">
+          <EmptyState
+            icon={Package}
+            title="Không tải được danh sách đơn hàng"
+            description="Đã có lỗi khi tải đơn hàng của bạn. Vui lòng thử lại."
+            action={
+              <Button variant="outline" onClick={() => setReloadKey((key) => key + 1)}>
+                Thử lại
+              </Button>
+            }
+          />
+        </Card>
       ) : orders.length === 0 ? (
         <Card className="p-6">
           <EmptyState

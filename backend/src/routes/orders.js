@@ -241,22 +241,31 @@ router.get("/", auth, async (req, res) => {
   try {
     const page = parsePositiveInt(req.query.page, 1, 10_000);
     const limit = parsePositiveInt(req.query.limit, 10, 50);
-    const filter = { user: req.user._id };
-    if (req.query.status && Object.values(Order.STATUS).includes(req.query.status)) {
-      filter.status = req.query.status;
-    }
+    // `status` may list several values ("REFUNDING,REFUNDED") so one customer
+    // tab can cover a whole stage; unknown values are ignored.
+    const statuses = String(req.query.status || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => Object.values(Order.STATUS).includes(value));
+    const baseFilter = { user: req.user._id };
     const searchRegex = safeRegex(String(req.query.search || "").slice(0, 100));
     if (searchRegex) {
-      filter.$or = [
+      baseFilter.$or = [
         { orderCode: searchRegex },
         { "items.title": searchRegex },
       ];
     }
+    const filter = {
+      ...baseFilter,
+      ...(statuses.length ? { status: { $in: statuses } } : {}),
+    };
 
-    const [orders, total, summaryRows] = await Promise.all([
+    const [orders, total, statusRows, summaryRows] = await Promise.all([
       Order.aggregate([
         { $match: filter },
-        { $sort: { createdAt: -1, _id: -1 } },
+        // The card shows placedAt, so order by it (createdAt only as fallback
+        // for legacy orders without one).
+        { $sort: { placedAt: -1, createdAt: -1, _id: -1 } },
         { $skip: (page - 1) * limit },
         { $limit: limit },
         {
@@ -266,6 +275,10 @@ router.get("/", auth, async (req, res) => {
             totalAmount: 1,
             placedAt: 1,
             createdAt: 1,
+            // Lets the card tell an unpaid online order (pay now) from a COD
+            // order waiting for the shop, both of which are PENDING.
+            "payment.method": 1,
+            "payment.status": 1,
             itemCount: { $size: { $ifNull: ["$items", []] } },
             itemsPreview: {
               $map: {
@@ -283,6 +296,11 @@ router.get("/", auth, async (req, res) => {
         },
       ]),
       Order.countDocuments(filter),
+      // Per-status counts for the tab badges: same search, every status.
+      Order.aggregate([
+        { $match: baseFilter },
+        { $group: { _id: "$status", count: { $sum: 1 } } },
+      ]),
       Order.aggregate([
         { $match: { user: req.user._id } },
         {
@@ -308,6 +326,9 @@ router.get("/", auth, async (req, res) => {
       data: {
         orders: orders.map((order) => ({ ...order, id: order._id })),
         count: total,
+        statusCounts: Object.fromEntries(
+          statusRows.map((row) => [row._id, row.count])
+        ),
         summary: {
           totalOrders: summary.totalOrders || 0,
           totalSpend: summary.totalSpend || 0,

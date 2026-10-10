@@ -164,7 +164,8 @@ test("customer order DTOs hide gateway audit data and bound list payloads", asyn
   assert.equal(summary.itemCount, items.length);
   assert.equal(summary.itemsPreview.length, 4);
   assert.equal(summary.items, undefined);
-  assert.equal(summary.payment, undefined);
+  // Only the two public fields the card needs (pay-now vs waiting for the shop).
+  assert.deepEqual(summary.payment, { method: "VNPAY", status: "PAID" });
   assert.equal(summary.history, undefined);
   assert.doesNotMatch(JSON.stringify(summary), /private-/);
 
@@ -229,4 +230,47 @@ test("manual ship and deliver are refused while a GHN shipment is active", async
   assert.equal(deliver.status, 409, JSON.stringify(deliver.body));
 
   assert.equal((await Order.findById(order._id)).status, Order.STATUS.PROCESSING);
+});
+
+test("customer order list groups refund statuses, counts tabs and sorts by order date", async () => {
+  const customer = await User.create({
+    name: "Tabs Customer",
+    email: "tabs-customer@example.com",
+    password: "secure-password",
+  });
+  const base = (status, placedAt, payment = { method: "COD", status: "UNPAID" }) => ({
+    user: customer._id,
+    items: orderItems(1),
+    subtotal: 10_000,
+    totalAmount: 10_000,
+    shippingAddress: { fullName: "Tabs Customer", phone: "0900000000", address: "1 Test Street" },
+    status,
+    placedAt,
+    payment,
+  });
+  await Order.create([
+    base(Order.STATUS.REFUNDING, new Date("2026-03-01"), { method: "VNPAY", status: "REFUNDING" }),
+    base(Order.STATUS.REFUNDED, new Date("2026-04-01"), { method: "VNPAY", status: "REFUNDED" }),
+    base(Order.STATUS.PENDING, new Date("2026-05-01"), { method: "VNPAY", status: "UNPAID" }),
+    base(Order.STATUS.DELIVERED, new Date("2026-01-01"), { method: "COD", status: "PAID" }),
+  ]);
+  const agent = await loginAs(customer);
+
+  const refunds = await agent.get("/api/orders?status=REFUNDING,REFUNDED");
+  assert.equal(refunds.status, 200);
+  assert.deepEqual(
+    refunds.body.data.orders.map((order) => order.status),
+    ["REFUNDED", "REFUNDING"],
+    "both refund stages, newest order first"
+  );
+
+  const all = await agent.get("/api/orders");
+  assert.deepEqual(all.body.data.statusCounts, {
+    REFUNDING: 1,
+    REFUNDED: 1,
+    PENDING: 1,
+    DELIVERED: 1,
+  });
+  assert.equal(all.body.data.orders[0].status, "PENDING");
+  assert.deepEqual(all.body.data.orders[0].payment, { method: "VNPAY", status: "UNPAID" });
 });

@@ -81,3 +81,17 @@ Test frontend (vitest) đã viết cho F29, F30, F32 nhưng **chưa chạy** vì
 - Toolbar trước đó vỡ thành 3 dòng lộn xộn → tách 2 hàng (tìm kiếm + nút thao tác / bộ lọc), khoảng ngày đặt nằm cùng một cụm.
 - Bảng rộng 1185px trong khung 966px, mã đơn/số sản phẩm/badge xuống 3 dòng, nút "Xem" bị che → ô không xuống dòng, đệm ô gọn hơn, cột trạng thái/thanh toán/đổi trả đứng trước cột sản phẩm, cột "Xem" dính mép phải. Ở 1280px chỉ cột "Sản phẩm" phải cuộn ngang; từ 1366px hoặc khi thu sidebar thì vừa hết.
 - Drawer cao 2.715px, nút hành động nằm cuối → thứ tự mới: timeline → hành động → banner huỷ → hồ sơ đổi trả cần xử lý → sản phẩm → thanh toán → vận chuyển → khách hàng → lịch sử (4 mốc gần nhất, có "Xem tất cả"); hồ sơ đổi trả đã kết thúc thu gọn. Nút hành động giờ nằm trong màn hình đầu tiên.
+
+## Trang "Đơn hàng của tôi" của khách (commit tiếp theo)
+
+Xem trên app với tài khoản khách mẫu (database `bookshop_ui_preview`) rồi sửa:
+
+1. Thẻ đơn PENDING phân biệt "Chưa thanh toán · VNPAY/MoMo" (kèm nút **Thanh toán ngay**, cùng luồng `retryPayment` như trang chi tiết) với "Chờ cửa hàng xác nhận đơn COD". API danh sách trả thêm `payment.method`/`payment.status` (chỉ 2 trường công khai).
+2. Tab "Hoàn tiền" gồm cả REFUNDING và REFUNDED (API nhận `status` dạng danh sách cách nhau dấu phẩy); thêm tab "Thanh toán thất bại".
+3. Lỗi tải danh sách hiện "Không tải được danh sách đơn hàng" + "Thử lại" thay vì "Chưa có đơn hàng".
+4. Thẻ đơn hiện tên sách đầu tiên và "+n sách khác".
+5. Tab PAID đổi nhãn "Chờ xác nhận" (vẫn giữ đủ tab).
+6. Tab có số đếm (API trả `statusCounts` theo cùng từ khoá tìm kiếm); tiêu đề hiện tổng số đơn, không đổi theo tab.
+7. Danh sách sắp theo `placedAt` (ngày đang hiển thị).
+
+Test: orderApi.integration — cập nhật assert DTO danh sách (nay có đúng 2 trường payment) và thêm "customer order list groups refund statuses, counts tabs and sorts by order date" — đã chạy, 5/5 pass. Giao diện kiểm tra trên app chạy thật (đếm tab, lọc Hoàn tiền/Thất bại, nút Thanh toán ngay, trạng thái lỗi khi tắt backend và Thử lại); không chạy test frontend.
