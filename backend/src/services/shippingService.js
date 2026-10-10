@@ -599,7 +599,54 @@ async function createGhnShipment(orderId) {
     description: "Đã tạo vận đơn GHN Sandbox, chờ mô phỏng lấy hàng",
     at: new Date(),
   });
-  await order.save();
+  // The GHN call takes time and the order may have been cancelled meanwhile.
+  // Attach the parcel only if the order is still waiting for one; otherwise a
+  // live shipment would hang off a cancelled or refunded order.
+  order.$where = {
+    status: Order.STATUS.PROCESSING,
+    "shipment.providerOrderCode": { $in: ["", null] },
+  };
+  try {
+    await order.save();
+  } catch (error) {
+    // No document matched the guarded save. Mongoose reports that as a
+    // VersionError when an array was pushed, DocumentNotFoundError otherwise.
+    if (!["DocumentNotFoundError", "VersionError"].includes(error?.name)) throw error;
+    const current = await Order.findById(order._id);
+    if (
+      current?.status === Order.STATUS.PROCESSING &&
+      String(current.shipment?.providerOrderCode || "") === providerOrderCode
+    ) {
+      // A concurrent create attached the same GHN order (same client code).
+      return { order: current, replayed: true };
+    }
+    if (current && current.status !== Order.STATUS.PROCESSING) {
+      try {
+        await cancelGhnShipmentAtProvider({
+          orderCode: order.orderCode,
+          shipment: { provider: "ghn", providerOrderCode },
+        });
+      } catch {
+        throw shippingError(
+          `Đơn đã đổi trạng thái trong lúc tạo vận đơn và không huỷ được vận đơn GHN ${providerOrderCode}; cần huỷ thủ công trên GHN`,
+          "GHN_ORPHAN_SHIPMENT",
+          409
+        );
+      }
+      throw shippingError(
+        "Đơn đã đổi trạng thái trong lúc tạo vận đơn; vận đơn GHN vừa tạo đã được huỷ",
+        "ORDER_CHANGED_DURING_SHIPMENT",
+        409
+      );
+    }
+    // Still PROCESSING but another write raced this one. Retrying is safe: the
+    // GHN order is found again by client code and attached.
+    throw shippingError(
+      "Đơn hàng vừa được cập nhật đồng thời, vui lòng thử tạo vận đơn lại",
+      "SHIPMENT_SAVE_CONFLICT",
+      409
+    );
+  }
   return { order, replayed: false };
 }
 

@@ -365,6 +365,99 @@ test("GHN Sandbox simulation advances a test shipment through delivery", async (
   );
 });
 
+test("a shipment created while the order is being cancelled is cancelled at GHN", async () => {
+  const book = await createBook({ weight: 400 });
+  const created = await orderService.createOrder(
+    orderInput(book, {
+      idempotencyKey: "ghn-create-cancel-race",
+      authoritativeShipping: {
+        method: "standard",
+        fee: 32_000,
+        snapshot: {
+          provider: "ghn",
+          quoteId: "ghn:type-2",
+          serviceTypeId: 2,
+          serviceName: "GHN Standard",
+          quotedAt: new Date(),
+        },
+      },
+    })
+  );
+  const orderId = created.order._id;
+  const adminId = new mongoose.Types.ObjectId();
+  await orderService.adminApproveOrder(orderId, adminId);
+  await Order.updateOne(
+    { _id: orderId },
+    {
+      $set: {
+        "shippingAddress.city": "Race City",
+        "shippingAddress.district": "Race District",
+        "shippingAddress.ward": "Race Ward",
+      },
+    }
+  );
+
+  const originalFetch = global.fetch;
+  const originalGhn = { ...config.shipping.ghn };
+  Object.assign(config.shipping.ghn, {
+    enabled: true,
+    token: "ghn-test-token",
+    shopId: 12345,
+  });
+  const cancelledCodes = [];
+  const reply = (data, code = 200) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ code, message: code === 200 ? "ok" : "not found", data }),
+  });
+  global.fetch = async (url, options) => {
+    const path = new URL(url).pathname;
+    const body = options.body ? JSON.parse(options.body) : {};
+    if (path.endsWith("/master-data/province")) {
+      return reply([{ ProvinceID: 9001, ProvinceName: "Race City" }]);
+    }
+    if (path.endsWith("/master-data/district")) {
+      return reply([{ DistrictID: 9002, DistrictName: "Race District" }]);
+    }
+    if (path.endsWith("/master-data/ward")) {
+      return reply([{ WardCode: "9003", WardName: "Race Ward" }]);
+    }
+    if (path.endsWith("/shipping-order/detail-by-client-code")) {
+      return reply(null, 400);
+    }
+    if (path.endsWith("/shipping-order/create")) {
+      // Support cancels the order while GHN is still creating the parcel.
+      await orderCancellationService.requestAdminCancellation(orderId, adminId, "race");
+      return reply({ order_code: "GHN-RACE-1", status: "ready_to_pick" });
+    }
+    if (path.endsWith("/switch-status/cancel")) {
+      cancelledCodes.push(...body.order_codes);
+      return reply([{ order_code: body.order_codes[0], result: true }]);
+    }
+    throw new Error(`unexpected GHN call ${path}`);
+  };
+  try {
+    await assert.rejects(
+      shippingService.createGhnShipment(orderId),
+      (error) => error.code === "ORDER_CHANGED_DURING_SHIPMENT"
+    );
+  } finally {
+    global.fetch = originalFetch;
+    Object.assign(config.shipping.ghn, originalGhn);
+  }
+
+  assert.deepEqual(cancelledCodes, ["GHN-RACE-1"]);
+  let stored = await Order.findById(orderId);
+  assert.equal(stored.status, Order.STATUS.CANCELLING);
+  assert.equal(stored.shipment.providerOrderCode || "", "");
+
+  const finalized = await orderCancellationService.processPending();
+  assert.equal(finalized.completed, 1);
+  stored = await Order.findById(orderId);
+  assert.equal(stored.status, Order.STATUS.CANCELLED);
+  assert.equal((await Book.findById(book._id)).stock, 10);
+});
+
 test("online payment creation runs only after the order transaction commits", async () => {
   const book = await createBook();
   const originalCreatePaymentUrl = paymentGateway.createPaymentUrl;
