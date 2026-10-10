@@ -777,8 +777,17 @@ test("a refund the gateway rejects outright goes back to the retry queue", async
       status: "99",
       error: "Bank rejected the refund",
     });
+    const beforeFailure = await ReturnRequest.findOne({ order: order._id }).select(
+      "+refund.idempotencyKey"
+    );
     const result = await reconcileProcessingRefunds();
     assert.equal(result.failed, 1);
+    const rearmed = await ReturnRequest.findOne({ order: order._id }).select(
+      "+refund.idempotencyKey"
+    );
+    // M04: the spent key is replaced, otherwise every retry is a duplicate.
+    assert.notEqual(rearmed.refund.idempotencyKey, beforeFailure.refund.idempotencyKey);
+    assert.equal(rearmed.refund.transactionId, "");
 
     // Queued for another attempt rather than written off, and the money stays
     // reserved because the customer is still owed it.
@@ -790,6 +799,29 @@ test("a refund the gateway rejects outright goes back to the retry queue", async
     );
     assert.equal(stillHeld.supportCompensation.refundedAmount, 0);
     assert.equal(stillHeld.supportCompensation.reservedRefundAmount, 150_000);
+
+    // M04: once automatic retries are exhausted the refund is handed to staff
+    // instead of being retried forever.
+    paymentGateway.requestRefund = async () => ({ ok: false, error: "Bank still rejects" });
+    await ReturnRequest.updateOne(
+      { _id: request._id },
+      { $set: { "refund.retryCount": 14, "refund.nextRetryAt": new Date(0) } }
+    );
+    await executeReturnRefund(request._id);
+    const exhausted = await ReturnRequest.findById(request._id);
+    assert.equal(exhausted.refund.status, "MANUAL_REQUIRED");
+    assert.match(exhausted.refund.lastError, /still rejects/);
+
+    const closed = await agent
+      .patch(`/api/admin/orders/${order._id}/return-request`)
+      .set("x-csrf-token", csrf)
+      .send({ status: "CLOSED", refundTransactionId: "BANK-TRANSFER-77" });
+    assert.equal(closed.status, 200, JSON.stringify(closed.body));
+    const settled = await Order.findById(order._id).select(
+      "+supportCompensation.reservedRefundAmount"
+    );
+    assert.equal(settled.supportCompensation.refundedAmount, 150_000);
+    assert.equal(settled.supportCompensation.reservedRefundAmount, 0);
   } finally {
     paymentGateway.requestRefund = originalRequestRefund;
     paymentGateway.queryRefundStatus = originalQuery;

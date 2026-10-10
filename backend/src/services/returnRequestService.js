@@ -609,6 +609,11 @@ async function receiveReturnRequest({ orderId, adminId, restock = true }) {
   return ReturnRequest.findById(result.requestId).populate("order", "orderCode user");
 }
 
+// After this many failed gateway submissions (roughly half a day of backoff)
+// the refund stops retrying on its own and waits for staff to pay it out and
+// record the reference through the existing manual close.
+const MAX_AUTOMATIC_REFUND_RETRIES = 15;
+
 function refundRetryDelay(retryCount) {
   return Math.min(60 * 60 * 1000, 30_000 * 2 ** Math.min(retryCount, 7));
 }
@@ -621,13 +626,16 @@ async function recordReturnRefundFailure(requestId, lockToken, error) {
   }).select("+refund.retryCount");
   if (!current) return null;
   const retryCount = (Number(current.refund.retryCount) || 0) + 1;
+  const exhausted = retryCount >= MAX_AUTOMATIC_REFUND_RETRIES;
   await ReturnRequest.updateOne(
     { _id: requestId, "refund.lockToken": lockToken },
     {
       $set: {
         "refund.lastError": String(error?.message || error || "Refund failed").slice(0, 500),
         "refund.retryCount": retryCount,
-        "refund.nextRetryAt": new Date(Date.now() + refundRetryDelay(retryCount)),
+        ...(exhausted
+          ? { "refund.status": ReturnRequest.REFUND_STATUS.MANUAL_REQUIRED, "refund.nextRetryAt": null }
+          : { "refund.nextRetryAt": new Date(Date.now() + refundRetryDelay(retryCount)) }),
         "refund.lockUntil": null,
         "refund.lockToken": "",
       },
@@ -1044,12 +1052,16 @@ async function reconcileProcessingRefunds({ limit = 20 } = {}) {
     if (result.failed) {
       // The gateway says this refund will never settle. Put it back in the
       // retry queue so the money is actually chased rather than written off.
+      // The failed attempt's key is spent at the gateway, so the retry needs a
+      // fresh one or it would be rejected as a duplicate forever.
       failed += 1;
       await ReturnRequest.updateOne(
         { _id: request._id, "refund.status": ReturnRequest.REFUND_STATUS.PROCESSING },
         {
           $set: {
             "refund.status": ReturnRequest.REFUND_STATUS.PENDING,
+            "refund.idempotencyKey": `return-refund-retry:${request._id}:${crypto.randomUUID()}`,
+            "refund.transactionId": "",
             "refund.nextRetryAt": new Date(),
             "refund.lastError": String(
               result.error || `Gateway reported refund status ${result.status}`

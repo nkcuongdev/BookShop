@@ -160,7 +160,14 @@ export default function AdminReturnRequestCard({
         request.status === "RECEIVED" &&
         request.refund?.status === "MANUAL_REQUIRED" ? (
         <div className="mt-4 space-y-3 rounded-lg bg-card p-3 text-sm text-foreground">
-          <p>Đơn COD cần hoàn tiền thủ công trước khi đóng yêu cầu.</p>
+          {/* MANUAL_REQUIRED gồm COD, đơn online thiếu mã giao dịch gốc, và
+              khoản hoàn online đã hết lượt thử tự động. */}
+          <p>Cần hoàn tiền thủ công và nhập mã giao dịch trước khi đóng yêu cầu.</p>
+          {request.refund?.lastError && (
+            <p className="text-xs text-danger-strong">
+              Lỗi hoàn tự động gần nhất: {request.refund.lastError}
+            </p>
+          )}
           <input
             type="text"
             value={refundTransactionId}
@@ -197,6 +204,13 @@ export default function AdminReturnRequestCard({
           {request.refund?.status === "PENDING" && (
             <p className="mt-2 text-violet-700">Cổng thanh toán đang xử lý hoàn tiền.</p>
           )}
+          {!readOnly &&
+            ["PENDING", "PROCESSING"].includes(request.refund?.status) &&
+            request.refund?.lastError && (
+              <p className="mt-1 text-xs text-danger-strong">
+                Lỗi hoàn tự động gần nhất (hệ thống đang thử lại): {request.refund.lastError}
+              </p>
+            )}
           {request.refund?.transactionId && (
             <p className="mt-2 font-mono text-xs">Mã hoàn tiền: {request.refund.transactionId}</p>
           )}
