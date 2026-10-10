@@ -2310,6 +2310,51 @@ async function expirePendingOrders() {
   return results;
 }
 
+async function deferRefundQuery(order, now = new Date()) {
+  const retryCount = (Number(order.payment.refundRetryCount) || 0) + 1;
+  await Order.updateOne(
+    {
+      _id: order._id,
+      status: ORDER_STATUS.REFUNDING,
+      "payment.refundTransactionId": order.payment.refundTransactionId,
+    },
+    {
+      $set: {
+        "payment.refundRetryCount": retryCount,
+        "payment.refundNextRetryAt": new Date(
+          now.getTime() + refundRetryDelay(retryCount)
+        ),
+      },
+    }
+  );
+}
+
+// The gateway accepted this refund and later reported it terminally failed, so
+// no money left. Put it back in the submission queue under a fresh idempotency
+// key (the gateway would reject a reused one) instead of leaving the order and
+// its held stock, voucher and points in REFUNDING forever.
+async function rearmFailedRefund(order, result) {
+  const failedReference = order.payment.refundTransactionId;
+  await Order.updateOne(
+    {
+      _id: order._id,
+      status: ORDER_STATUS.REFUNDING,
+      "payment.refundTransactionId": failedReference,
+    },
+    {
+      $set: {
+        "payment.refundTransactionId": "",
+        "payment.refundIdempotencyKey": `refund-retry:${order.orderCode}:${crypto.randomUUID()}`,
+        "payment.refundNextRetryAt": new Date(),
+        "payment.refundRawPayload": result.rawPayload || null,
+        "payment.refundLastError": String(
+          `Refund ${failedReference} failed at the gateway (status ${result.status || "unknown"}); resubmitting`
+        ).slice(0, 500),
+      },
+    }
+  );
+}
+
 async function reconcilePendingRefunds(limit = 20) {
   const boundedLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
   const now = new Date();
@@ -2352,13 +2397,20 @@ async function reconcilePendingRefunds(limit = 20) {
   // A refund instruction that already has a gateway transaction id has moved
   // past submission and must be queried, not silently dropped from the retry
   // queue. Only a verified matching query result is allowed to complete it.
+  // Queried with backoff and due-first ordering, so refunds the bank is slow
+  // to settle cannot keep newer ones out of a bounded batch.
   const processingCandidates = await Order.find({
     status: ORDER_STATUS.REFUNDING,
     "payment.status": PAYMENT_STATUS.REFUNDING,
     "payment.refundTransactionId": { $nin: ["", null] },
     "payment.refundIdempotencyKey": { $nin: ["", null] },
+    $or: [
+      { "payment.refundNextRetryAt": null },
+      { "payment.refundNextRetryAt": { $lte: now } },
+    ],
   })
     .select(INTERNAL_ORDER_FIELDS)
+    .sort({ "payment.refundNextRetryAt": 1, _id: 1 })
     .limit(boundedLimit);
 
   for (const order of processingCandidates) {
@@ -2376,7 +2428,15 @@ async function reconcilePendingRefunds(limit = 20) {
         reason: order.payment.refundReason,
         clientIp: order.payment.refundClientIp,
       });
-      if (!result.ok || !result.completed) continue;
+      if (result.ok && result.failed) {
+        await rearmFailedRefund(order, result);
+        attempted += 1;
+        continue;
+      }
+      if (!result.ok || !result.completed) {
+        await deferRefundQuery(order, now);
+        continue;
+      }
       await handleRefundSuccess({
         orderCode: order.orderCode,
         refundTransactionId: order.payment.refundTransactionId,

@@ -1061,6 +1061,76 @@ test("failed refund calls remain durable and are retried from committed intent",
   }
 });
 
+test("an accepted refund that later fails is resubmitted under a new key", async () => {
+  const book = await createBook();
+  const { order } = await orderService.createOrder(
+    orderInput(book, {
+      idempotencyKey: "accepted-then-failed-refund",
+      paymentMethod: "VNPAY",
+    })
+  );
+  await orderService.handlePaymentSuccess({
+    orderCode: order.orderCode,
+    method: "VNPAY",
+    providerOrderId: order.payment.providerOrderId,
+    transactionId: "accepted-then-failed-capture",
+    amount: order.totalAmount,
+    rawPayload: {},
+  });
+
+  const originalRequestRefund = paymentGateway.requestRefund;
+  const originalQuery = paymentGateway.queryRefundStatus;
+  const usedKeys = [];
+  let queryCalls = 0;
+  let queryResult = { ok: true, completed: false, failed: false, status: "01" };
+  paymentGateway.requestRefund = async ({ idempotencyKey }) => {
+    usedKeys.push(idempotencyKey);
+    return usedKeys.length === 1
+      ? { ok: true, completed: false, refundTransactionId: "refund-accepted-1" }
+      : { ok: true, completed: true, refundTransactionId: "refund-retry-2" };
+  };
+  paymentGateway.queryRefundStatus = async () => {
+    queryCalls += 1;
+    return queryResult;
+  };
+  try {
+    const queued = await orderService.cancelOrder(order._id, userId, "test");
+    assert.equal(queued.status, "REFUNDING");
+
+    // M09: a still-pending refund is backed off instead of re-queried every pass.
+    await orderService.reconcilePendingRefunds();
+    assert.equal(queryCalls, 1);
+    await orderService.reconcilePendingRefunds();
+    assert.equal(queryCalls, 1);
+
+    // F07: the bank later reports the accepted refund as failed.
+    queryResult = { ok: true, completed: false, failed: true, status: "02" };
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { "payment.refundNextRetryAt": new Date(0) } }
+    );
+    await orderService.reconcilePendingRefunds();
+    const rearmed = await Order.findById(order._id).select(
+      "+payment.refundIdempotencyKey +payment.refundLastError"
+    );
+    assert.equal(rearmed.status, "REFUNDING");
+    assert.equal(rearmed.payment.refundTransactionId, "");
+    assert.notEqual(rearmed.payment.refundIdempotencyKey, usedKeys[0]);
+    assert.match(rearmed.payment.refundLastError, /refund-accepted-1 failed/);
+
+    await orderService.reconcilePendingRefunds();
+    assert.equal(usedKeys.length, 2);
+    assert.notEqual(usedKeys[1], usedKeys[0]);
+    const settled = await Order.findById(order._id);
+    assert.equal(settled.status, "REFUNDED");
+    assert.equal(settled.payment.refundTransactionId, "refund-retry-2");
+    assert.equal((await Book.findById(book._id)).stock, 10);
+  } finally {
+    paymentGateway.requestRefund = originalRequestRefund;
+    paymentGateway.queryRefundStatus = originalQuery;
+  }
+});
+
 test("cart removes only purchased quantities at the correct payment milestone", async () => {
   const codBook = await createBook({ title: "COD cart book" });
   await Cart.create({
