@@ -1381,6 +1381,13 @@ test("an accepted refund that later fails is resubmitted under a new key", async
     assert.notEqual(rearmed.payment.refundIdempotencyKey, usedKeys[0]);
     assert.match(rearmed.payment.refundLastError, /refund-accepted-1 failed/);
 
+    // R-A2: the resubmission waits for its backoff.
+    await orderService.reconcilePendingRefunds();
+    assert.equal(usedKeys.length, 1);
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { "payment.refundNextRetryAt": new Date(0) } }
+    );
     await orderService.reconcilePendingRefunds();
     assert.equal(usedKeys.length, 2);
     assert.notEqual(usedKeys[1], usedKeys[0]);

@@ -7,6 +7,7 @@ const ReturnRequest = require("../models/ReturnRequest");
 // depending on it here would close a require cycle.
 const SupportTicket = require("../models/SupportTicket");
 const paymentGateway = require("./paymentGateway");
+const notificationService = require("./notificationService");
 const { runInTransaction } = require("../utils/transaction");
 const loyaltyService = require("./loyaltyService");
 const inventoryService = require("./inventoryService");
@@ -640,6 +641,9 @@ async function receiveReturnRequest({ orderId, adminId, restock = true, returnRe
 // the refund stops retrying on its own and waits for staff to pay it out and
 // record the reference through the existing manual close.
 const MAX_AUTOMATIC_REFUND_RETRIES = 15;
+// R-A2: accepted refunds the gateway later reports failed are resubmitted at
+// most this many times in total before going to MANUAL_REQUIRED.
+const MAX_REFUND_SUBMISSIONS = 3;
 
 function refundRetryDelay(retryCount) {
   return Math.min(60 * 60 * 1000, 30_000 * 2 ** Math.min(retryCount, 7));
@@ -875,18 +879,27 @@ async function advanceReturnRequest({
  * Idempotent: a request already CLOSED reports `changed: false`.
  */
 async function completeReturnRefund({ orderId, refundTransactionId, now = new Date() }) {
-  const existing = await ReturnRequest.findOne({
-    order: orderId,
-    "refund.transactionId": String(refundTransactionId || "").trim(),
-  }).sort({ createdAt: -1, _id: -1 });
+  const reference = String(refundTransactionId || "").trim();
+  // R-A2: the current reference, or one reported failed and replaced that the
+  // bank paid after all.
+  const existing = reference
+    ? await ReturnRequest.findOne({
+        order: orderId,
+        $or: [
+          { "refund.transactionId": reference },
+          { "refund.history.transactionId": reference },
+        ],
+      }).sort({ createdAt: -1, _id: -1 })
+    : null;
   if (!existing) {
     throw serviceError(404, "Không tìm thấy yêu cầu đổi trả", "RETURN_REQUEST_NOT_FOUND");
   }
-  const reference = String(refundTransactionId || "").trim();
+  const earlierReference =
+    String(existing.refund?.transactionId || "") !== reference &&
+    (existing.refund?.history || []).some((entry) => String(entry.transactionId) === reference);
   if (
-    !reference ||
-    !existing.refund?.transactionId ||
-    String(existing.refund.transactionId) !== reference
+    !earlierReference &&
+    (!existing.refund?.transactionId || String(existing.refund.transactionId) !== reference)
   ) {
     throw serviceError(
       409,
@@ -920,13 +933,29 @@ async function completeReturnRefund({ orderId, refundTransactionId, now = new Da
   ) {
     return { request: existing, changed: false };
   }
+  const supersededReference = earlierReference ? String(existing.refund?.transactionId || "") : "";
   const request = await runInTransaction(async (session) => {
     const closed = await ReturnRequest.findOneAndUpdate(
       {
         _id: existing._id,
         status: ReturnRequest.STATUS.RECEIVED,
-        "refund.status": ReturnRequest.REFUND_STATUS.PROCESSING,
-        "refund.transactionId": reference,
+        ...(earlierReference
+          ? {
+              // Re-armed (PENDING), resubmitted (PROCESSING) or parked for
+              // staff (MANUAL_REQUIRED): the money has arrived either way.
+              "refund.status": {
+                $in: [
+                  ReturnRequest.REFUND_STATUS.PENDING,
+                  ReturnRequest.REFUND_STATUS.PROCESSING,
+                  ReturnRequest.REFUND_STATUS.MANUAL_REQUIRED,
+                ],
+              },
+              "refund.history.transactionId": reference,
+            }
+          : {
+              "refund.status": ReturnRequest.REFUND_STATUS.PROCESSING,
+              "refund.transactionId": reference,
+            }),
         "refund.businessType": "RETURN",
         "refund.sourceId": String(existing._id),
         "refund.amount": Number(existing.expectedRefundAmount),
@@ -962,6 +991,17 @@ async function completeReturnRefund({ orderId, refundTransactionId, now = new Da
       "Yêu cầu đổi trả không ở trạng thái chờ cổng thanh toán quyết toán",
       "INVALID_RETURN_TRANSITION"
     );
+  }
+  if (supersededReference) {
+    await notificationService
+      .notifyAdmins({
+        type: "refund",
+        title: "Có thể đã hoàn tiền đổi trả hai lần",
+        message: `Hồ sơ ${request.returnCode || request._id}: cổng xác nhận hoàn ${reference} trong khi lệnh hoàn ${supersededReference} cũng đã gửi. Kiểm tra và huỷ/thu hồi lệnh thừa trên cổng.`,
+        link: `/admin/orders/${orderId}`,
+        metadata: { orderId, returnRequestId: request._id },
+      })
+      .catch(() => null);
   }
   return { request, changed: true };
 }
@@ -1115,21 +1155,54 @@ async function reconcileProcessingRefunds({ limit = 20 } = {}) {
       // retry queue so the money is actually chased rather than written off.
       // The failed attempt's key is spent at the gateway, so the retry needs a
       // fresh one or it would be rejected as a duplicate forever.
+      // R-A2: bounded, with backoff, and the failed reference is kept so a
+      // late success for it still closes this request.
       failed += 1;
-      await ReturnRequest.updateOne(
+      const failedSubmissions = (Number(request.refund?.resubmitCount) || 0) + 1;
+      const exhausted = failedSubmissions >= MAX_REFUND_SUBMISSIONS;
+      const lastError = String(
+        `${result.error || `Gateway reported refund status ${result.status}`}${
+          exhausted ? `; ${failedSubmissions} lần gửi đều thất bại, cần hoàn thủ công` : ""
+        }`
+      ).slice(0, 500);
+      const parked = await ReturnRequest.updateOne(
         { _id: request._id, "refund.status": ReturnRequest.REFUND_STATUS.PROCESSING },
         {
+          $push: {
+            "refund.history": {
+              transactionId: request.refund?.transactionId || "",
+              idempotencyKey: request.refund?.idempotencyKey || "",
+              failedAt: new Date(),
+            },
+          },
           $set: {
-            "refund.status": ReturnRequest.REFUND_STATUS.PENDING,
-            "refund.idempotencyKey": `return-refund-retry:${request._id}:${crypto.randomUUID()}`,
             "refund.transactionId": "",
-            "refund.nextRetryAt": new Date(),
-            "refund.lastError": String(
-              result.error || `Gateway reported refund status ${result.status}`
-            ).slice(0, 500),
+            "refund.resubmitCount": failedSubmissions,
+            "refund.lastError": lastError,
+            ...(exhausted
+              ? {
+                  "refund.status": ReturnRequest.REFUND_STATUS.MANUAL_REQUIRED,
+                  "refund.nextRetryAt": null,
+                }
+              : {
+                  "refund.status": ReturnRequest.REFUND_STATUS.PENDING,
+                  "refund.idempotencyKey": `return-refund-retry:${request._id}:${crypto.randomUUID()}`,
+                  "refund.nextRetryAt": new Date(Date.now() + refundRetryDelay(failedSubmissions)),
+                }),
           },
         }
       );
+      if (exhausted && parked.modifiedCount === 1) {
+        await notificationService
+          .notifyAdmins({
+            type: "refund",
+            title: "Hoàn tiền đổi trả cần xử lý thủ công",
+            message: `Hoàn tiền hồ sơ ${request.returnCode || request._id} của đơn ${order.orderCode} bị cổng báo thất bại ${failedSubmissions} lần; đã chuyển sang hoàn thủ công.`,
+            link: `/admin/orders/${order._id}`,
+            metadata: { orderId: order._id, orderCode: order.orderCode, returnRequestId: request._id },
+          })
+          .catch(() => null);
+      }
       continue;
     }
 

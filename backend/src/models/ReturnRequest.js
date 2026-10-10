@@ -161,6 +161,20 @@ const returnRequestSchema = new mongoose.Schema(
       lockToken: { type: String, default: "", maxlength: 100, select: false },
       lastError: { type: String, default: "", maxlength: 500 },
       completedAt: { type: Date, default: null },
+      // R-A2 (optional, defaulted; no migration): gateway-failed resubmissions
+      // so far, and every reference/key already used for this refund.
+      resubmitCount: { type: Number, default: 0, min: 0 },
+      history: {
+        type: [
+          {
+            _id: false,
+            transactionId: { type: String, default: "", maxlength: 250 },
+            idempotencyKey: { type: String, default: "", maxlength: 250 },
+            failedAt: { type: Date, default: null },
+          },
+        ],
+        default: [],
+      },
     },
     resolvedBy: {
       type: mongoose.Schema.Types.ObjectId,

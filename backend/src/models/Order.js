@@ -167,6 +167,20 @@ const duplicateRefundSchema = new mongoose.Schema(
     lockUntil: { type: Date, default: null },
     lockToken: { type: String, default: "", maxlength: 100 },
     lastError: { type: String, default: "", maxlength: 500 },
+    // R-A2: see the order-level refund fields.
+    resubmitCount: { type: Number, default: 0, min: 0 },
+    manualRequired: { type: Boolean, default: false },
+    history: {
+      type: [
+        {
+          _id: false,
+          refundTransactionId: { type: String, default: "", maxlength: 250 },
+          idempotencyKey: { type: String, default: "", maxlength: 250 },
+          failedAt: { type: Date, default: null },
+        },
+      ],
+      default: [],
+    },
     rawPayload: {
       type: mongoose.Schema.Types.Mixed,
       default: null,
@@ -264,6 +278,25 @@ const paymentInfoSchema = new mongoose.Schema(
     refundRetryLockUntil: { type: Date, default: null, select: false },
     refundRetryLockToken: { type: String, default: "", select: false },
     refundLastError: { type: String, default: "", maxlength: 500, select: false },
+    // R-A2 (optional, defaulted; no migration): how many accepted refunds the
+    // gateway later reported failed, whether automatic resubmission gave up and
+    // needs staff, and every reference/key already used so a late callback for
+    // an earlier refund still finds its order.
+    refundResubmitCount: { type: Number, default: 0, min: 0 },
+    refundManualRequired: { type: Boolean, default: false },
+    refundHistory: {
+      type: [
+        {
+          _id: false,
+          refundTransactionId: { type: String, default: "", maxlength: 250 },
+          idempotencyKey: { type: String, default: "", maxlength: 250 },
+          gatewayStatus: { type: String, default: "", maxlength: 50 },
+          failedAt: { type: Date, default: null },
+        },
+      ],
+      default: [],
+      select: false,
+    },
     paidAt: { type: Date, default: null },
     refundedAt: { type: Date, default: null },
     // Raw gateway payload, useful for auditing/debugging

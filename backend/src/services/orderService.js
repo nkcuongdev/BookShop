@@ -64,6 +64,7 @@ const INTERNAL_ORDER_FIELDS = [
   "+payment.refundRetryLockUntil",
   "+payment.refundRetryLockToken",
   "+payment.refundLastError",
+  "+payment.refundHistory",
   "+payment.rawPayload",
   "+payment.refundRawPayload",
 ].join(" ");
@@ -423,6 +424,15 @@ function prepareRefundRequest(
   order.payment.refundLastError = "";
 }
 
+// R-A2: an accepted refund the gateway later reports failed is resubmitted
+// under a new key, but only up to this many submissions in total. After that
+// it waits for staff instead of retrying every minute forever.
+const MAX_REFUND_SUBMISSIONS = 3;
+
+function notifyAdminsSafe(payload) {
+  return notificationService.notifyAdmins(payload).catch(() => null);
+}
+
 function refundRetryDelay(attemptCount) {
   const exponent = Math.max(0, Math.min(Number(attemptCount) - 1, 10));
   return Math.min(REFUND_RETRY_BASE_MS * 2 ** exponent, REFUND_RETRY_MAX_MS);
@@ -484,6 +494,7 @@ async function executeDuplicatePaymentRefund(orderId, providerOrderId) {
           providerOrderId: normalizedReference,
           status: PAYMENT_ATTEMPT_STATUS.SUCCEEDED,
           "duplicateRefund.status": DUPLICATE_REFUND_STATUS.PENDING,
+          "duplicateRefund.manualRequired": { $ne: true },
           $and: [
             {
               $or: [
@@ -658,6 +669,8 @@ async function reconcileAcceptedDuplicateRefund(
   const retryCount = (Number(attempt.duplicateRefund.retryCount) || 0) + 1;
   const completed = Boolean(result.ok && result.completed);
   const failed = Boolean(result.ok && result.failed);
+  let exhausted = false;
+  let push = null;
   const set = {
     [`${prefix}.lockUntil`]: null,
     [`${prefix}.lockToken`]: "",
@@ -671,14 +684,30 @@ async function reconcileAcceptedDuplicateRefund(
     });
   } else if (failed) {
     // Terminal failure at the gateway: resubmit under a fresh key, as for the
-    // order-level refund.
+    // order-level refund, within the same submission cap.
+    const failedSubmissions = (Number(attempt.duplicateRefund.resubmitCount) || 0) + 1;
+    exhausted = failedSubmissions >= MAX_REFUND_SUBMISSIONS;
+    push = {
+      [`${prefix}.history`]: {
+        refundTransactionId: attempt.duplicateRefund.refundTransactionId,
+        idempotencyKey: attempt.duplicateRefund.idempotencyKey || "",
+        failedAt: now,
+      },
+    };
     Object.assign(set, {
       [`${prefix}.refundTransactionId`]: "",
-      [`${prefix}.idempotencyKey`]: `duplicate-refund-retry:${providerOrderId}:${crypto.randomUUID()}`,
-      [`${prefix}.nextRetryAt`]: now,
+      [`${prefix}.resubmitCount`]: failedSubmissions,
       [`${prefix}.lastError`]: String(
-        `Refund ${attempt.duplicateRefund.refundTransactionId} failed at the gateway (status ${result.status || "unknown"}); resubmitting`
+        `Refund ${attempt.duplicateRefund.refundTransactionId} failed at the gateway (status ${result.status || "unknown"}); ${
+          exhausted ? `${failedSubmissions} submissions failed, waiting for staff` : "resubmitting"
+        }`
       ).slice(0, 500),
+      ...(exhausted
+        ? { [`${prefix}.manualRequired`]: true, [`${prefix}.nextRetryAt`]: null }
+        : {
+            [`${prefix}.idempotencyKey`]: `duplicate-refund-retry:${providerOrderId}:${crypto.randomUUID()}`,
+            [`${prefix}.nextRetryAt`]: new Date(now.getTime() + refundRetryDelay(failedSubmissions)),
+          }),
     });
   } else {
     Object.assign(set, {
@@ -689,17 +718,28 @@ async function reconcileAcceptedDuplicateRefund(
   }
   const order = await Order.findOneAndUpdate(
     { _id: claimed._id },
-    { $set: set },
+    { $set: set, ...(push ? { $push: push } : {}) },
     {
       arrayFilters: [
         {
           "attempt.providerOrderId": providerOrderId,
+          // Never rewrite an attempt that is no longer pending (F09).
+          "attempt.duplicateRefund.status": DUPLICATE_REFUND_STATUS.PENDING,
           "attempt.duplicateRefund.lockToken": lockToken,
         },
       ],
       returnDocument: "after",
     }
   );
+  if (exhausted) {
+    await notifyAdminsSafe({
+      type: "refund",
+      title: "Hoàn khoản thu trùng cần xử lý thủ công",
+      message: `Hoàn khoản thu trùng ${providerOrderId} của đơn ${claimed.orderCode} bị cổng báo thất bại nhiều lần; hệ thống đã ngừng tự gửi lại.`,
+      link: `/admin/orders/${claimed._id}`,
+      metadata: { orderId: claimed._id, orderCode: claimed.orderCode },
+    });
+  }
   return { order, attempted: true, completed };
 }
 
@@ -708,6 +748,19 @@ async function reconcileAcceptedDuplicateRefund(
 async function settleDuplicatePaymentRefund(orderId, refundTransactionId) {
   const reference = String(refundTransactionId || "").trim();
   if (!reference) return false;
+  // Find which attempt owns the reference - its current one, or one reported
+  // failed and replaced (R-A2). arrayFilters cannot express that $or, so the
+  // update then targets the attempt by its provider reference.
+  const order = await Order.findOne({ _id: orderId }).select("+payment.attempts").lean();
+  const attempt = (order?.payment?.attempts || []).find(
+    (item) =>
+      item.duplicateRefund?.status === DUPLICATE_REFUND_STATUS.PENDING &&
+      (String(item.duplicateRefund.refundTransactionId || "") === reference ||
+        (item.duplicateRefund.history || []).some(
+          (entry) => String(entry.refundTransactionId) === reference
+        ))
+  );
+  if (!attempt) return false;
   const prefix = "payment.attempts.$[attempt].duplicateRefund";
   // The element match is in the filter, not only in arrayFilters: timestamps
   // add updatedAt to every update, so modifiedCount alone cannot tell whether
@@ -717,7 +770,7 @@ async function settleDuplicatePaymentRefund(orderId, refundTransactionId) {
       _id: orderId,
       "payment.attempts": {
         $elemMatch: {
-          "duplicateRefund.refundTransactionId": reference,
+          providerOrderId: attempt.providerOrderId,
           "duplicateRefund.status": DUPLICATE_REFUND_STATUS.PENDING,
         },
       },
@@ -725,6 +778,8 @@ async function settleDuplicatePaymentRefund(orderId, refundTransactionId) {
     {
       $set: {
         [`${prefix}.status`]: DUPLICATE_REFUND_STATUS.REFUNDED,
+        [`${prefix}.refundTransactionId`]: reference,
+        [`${prefix}.manualRequired`]: false,
         [`${prefix}.refundedAt`]: new Date(),
         [`${prefix}.nextRetryAt`]: null,
         [`${prefix}.lastError`]: "",
@@ -733,7 +788,7 @@ async function settleDuplicatePaymentRefund(orderId, refundTransactionId) {
     {
       arrayFilters: [
         {
-          "attempt.duplicateRefund.refundTransactionId": reference,
+          "attempt.providerOrderId": attempt.providerOrderId,
           "attempt.duplicateRefund.status": DUPLICATE_REFUND_STATUS.PENDING,
         },
       ],
@@ -786,6 +841,7 @@ async function executePendingRefund(orderId) {
       "payment.status": PAYMENT_STATUS.REFUNDING,
       "payment.refundTransactionId": { $in: ["", null] },
       "payment.refundIdempotencyKey": { $nin: ["", null] },
+      "payment.refundManualRequired": { $ne: true },
       $and: [
         {
           $or: [
@@ -2326,10 +2382,14 @@ async function handleRefundSuccess({
     if (!refundTransactionId) {
       throw new Error("Refund callback transaction id is required");
     }
-    if (
-      !order.payment.refundTransactionId ||
-      String(order.payment.refundTransactionId) !== String(refundTransactionId)
-    ) {
+    const reference = String(refundTransactionId);
+    const currentReference = String(order.payment.refundTransactionId || "");
+    // R-A2: a reference that was reported failed and replaced may still be
+    // paid by the bank later; it must be recorded, not rejected.
+    const earlierReference = (order.payment.refundHistory || []).some(
+      (entry) => String(entry.refundTransactionId) === reference
+    );
+    if (currentReference !== reference && !earlierReference) {
       throw new Error("Refund callback transaction id does not match the order");
     }
     if (
@@ -2344,7 +2404,10 @@ async function handleRefundSuccess({
       throw new Error("Refund callback identity does not match the order refund");
     }
     if (order.status === ORDER_STATUS.REFUNDED) {
-      return { order, changed: false };
+      // Already settled by a different reference: the customer may have been
+      // paid twice.
+      const doublePaid = currentReference && currentReference !== reference;
+      return { order, changed: false, doublePaid, otherReference: currentReference };
     }
     if (order.status !== ORDER_STATUS.REFUNDING) {
       throw new Error(
@@ -2352,14 +2415,26 @@ async function handleRefundSuccess({
       );
     }
 
+    // A replacement refund may already be in flight under another reference.
+    const supersededReference =
+      currentReference && currentReference !== reference ? currentReference : "";
     await completeRefund(order, session, rawPayload);
-    order.payment.refundTransactionId =
-      refundTransactionId || order.payment.refundTransactionId;
+    order.payment.refundTransactionId = reference;
+    order.payment.refundManualRequired = false;
     await order.save({ session });
-    return { order, changed: true };
+    return { order, changed: true, supersededReference };
   });
 
   const { order, changed } = result;
+  if (result.doublePaid || result.supersededReference) {
+    await notifyAdminsSafe({
+      type: "refund",
+      title: "Có thể đã hoàn tiền hai lần",
+      message: `Đơn ${order.orderCode}: cổng xác nhận hoàn ${refundTransactionId} trong khi lệnh hoàn ${result.otherReference || result.supersededReference} cũng đã gửi. Kiểm tra và huỷ/thu hồi lệnh thừa trên cổng.`,
+      link: `/admin/orders/${order._id}`,
+      metadata: { orderId: order._id, orderCode: order.orderCode },
+    });
+  }
   if (!changed) return order;
   await notifyUserSafe(order.user, {
     type: "refund",
@@ -2455,24 +2530,53 @@ async function deferRefundQuery(order, now = new Date()) {
 // its held stock, voucher and points in REFUNDING forever.
 async function rearmFailedRefund(order, result) {
   const failedReference = order.payment.refundTransactionId;
-  await Order.updateOne(
+  const failedSubmissions = (Number(order.payment.refundResubmitCount) || 0) + 1;
+  const exhausted = failedSubmissions >= MAX_REFUND_SUBMISSIONS;
+  const message = String(
+    exhausted
+      ? `Refund ${failedReference} failed at the gateway (status ${result.status || "unknown"}); ${failedSubmissions} submissions failed, waiting for staff`
+      : `Refund ${failedReference} failed at the gateway (status ${result.status || "unknown"}); resubmitting`
+  ).slice(0, 500);
+  const update = await Order.updateOne(
     {
       _id: order._id,
       status: ORDER_STATUS.REFUNDING,
       "payment.refundTransactionId": failedReference,
     },
     {
+      // Keep the failed reference and its key: if the bank pays it after all,
+      // the late callback must still find this order (handleRefundSuccess).
+      $push: {
+        "payment.refundHistory": {
+          refundTransactionId: failedReference,
+          idempotencyKey: order.payment.refundIdempotencyKey || "",
+          gatewayStatus: String(result.status || "").slice(0, 50),
+          failedAt: new Date(),
+        },
+      },
       $set: {
         "payment.refundTransactionId": "",
-        "payment.refundIdempotencyKey": `refund-retry:${order.orderCode}:${crypto.randomUUID()}`,
-        "payment.refundNextRetryAt": new Date(),
+        "payment.refundResubmitCount": failedSubmissions,
         "payment.refundRawPayload": result.rawPayload || null,
-        "payment.refundLastError": String(
-          `Refund ${failedReference} failed at the gateway (status ${result.status || "unknown"}); resubmitting`
-        ).slice(0, 500),
+        "payment.refundLastError": message,
+        ...(exhausted
+          ? { "payment.refundManualRequired": true, "payment.refundNextRetryAt": null }
+          : {
+              "payment.refundIdempotencyKey": `refund-retry:${order.orderCode}:${crypto.randomUUID()}`,
+              "payment.refundNextRetryAt": new Date(Date.now() + refundRetryDelay(failedSubmissions)),
+            }),
       },
     }
   );
+  if (exhausted && update.modifiedCount === 1) {
+    await notifyAdminsSafe({
+      type: "refund",
+      title: "Hoàn tiền cần xử lý thủ công",
+      message: `Hoàn tiền đơn ${order.orderCode} bị cổng báo thất bại ${failedSubmissions} lần; hệ thống đã ngừng tự gửi lại. Kiểm tra trên cổng thanh toán trước khi hoàn tay.`,
+      link: `/admin/orders/${order._id}`,
+      metadata: { orderId: order._id, orderCode: order.orderCode },
+    });
+  }
 }
 
 async function reconcilePendingRefunds(limit = 20) {
@@ -2482,6 +2586,7 @@ async function reconcilePendingRefunds(limit = 20) {
     status: ORDER_STATUS.REFUNDING,
     "payment.refundTransactionId": { $in: ["", null] },
     "payment.refundIdempotencyKey": { $nin: ["", null] },
+    "payment.refundManualRequired": { $ne: true },
     $and: [
       {
         $or: [
@@ -2576,6 +2681,7 @@ async function reconcilePendingRefunds(limit = 20) {
       $elemMatch: {
         status: PAYMENT_ATTEMPT_STATUS.SUCCEEDED,
         "duplicateRefund.status": DUPLICATE_REFUND_STATUS.PENDING,
+        "duplicateRefund.manualRequired": { $ne: true },
         $and: [
           {
             $or: [
@@ -2602,6 +2708,7 @@ async function reconcilePendingRefunds(limit = 20) {
       return (
         attempt.status === PAYMENT_ATTEMPT_STATUS.SUCCEEDED &&
         refund?.status === DUPLICATE_REFUND_STATUS.PENDING &&
+        !refund.manualRequired &&
         (!refund.nextRetryAt || refund.nextRetryAt <= now) &&
         (!refund.lockUntil || refund.lockUntil <= now)
       );

@@ -926,7 +926,7 @@ router.post("/webhook/refund", async (req, res) => {
       });
     }
     const order = await Order.findOne({ orderCode }).select(
-      "_id status payment.method payment.refundTransactionId"
+      "_id status payment.method payment.refundTransactionId +payment.refundHistory"
     );
     if (!order) {
       return res.status(404).json({ success: false, message: "Order not found" });
@@ -938,14 +938,21 @@ router.post("/webhook/refund", async (req, res) => {
     const [returnRequest, ticket, duplicateCapture] = await Promise.all([
       ReturnRequest.findOne({
         order: order._id,
-        "refund.transactionId": reference,
         "refund.paymentMethod": { $in: ["VNPAY", "MOMO"] },
-        "refund.status": {
-          $in: [
-            ReturnRequest.REFUND_STATUS.PROCESSING,
-            ReturnRequest.REFUND_STATUS.COMPLETED,
-          ],
-        },
+        $or: [
+          {
+            "refund.transactionId": reference,
+            "refund.status": {
+              $in: [
+                ReturnRequest.REFUND_STATUS.PROCESSING,
+                ReturnRequest.REFUND_STATUS.COMPLETED,
+              ],
+            },
+          },
+          // R-A2: an earlier reference the gateway reported failed and that
+          // was replaced; a late success for it must still be recorded.
+          { "refund.history.transactionId": reference },
+        ],
       }),
       SupportTicket.findOne({
         order: order._id,
@@ -957,14 +964,22 @@ router.post("/webhook/refund", async (req, res) => {
       Order.exists({
         _id: order._id,
         "payment.attempts": {
-          $elemMatch: { "duplicateRefund.refundTransactionId": reference },
+          $elemMatch: {
+            $or: [
+              { "duplicateRefund.refundTransactionId": reference },
+              { "duplicateRefund.history.refundTransactionId": reference },
+            ],
+          },
         },
       }),
     ]);
     const owners = [
       ...(["VNPAY", "MOMO"].includes(order.payment?.method) &&
       [Order.STATUS.REFUNDING, Order.STATUS.REFUNDED].includes(order.status) &&
-      String(order.payment?.refundTransactionId || "") === reference
+      (String(order.payment?.refundTransactionId || "") === reference ||
+        (order.payment?.refundHistory || []).some(
+          (entry) => String(entry.refundTransactionId) === reference
+        ))
         ? [{ type: "order", record: order }]
         : []),
       ...(returnRequest ? [{ type: "return", record: returnRequest }] : []),
