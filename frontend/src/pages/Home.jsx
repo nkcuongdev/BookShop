@@ -12,6 +12,8 @@ import TrustBadgeRow from "@/components/common/TrustBadgeRow";
 import EmptyState from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
 import useRecentlyViewed from "@/hooks/useRecentlyViewed";
+import { useAuth } from "@/context/AuthContext.jsx";
+import { isStaff } from "@/lib/rbac";
 import SectionHeader from "@/components/common/SectionHeader";
 import BookGrid from "@/components/book/BookGrid";
 
@@ -31,6 +33,7 @@ export default function Home() {
     basis: { views: 0, purchases: 0 },
   });
   const { items: recentlyViewed } = useRecentlyViewed();
+  const { user } = useAuth();
 
   useEffect(() => {
     const loadData = async () => {
@@ -122,11 +125,17 @@ export default function Home() {
           <EmptyState
             illustration={EmptyShelfIllustration}
             title="Chưa có sách nào"
-            description="Vui lòng thêm danh mục và sách qua trang quản trị Admin để bắt đầu."
+            description={
+              isStaff(user)
+                ? "Vui lòng thêm danh mục và sách qua trang quản trị Admin để bắt đầu."
+                : "Cửa hàng đang cập nhật sách mới. Vui lòng quay lại sau nhé!"
+            }
             action={
-              <Button asChild>
-                <Link to="/admin/categories">Thêm danh mục</Link>
-              </Button>
+              isStaff(user) ? (
+                <Button asChild>
+                  <Link to="/admin/categories">Thêm danh mục</Link>
+                </Button>
+              ) : null
             }
           />
         </section>
