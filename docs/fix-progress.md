@@ -24,7 +24,7 @@ TRANSITIONS trong `backend/src/models/Order.js`: **chưa thay đổi**.
 | F13 | ĐÃ SỬA | (commit F13) | supportLostInTransit "a lost-parcel reship must cover every line not already refunded" — đã chạy, 16/16 pass | Theo cách sửa đơn giản nhất báo cáo đề xuất: `createLostReshipResolution` (trong transaction) bắt buộc danh sách giao lại bằng đúng phần chưa được hoàn qua ticket thất lạc khác của mọi dòng (`assertCompleteLostReship`), lỗi `LOST_RESHIP_MUST_BE_COMPLETE`. Không đổi logic giao thành công. Mô tả phương án trên panel admin ghi rõ yêu cầu này. Hệ quả: không còn giao lại một phần kiện thất lạc. |
 | F04 | CẦN QUYẾT ĐỊNH | — | — | Xác nhận còn đúng: `processOne` (orderCancellationService) retry mãi khi `cancelGhnShipmentAtProvider` ném lỗi (backoff tối đa 1 giờ), outbox chỉ có PENDING/PROCESSING/COMPLETED, không có lối thoát. Lối thoát thật (đơn quay về PROCESSING/SHIPPED khi hãng đã lấy hàng) cần thêm cạnh `CANCELLING → PROCESSING/SHIPPED` vào TRANSITIONS, hoặc phải chốt chính sách xử lý thủ công. Xem câu hỏi ở báo cáo cuối phiên. |
 | M05 | ĐÃ SỬA | (commit M05) | supportLostInTransit "a late delivered webhook does not deliver an order already declared lost" — đã chạy, 17/17 pass; orderService.integration 38/38; shippingService 4/4 | `syncGhnWebhook` (cũng là đường của giả lập Sandbox) không tự chuyển DELIVERED khi đơn có ticket LOST_IN_TRANSIT_* còn hiệu lực; vẫn ghi tracking event. Khi hãng báo "delivered" mà đơn không thành DELIVERED (có hồ sơ thất lạc, hoặc đơn đã REFUNDED/CANCELLING… trước đây bị nuốt lỗi im lặng) thì gửi thông báo cho admin (một lần cho mỗi sự kiện mới). Không đổi TRANSITIONS. Việc xử lý tiếp (giao rồi điều chỉnh điểm, huỷ kiện giao lại…) để agent quyết định. |
-| F14 | CHƯA LÀM | | | |
+| F14 | ĐÃ SỬA | (commit F14) | supportLostInTransit "lost-parcel refunds split across tickets refund the fee and close the order" — đã chạy, 18/18 pass | (1) `closeLostOrderWhenFullyRefunded` xét tổng `supportCompensation.refundedAmount` đọc lại trong transaction, không so riêng số tiền ticket hiện tại. (2) Ticket hoàn thất lạc phủ hết các dòng còn lại nhận phần tiền còn lại của đơn (gồm phí giao), giống một lần hoàn toàn bộ; các ticket trước vẫn tính theo dòng. Hàm `coversAllOutstandingLines` dùng chung với F13. Voucher/điểm đã dùng khi hoàn thất lạc từng phần: xem M13. |
 | F07 | CHƯA LÀM | | | |
 | M04 | CHƯA LÀM | | | |
 | M06 | CHƯA LÀM | | | |
@@ -67,4 +67,4 @@ TRANSITIONS trong `backend/src/models/Order.js`: **chưa thay đổi**.
 
 ## Lỗi mới phát hiện trong lúc sửa (chưa sửa)
 
-- (chưa có)
+- `backend/src/services/returnRequestService.js` (có sẵn trên `main`, 6 dòng): chuỗi tiếng Việt bị lỗi mã hoá kép (mojibake), ví dụ `returnInstructions` mặc định "Vui lÃ²ng Ä‘Ã³ng gÃ³i…" trong `resolveReturnRequest`. Khách sẽ thấy chữ lỗi trong hướng dẫn trả hàng.

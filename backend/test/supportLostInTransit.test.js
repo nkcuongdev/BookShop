@@ -791,3 +791,64 @@ test("a late delivered webhook does not deliver an order already declared lost",
   assert.ok(alert, "an agent is told the carrier delivered a lost order");
   assert.match(alert.message, /hồ sơ thất lạc/);
 });
+
+test("lost-parcel refunds split across tickets refund the fee and close the order", async (t) => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const books = await Book.create([
+    { title: "Split A", author: "A", price: 100000, category: "technology", stock: 5, status: "active" },
+    { title: "Split B", author: "B", price: 100000, category: "technology", stock: 5, status: "active" },
+  ]);
+  const order = await Order.create({
+    user: customer._id,
+    items: books.map((book) => ({
+      book: book._id,
+      title: book.title,
+      category: "technology",
+      price: 100000,
+      quantity: 1,
+      subtotal: 100000,
+    })),
+    subtotal: 200000,
+    shippingFee: 30000,
+    totalAmount: 230000,
+    status: Order.STATUS.SHIPPED,
+    shippedAt: new Date(),
+    placedAt: new Date(),
+    payment: {
+      method: "VNPAY",
+      status: "PAID",
+      transactionId: "tx-split-1",
+      providerOrderId: "provider-split-1",
+      paidAt: new Date(),
+    },
+    shippingAddress: { fullName: customer.name, phone: "0900000000", address: "1 Test Street" },
+  });
+  t.mock.method(paymentGateway, "requestRefund", async ({ idempotencyKey }) => ({
+    ok: true,
+    completed: true,
+    refundTransactionId: `refund-${idempotencyKey.slice(-12)}`,
+  }));
+  const first = await ticketFor(customer, order);
+  const second = await ticketFor(customer, order, "OTHER");
+  const refund = (ticketId, book) =>
+    supportResolutionService.createResolution({
+      ticketId,
+      adminId: admin._id,
+      payload: {
+        type: "LOST_IN_TRANSIT_REFUND",
+        note: "Thất lạc",
+        items: [{ bookId: String(book._id), quantity: 1 }],
+      },
+    });
+
+  const firstResult = await refund(first.ticketId, books[0]);
+  assert.equal(firstResult.ticket.resolution.amount, 100000);
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.SHIPPED);
+
+  const secondResult = await refund(second.ticketId, books[1]);
+  assert.equal(secondResult.ticket.resolution.amount, 130000, "the last ticket includes the delivery fee");
+  const stored = await Order.findById(order._id).lean();
+  assert.equal(stored.supportCompensation.refundedAmount, 230000);
+  assert.equal(stored.status, Order.STATUS.REFUNDED);
+});

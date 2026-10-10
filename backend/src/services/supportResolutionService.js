@@ -351,9 +351,15 @@ async function revokeSupportRefundPoints(ticket, order, session) {
 }
 
 async function closeLostOrderWhenFullyRefunded(ticket, order, session) {
+  if (ticket.resolution?.type !== "LOST_IN_TRANSIT_REFUND") return null;
+  // Judge by everything refunded so far, not this ticket alone: a lost parcel
+  // refunded over several tickets must close the order once fully paid back.
+  const current = await Order.findById(order._id)
+    .select("totalAmount supportCompensation.refundedAmount")
+    .session(session);
   if (
-    ticket.resolution?.type !== "LOST_IN_TRANSIT_REFUND" ||
-    Number(ticket.resolution.amount) !== Number(order.totalAmount)
+    (Number(current?.supportCompensation?.refundedAmount) || 0) <
+    Number(current?.totalAmount)
   ) {
     return null;
   }
@@ -509,7 +515,19 @@ async function createLostRefundResolution(ticket, order, adminId, items, note) {
       "ORDER_NOT_PAID"
     );
   }
-  const amount = calculateRefundAmount(order, items);
+  // The ticket that refunds the last outstanding lines takes the remaining
+  // balance, delivery fee included, exactly as a single full refund would;
+  // per-line pricing alone would strand the fee across several tickets.
+  const amount = (await coversAllOutstandingLines(order, ticket._id, items))
+    ? Math.max(
+        0,
+        Math.round(
+          Number(order.totalAmount) -
+            (Number(order.supportCompensation?.refundedAmount) || 0) -
+            (Number(order.supportCompensation?.reservedRefundAmount) || 0)
+        )
+      )
+    : calculateRefundAmount(order, items);
   if (!amount) throw serviceError(422, "Số tiền hoàn không hợp lệ", "INVALID_REFUND_AMOUNT");
 
   const resolutionTicket = await reserveRefundAndResolution(
@@ -535,7 +553,9 @@ async function createLostRefundResolution(ticket, order, adminId, items, note) {
 // Delivering the replacement parcel marks the whole order DELIVERED (sold,
 // points, COD), so a lost-parcel reship must cover every line that has not
 // already been refunded through another lost-in-transit resolution.
-async function assertCompleteLostReship(order, ticketId, items, session) {
+// Whether `items` settle every line not already covered by another support
+// compensation of this order.
+async function coversAllOutstandingLines(order, ticketId, items, session = null) {
   const others = await findSupportLineCompensations(order._id, {
     excludeTicketId: ticketId,
     session,
@@ -548,11 +568,15 @@ async function assertCompleteLostReship(order, ticketId, items, session) {
   const submitted = new Map(
     items.map((item) => [String(item.book), Number(item.quantity) || 0])
   );
-  const incomplete = order.items.some((item) => {
+  return order.items.every((item) => {
     const key = String(item.book?._id || item.book);
     const outstanding = (Number(item.quantity) || 0) - (consumed.get(key) || 0);
-    return outstanding > 0 && (submitted.get(key) || 0) !== outstanding;
+    return outstanding <= 0 || (submitted.get(key) || 0) === outstanding;
   });
+}
+
+async function assertCompleteLostReship(order, ticketId, items, session) {
+  const incomplete = !(await coversAllOutstandingLines(order, ticketId, items, session));
   if (incomplete) {
     throw serviceError(
       422,
