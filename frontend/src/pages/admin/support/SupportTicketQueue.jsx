@@ -15,8 +15,16 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { EmptyState } from "@/components/admin/common/EmptyState";
 import { PageHeader } from "@/components/admin/common/PageHeader";
+import { DataTableToolbar } from "@/components/admin/common/DataTableToolbar";
 import { supportTicketsAPI } from "@/services/api";
 import { useSupportTicketEvents } from "@/hooks/useSupportTicketEvents";
 import {
@@ -28,6 +36,7 @@ import { formatDateTimeVN } from "@/utils/format";
 
 const statusOptions = Object.entries(TICKET_STATUS);
 const priorityOptions = Object.entries(TICKET_PRIORITY);
+const ALL = "all";
 
 export default function SupportTicketQueue() {
   const navigate = useNavigate();
@@ -80,60 +89,67 @@ export default function SupportTicketQueue() {
         description="Phân công, theo dõi SLA và xử lý yêu cầu theo từng đơn hàng."
       />
 
-      <Card className="p-3">
-        <div className="grid gap-2 lg:grid-cols-[minmax(260px,1fr)_190px_170px_210px]">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="pl-9"
-              placeholder="Tìm mã ticket, tiêu đề..."
-              value={filters.search}
-              onChange={(event) => updateFilter("search", event.target.value)}
-            />
-          </div>
-          <select
-            className="h-10 rounded-md border bg-background px-3 text-sm"
-            value={filters.status}
-            onChange={(event) => updateFilter("status", event.target.value)}
-          >
-            <option value="">Mọi trạng thái</option>
-            {statusOptions.map(([value, item]) => (
-              <option key={value} value={value}>{item.label}</option>
-            ))}
-          </select>
-          <select
-            className="h-10 rounded-md border bg-background px-3 text-sm"
-            value={filters.priority}
-            onChange={(event) => updateFilter("priority", event.target.value)}
-          >
-            <option value="">Mọi ưu tiên</option>
-            {priorityOptions.map(([value, item]) => (
-              <option key={value} value={value}>{item.label}</option>
-            ))}
-          </select>
-          <select
-            className="h-10 rounded-md border bg-background px-3 text-sm"
-            value={filters.assignee}
-            onChange={(event) => updateFilter("assignee", event.target.value)}
-          >
-            <option value="">Mọi người phụ trách</option>
-            <option value="unassigned">Chưa phân công</option>
-            {(agentsQuery.data || []).map((agent) => (
-              <option key={agent._id} value={agent._id}>{agent.name}</option>
-            ))}
-          </select>
-        </div>
-      </Card>
-
       <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b px-5 py-4">
-          <div>
-            <h2 className="font-semibold text-foreground">Danh sách ticket</h2>
-            <p className="text-xs text-muted-foreground">
+        <div className="px-4 pt-4">
+          <DataTableToolbar>
+            <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative w-full sm:max-w-xs">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
+                <Input
+                  className="h-9 pl-8"
+                  placeholder="Tìm mã ticket, tiêu đề..."
+                  value={filters.search}
+                  onChange={(event) => updateFilter("search", event.target.value)}
+                />
+              </div>
+              <Select
+                value={filters.status || ALL}
+                onValueChange={(value) => updateFilter("status", value === ALL ? "" : value)}
+              >
+                <SelectTrigger className="h-9 w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Mọi trạng thái</SelectItem>
+                  {statusOptions.map(([value, item]) => (
+                    <SelectItem key={value} value={value}>{item.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={filters.priority || ALL}
+                onValueChange={(value) => updateFilter("priority", value === ALL ? "" : value)}
+              >
+                <SelectTrigger className="h-9 w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Mọi ưu tiên</SelectItem>
+                  {priorityOptions.map(([value, item]) => (
+                    <SelectItem key={value} value={value}>{item.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={filters.assignee || ALL}
+                onValueChange={(value) => updateFilter("assignee", value === ALL ? "" : value)}
+              >
+                <SelectTrigger className="h-9 w-[200px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Mọi người phụ trách</SelectItem>
+                  <SelectItem value="unassigned">Chưa phân công</SelectItem>
+                  {(agentsQuery.data || []).map((agent) => (
+                    <SelectItem key={agent._id} value={agent._id}>{agent.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="shrink-0 text-xs text-muted-foreground">
               {pagination.total} yêu cầu phù hợp
             </p>
-          </div>
-          <Headphones className="size-5 text-muted-foreground" />
+          </DataTableToolbar>
         </div>
 
         {listQuery.isLoading ? (
