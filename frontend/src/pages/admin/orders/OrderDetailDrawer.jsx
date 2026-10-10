@@ -41,6 +41,7 @@ import { can } from "@/lib/rbac";
 import OrderReceiptPrintButton from "@/components/order/OrderReceipt";
 import AdminReturnRequestCard from "@/components/admin/orders/AdminReturnRequestCard";
 import CancelOrderDialog from "@/components/order/CancelOrderDialog";
+import ReturnRequestStatusBadge from "@/components/order/ReturnRequestStatusBadge";
 
 const ADMIN_CANCEL_REASONS = [
   "Khách yêu cầu huỷ",
@@ -93,6 +94,9 @@ function StatusTimeline({ order, current }) {
   );
 }
 
+const FINISHED_RETURN_STATUSES = new Set(["CLOSED", "REJECTED"]);
+const HISTORY_PREVIEW_COUNT = 4;
+
 const statusLabel = (status) =>
   ORDER_STATUSES.find((item) => item.value === status)?.label || status || "—";
 
@@ -120,6 +124,7 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
   const returnRequestAction = useReturnRequestAction();
   const confirm = useConfirm();
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [showAllHistory, setShowAllHistory] = useState(false);
   const { user } = useAuth();
   // Sau khi huỷ vận đơn GHN, mã cũ đã chết: không điền sẵn vào form bàn giao
   // thủ công để tránh bàn giao bằng mã vận đơn không còn hiệu lực.
@@ -302,330 +307,6 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
             <StatusTimeline order={order} current={normalizedStatus} />
           </div>
 
-          {/* Đơn đang huỷ: cho biết việc huỷ vận đơn còn đang thử lại hay đã dừng
-              chờ nhân viên (hãng từ chối huỷ, mất kết nối...). */}
-          {normalizedStatus === "CANCELLING" && order.cancellation && (
-            <div
-              role={order.cancellation.status === "FAILED" ? "alert" : "status"}
-              className={`rounded-xl border p-4 text-sm ${
-                order.cancellation.status === "FAILED"
-                  ? "border-danger-strong/40 bg-danger-muted text-danger-strong"
-                  : "border-warning/30 bg-warning-muted/40 text-foreground"
-              }`}
-            >
-              {order.cancellation.status === "FAILED" ? (
-                <p className="font-medium">
-                  Không huỷ được vận đơn sau {order.cancellation.attempts} lần thử. Cần kiểm tra
-                  với đơn vị vận chuyển (có thể hàng đã được lấy) rồi thử lại.
-                </p>
-              ) : (
-                <p className="font-medium">
-                  Đang chờ huỷ vận đơn
-                  {order.cancellation.attempts > 0
-                    ? ` (đã thử ${order.cancellation.attempts} lần)`
-                    : ""}
-                  .
-                </p>
-              )}
-              {order.cancellation.lastError && (
-                <p className="mt-1 text-xs">Lỗi gần nhất: {order.cancellation.lastError}</p>
-              )}
-              {order.cancellation.status === "FAILED" && can(user, "order.support") && (
-                <Button
-                  className="mt-3"
-                  size="sm"
-                  variant="outline"
-                  loading={orderAction.isPending}
-                  onClick={() => orderAction.mutate({ id, action: "retryCancellation" })}
-                >
-                  Thử huỷ vận đơn lại
-                </Button>
-              )}
-            </div>
-          )}
-
-          {/* Một đơn có thể có nhiều hồ sơ đổi trả: hiện tất cả và gửi kèm id hồ sơ
-              để thao tác đúng hồ sơ đang xem. */}
-          {(order.returnRequests?.length
-            ? order.returnRequests
-            : order.returnRequest
-              ? [order.returnRequest]
-              : []
-          ).map((request) => (
-            <AdminReturnRequestCard
-              key={request._id || request.id}
-              request={request}
-              readOnly={!can(user, "order.support")}
-              resolving={returnRequestAction.isPending}
-              onResolve={(status, adminNote, options = {}) =>
-                returnRequestAction.mutate({
-                  id,
-                  returnRequestId: request._id || request.id,
-                  status,
-                  adminNote,
-                  ...options,
-                })
-              }
-            />
-          ))}
-
-          {(order.carrier || order.trackingNumber || order.estimatedDelivery) && (
-              <div className="rounded-xl border border-border p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <Truck className="size-4 text-muted-foreground/70" />
-                  <h4 className="text-sm font-semibold text-foreground">Thông tin vận chuyển</h4>
-                </div>
-                <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Đơn vị vận chuyển</dt>
-                    <dd className="font-medium text-foreground">{order.carrier || "—"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Mã vận đơn</dt>
-                    <dd className="font-mono text-foreground">{order.trackingNumber || "—"}</dd>
-                  </div>
-                  {order.estimatedDelivery && (
-                    <div>
-                      <dt className="text-xs text-muted-foreground">Giao dự kiến</dt>
-                      <dd className="font-medium text-foreground">
-                        {formatDateVN(order.estimatedDelivery)}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-              </div>
-            )}
-
-          {/* Khách hàng / Địa chỉ */}
-          <div className="grid grid-cols-1 gap-4 rounded-xl border border-border p-4 sm:grid-cols-2">
-            <div className="flex items-start gap-2">
-              <User className="mt-0.5 size-4 text-muted-foreground/70" />
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">Khách hàng</p>
-                <p className="font-medium text-foreground">
-                  {order.shippingAddress?.fullName || "—"}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <Phone className="mt-0.5 size-4 text-muted-foreground/70" />
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">Số điện thoại</p>
-                <p className="font-medium text-foreground">
-                  {order.shippingAddress?.phone || "—"}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2 sm:col-span-2">
-              <MapPin className="mt-0.5 size-4 text-muted-foreground/70" />
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">Địa chỉ giao</p>
-                <p className="font-medium text-foreground">
-                  {[
-                    order.shippingAddress?.address,
-                    order.shippingAddress?.ward,
-                    order.shippingAddress?.district,
-                    order.shippingAddress?.city,
-                  ]
-                    .filter(Boolean)
-                    .join(", ") || "—"}
-                </p>
-              </div>
-            </div>
-            {order.note && (
-              <div className="flex items-start gap-2 border-t border-border pt-3 sm:col-span-2">
-                <StickyNote className="mt-0.5 size-4 shrink-0 text-muted-foreground/70" />
-                <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">Yêu cầu giao hàng</p>
-                  <p className="whitespace-pre-wrap break-words font-medium text-foreground">
-                    {order.note}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Thanh toán */}
-          <div className="rounded-xl border border-border p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <CreditCard className="size-4 text-muted-foreground/70" />
-              <h4 className="text-sm font-semibold text-foreground">
-                Thông tin thanh toán
-              </h4>
-            </div>
-            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <p className="text-xs text-muted-foreground">Phương thức</p>
-                <div className="mt-1">
-                  <StatusBadge status={payment.method || "COD"} />
-                </div>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Trạng thái</p>
-                <div className="mt-1">
-                  <StatusBadge status={payment.status || "UNPAID"} />
-                </div>
-              </div>
-              {payment.transactionId && (
-                <div className="sm:col-span-2">
-                  <p className="text-xs text-muted-foreground">Mã giao dịch</p>
-                  <p className="font-mono text-xs text-foreground break-all">
-                    {payment.transactionId}
-                  </p>
-                </div>
-              )}
-              {payment.paidAt && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Thời điểm trả</p>
-                  <p className="font-medium text-foreground">
-                    {formatDateTimeVN(payment.paidAt)}
-                  </p>
-                </div>
-              )}
-              {payment.refundTransactionId && (
-                <div className="sm:col-span-2">
-                  <p className="text-xs text-muted-foreground">Mã refund</p>
-                  <p className="font-mono text-xs text-foreground break-all">
-                    {payment.refundTransactionId}
-                  </p>
-                </div>
-              )}
-              {/* Hai nguồn hoàn tiền tách riêng để không cộng trùng: hoàn cả đơn
-                  (huỷ/thanh toán muộn) và hoàn hậu mãi (đổi trả, ticket). */}
-              {["REFUNDING", "REFUNDED"].includes(normalizedStatus) &&
-                Number(payment.refundAmount) > 0 && (
-                  <div>
-                    <p className="text-xs text-muted-foreground">
-                      {normalizedStatus === "REFUNDED" ? "Đã hoàn cả đơn" : "Đang hoàn cả đơn"}
-                    </p>
-                    <p className="font-medium text-foreground">
-                      {formatVND(payment.refundAmount)}
-                    </p>
-                  </div>
-                )}
-              {Number(order.supportCompensation?.refundedAmount) > 0 && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Đã hoàn hậu mãi (đổi trả/ticket)</p>
-                  <p className="font-medium text-foreground">
-                    {formatVND(order.supportCompensation.refundedAmount)}
-                  </p>
-                </div>
-              )}
-              {order.cancelReason && (
-                <div className="sm:col-span-2">
-                  <p className="text-xs text-muted-foreground">Lý do huỷ</p>
-                  <p className="whitespace-pre-wrap break-words font-medium text-foreground">
-                    {order.cancelReason}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Lịch sử trạng thái thật của đơn (ai, khi nào, lý do) */}
-          {(order.history || []).length > 0 && (
-            <div className="rounded-xl border border-border p-4">
-              <h4 className="mb-3 text-sm font-semibold text-foreground">Lịch sử trạng thái</h4>
-              <ol className="space-y-2 text-sm">
-                {[...order.history].reverse().map((entry, index) => (
-                  <li key={`${entry.at}-${index}`} className="flex flex-col gap-0.5">
-                    <span className="font-medium text-foreground">
-                      {statusLabel(entry.from)} → {statusLabel(entry.to)}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {[formatDateTimeVN(entry.at), actorLabel(entry.by), entry.reason]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
-
-          {/* Sản phẩm */}
-          <div className="rounded-xl border border-border">
-            <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-              <Package className="size-4 text-muted-foreground/70" />
-              <h4 className="text-sm font-semibold text-foreground">Sản phẩm</h4>
-            </div>
-            <ul className="divide-y divide-border">
-              {(order.items || []).map((item, i) => {
-                const title = item.book?.title || item.title || "Sản phẩm";
-                const price = item.price || item.book?.price || 0;
-                const qty = item.quantity || 1;
-                return (
-                  <li key={i} className="flex items-center gap-3 px-4 py-3">
-                    <img
-                      src={item.book?.imageUrl || item.imageUrl}
-                      alt={title}
-                      className="h-12 w-9 shrink-0 rounded-lg bg-muted object-cover"
-                      onError={(e) => {
-                        e.currentTarget.style.visibility = "hidden";
-                      }}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {title}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatVND(price)} × {qty}
-                      </p>
-                    </div>
-                    <p className="text-sm font-semibold text-foreground">
-                      {formatVND(price * qty)}
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="space-y-1 border-t border-border px-4 py-3 text-sm">
-              <div className="flex items-center justify-between text-muted-foreground">
-                <span>Tạm tính</span>
-                <span>{formatVND(order.subtotal || 0)}</span>
-              </div>
-              {orderDiscount > 0 && (
-                <div className="flex items-center justify-between text-muted-foreground">
-                  <span>
-                    Giảm giá đơn hàng
-                    {order.voucher?.code ? ` (${order.voucher.code})` : ""}
-                  </span>
-                  <span>- {formatVND(orderDiscount)}</span>
-                </div>
-              )}
-              {shippingDiscount > 0 && (
-                <div className="flex items-center justify-between text-muted-foreground">
-                  <span>
-                    Giảm phí vận chuyển
-                    {order.shippingVoucher?.code
-                      ? ` (${order.shippingVoucher.code})`
-                      : order.voucher?.scope === "shipping" && order.voucher?.code
-                        ? ` (${order.voucher.code})`
-                        : ""}
-                  </span>
-                  <span>- {formatVND(shippingDiscount)}</span>
-                </div>
-              )}
-              {Number(order.pointsDiscountAmount) > 0 && (
-                <div className="flex items-center justify-between text-muted-foreground">
-                  <span>
-                    Giảm bằng điểm
-                    {order.pointsRedeemed ? ` (${order.pointsRedeemed} điểm)` : ""}
-                  </span>
-                  <span>- {formatVND(order.pointsDiscountAmount)}</span>
-                </div>
-              )}
-              <div className="flex items-center justify-between text-muted-foreground">
-                <span>Phí vận chuyển</span>
-                <span>{formatVND(order.shippingFee || 0)}</span>
-              </div>
-              <div className="flex items-center justify-between pt-1 text-base font-bold text-primary">
-                <span>Tổng cộng</span>
-                <span>{formatVND(order.totalAmount || 0)}</span>
-              </div>
-            </div>
-          </div>
-
           {/* Actions */}
           {!error && (actions.length > 0 || showSandboxPanel) && (
             <div className="rounded-xl border border-border p-4">
@@ -778,6 +459,368 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
                   </Button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Đơn đang huỷ: cho biết việc huỷ vận đơn còn đang thử lại hay đã dừng
+              chờ nhân viên (hãng từ chối huỷ, mất kết nối...). */}
+          {normalizedStatus === "CANCELLING" && order.cancellation && (
+            <div
+              role={order.cancellation.status === "FAILED" ? "alert" : "status"}
+              className={`rounded-xl border p-4 text-sm ${
+                order.cancellation.status === "FAILED"
+                  ? "border-danger-strong/40 bg-danger-muted text-danger-strong"
+                  : "border-warning/30 bg-warning-muted/40 text-foreground"
+              }`}
+            >
+              {order.cancellation.status === "FAILED" ? (
+                <p className="font-medium">
+                  Không huỷ được vận đơn sau {order.cancellation.attempts} lần thử. Cần kiểm tra
+                  với đơn vị vận chuyển (có thể hàng đã được lấy) rồi thử lại.
+                </p>
+              ) : (
+                <p className="font-medium">
+                  Đang chờ huỷ vận đơn
+                  {order.cancellation.attempts > 0
+                    ? ` (đã thử ${order.cancellation.attempts} lần)`
+                    : ""}
+                  .
+                </p>
+              )}
+              {order.cancellation.lastError && (
+                <p className="mt-1 text-xs">Lỗi gần nhất: {order.cancellation.lastError}</p>
+              )}
+              {order.cancellation.status === "FAILED" && can(user, "order.support") && (
+                <Button
+                  className="mt-3"
+                  size="sm"
+                  variant="outline"
+                  loading={orderAction.isPending}
+                  onClick={() => orderAction.mutate({ id, action: "retryCancellation" })}
+                >
+                  Thử huỷ vận đơn lại
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Một đơn có thể có nhiều hồ sơ đổi trả: hiện tất cả và gửi kèm id hồ sơ
+              để thao tác đúng hồ sơ đang xem. */}
+          {(order.returnRequests?.length
+            ? order.returnRequests
+            : order.returnRequest
+              ? [order.returnRequest]
+              : []
+          ).map((request) => {
+            const card = (
+              <AdminReturnRequestCard
+                key={request._id || request.id}
+                request={request}
+                readOnly={!can(user, "order.support")}
+                resolving={returnRequestAction.isPending}
+                onResolve={(status, adminNote, options = {}) =>
+                  returnRequestAction.mutate({
+                    id,
+                    returnRequestId: request._id || request.id,
+                    status,
+                    adminNote,
+                    ...options,
+                  })
+                }
+              />
+            );
+            // Hồ sơ đã kết thúc thu gọn thành một dòng để các hồ sơ còn việc
+            // phải làm không bị đẩy xuống dưới.
+            if (!FINISHED_RETURN_STATUSES.has(request.status)) return card;
+            return (
+              <details
+                key={request._id || request.id}
+                className="rounded-xl border border-border px-4 py-3 text-sm"
+              >
+                <summary className="flex cursor-pointer flex-wrap items-center gap-2">
+                  <span className="font-medium text-foreground">
+                    Hồ sơ đổi trả {request.returnCode || ""}
+                  </span>
+                  <ReturnRequestStatusBadge status={request.status} />
+                  {Number(request.refund?.amount) > 0 && (
+                    <span className="text-muted-foreground">
+                      · Đã hoàn {formatVND(request.refund.amount)}
+                    </span>
+                  )}
+                </summary>
+                <div className="mt-3">{card}</div>
+              </details>
+            );
+          })}
+
+          {/* Sản phẩm */}
+          <div className="rounded-xl border border-border">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+              <Package className="size-4 text-muted-foreground/70" />
+              <h4 className="text-sm font-semibold text-foreground">Sản phẩm</h4>
+            </div>
+            <ul className="divide-y divide-border">
+              {(order.items || []).map((item, i) => {
+                const title = item.book?.title || item.title || "Sản phẩm";
+                const price = item.price || item.book?.price || 0;
+                const qty = item.quantity || 1;
+                return (
+                  <li key={i} className="flex items-center gap-3 px-4 py-3">
+                    <img
+                      src={item.book?.imageUrl || item.imageUrl}
+                      alt={title}
+                      className="h-12 w-9 shrink-0 rounded-lg bg-muted object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.visibility = "hidden";
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {title}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatVND(price)} × {qty}
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold text-foreground">
+                      {formatVND(price * qty)}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="space-y-1 border-t border-border px-4 py-3 text-sm">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>Tạm tính</span>
+                <span>{formatVND(order.subtotal || 0)}</span>
+              </div>
+              {orderDiscount > 0 && (
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>
+                    Giảm giá đơn hàng
+                    {order.voucher?.code ? ` (${order.voucher.code})` : ""}
+                  </span>
+                  <span>- {formatVND(orderDiscount)}</span>
+                </div>
+              )}
+              {shippingDiscount > 0 && (
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>
+                    Giảm phí vận chuyển
+                    {order.shippingVoucher?.code
+                      ? ` (${order.shippingVoucher.code})`
+                      : order.voucher?.scope === "shipping" && order.voucher?.code
+                        ? ` (${order.voucher.code})`
+                        : ""}
+                  </span>
+                  <span>- {formatVND(shippingDiscount)}</span>
+                </div>
+              )}
+              {Number(order.pointsDiscountAmount) > 0 && (
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>
+                    Giảm bằng điểm
+                    {order.pointsRedeemed ? ` (${order.pointsRedeemed} điểm)` : ""}
+                  </span>
+                  <span>- {formatVND(order.pointsDiscountAmount)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>Phí vận chuyển</span>
+                <span>{formatVND(order.shippingFee || 0)}</span>
+              </div>
+              <div className="flex items-center justify-between pt-1 text-base font-bold text-primary">
+                <span>Tổng cộng</span>
+                <span>{formatVND(order.totalAmount || 0)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Thanh toán */}
+          <div className="rounded-xl border border-border p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <CreditCard className="size-4 text-muted-foreground/70" />
+              <h4 className="text-sm font-semibold text-foreground">
+                Thông tin thanh toán
+              </h4>
+            </div>
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <p className="text-xs text-muted-foreground">Phương thức</p>
+                <div className="mt-1">
+                  <StatusBadge status={payment.method || "COD"} />
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Trạng thái</p>
+                <div className="mt-1">
+                  <StatusBadge status={payment.status || "UNPAID"} />
+                </div>
+              </div>
+              {payment.transactionId && (
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-muted-foreground">Mã giao dịch</p>
+                  <p className="font-mono text-xs text-foreground break-all">
+                    {payment.transactionId}
+                  </p>
+                </div>
+              )}
+              {payment.paidAt && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Thời điểm trả</p>
+                  <p className="font-medium text-foreground">
+                    {formatDateTimeVN(payment.paidAt)}
+                  </p>
+                </div>
+              )}
+              {payment.refundTransactionId && (
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-muted-foreground">Mã refund</p>
+                  <p className="font-mono text-xs text-foreground break-all">
+                    {payment.refundTransactionId}
+                  </p>
+                </div>
+              )}
+              {/* Hai nguồn hoàn tiền tách riêng để không cộng trùng: hoàn cả đơn
+                  (huỷ/thanh toán muộn) và hoàn hậu mãi (đổi trả, ticket). */}
+              {["REFUNDING", "REFUNDED"].includes(normalizedStatus) &&
+                Number(payment.refundAmount) > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground">
+                      {normalizedStatus === "REFUNDED" ? "Đã hoàn cả đơn" : "Đang hoàn cả đơn"}
+                    </p>
+                    <p className="font-medium text-foreground">
+                      {formatVND(payment.refundAmount)}
+                    </p>
+                  </div>
+                )}
+              {Number(order.supportCompensation?.refundedAmount) > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Đã hoàn hậu mãi (đổi trả/ticket)</p>
+                  <p className="font-medium text-foreground">
+                    {formatVND(order.supportCompensation.refundedAmount)}
+                  </p>
+                </div>
+              )}
+              {order.cancelReason && (
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-muted-foreground">Lý do huỷ</p>
+                  <p className="whitespace-pre-wrap break-words font-medium text-foreground">
+                    {order.cancelReason}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {(order.carrier || order.trackingNumber || order.estimatedDelivery) && (
+              <div className="rounded-xl border border-border p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <Truck className="size-4 text-muted-foreground/70" />
+                  <h4 className="text-sm font-semibold text-foreground">Thông tin vận chuyển</h4>
+                </div>
+                <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Đơn vị vận chuyển</dt>
+                    <dd className="font-medium text-foreground">{order.carrier || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Mã vận đơn</dt>
+                    <dd className="font-mono text-foreground">{order.trackingNumber || "—"}</dd>
+                  </div>
+                  {order.estimatedDelivery && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Giao dự kiến</dt>
+                      <dd className="font-medium text-foreground">
+                        {formatDateVN(order.estimatedDelivery)}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
+
+          {/* Khách hàng / Địa chỉ */}
+          <div className="grid grid-cols-1 gap-4 rounded-xl border border-border p-4 sm:grid-cols-2">
+            <div className="flex items-start gap-2">
+              <User className="mt-0.5 size-4 text-muted-foreground/70" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Khách hàng</p>
+                <p className="font-medium text-foreground">
+                  {order.shippingAddress?.fullName || "—"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <Phone className="mt-0.5 size-4 text-muted-foreground/70" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Số điện thoại</p>
+                <p className="font-medium text-foreground">
+                  {order.shippingAddress?.phone || "—"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2 sm:col-span-2">
+              <MapPin className="mt-0.5 size-4 text-muted-foreground/70" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Địa chỉ giao</p>
+                <p className="font-medium text-foreground">
+                  {[
+                    order.shippingAddress?.address,
+                    order.shippingAddress?.ward,
+                    order.shippingAddress?.district,
+                    order.shippingAddress?.city,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "—"}
+                </p>
+              </div>
+            </div>
+            {order.note && (
+              <div className="flex items-start gap-2 border-t border-border pt-3 sm:col-span-2">
+                <StickyNote className="mt-0.5 size-4 shrink-0 text-muted-foreground/70" />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Yêu cầu giao hàng</p>
+                  <p className="whitespace-pre-wrap break-words font-medium text-foreground">
+                    {order.note}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Lịch sử trạng thái thật của đơn (ai, khi nào, lý do) */}
+          {(order.history || []).length > 0 && (
+            <div className="rounded-xl border border-border p-4">
+              <h4 className="mb-3 text-sm font-semibold text-foreground">Lịch sử trạng thái</h4>
+              <ol className="space-y-2 text-sm">
+                {[...order.history]
+                  .reverse()
+                  .slice(0, showAllHistory ? undefined : HISTORY_PREVIEW_COUNT)
+                  .map((entry, index) => (
+                  <li key={`${entry.at}-${index}`} className="flex flex-col gap-0.5">
+                    <span className="font-medium text-foreground">
+                      {statusLabel(entry.from)} → {statusLabel(entry.to)}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {[formatDateTimeVN(entry.at), actorLabel(entry.by), entry.reason]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              {order.history.length > HISTORY_PREVIEW_COUNT && (
+                <button
+                  type="button"
+                  className="mt-2 text-xs font-medium text-primary hover:underline"
+                  onClick={() => setShowAllHistory((value) => !value)}
+                >
+                  {showAllHistory
+                    ? "Thu gọn"
+                    : `Xem tất cả ${order.history.length} mốc`}
+                </button>
+              )}
             </div>
           )}
         </div>

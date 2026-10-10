@@ -157,6 +157,8 @@ export default function OrdersList() {
     if (!o) navigate("/admin/orders");
   };
 
+  // Thứ tự cột: thông tin để quyết định (trạng thái, thanh toán, đổi trả) đứng
+  // trước; nếu màn hình hẹp phải cuộn ngang thì phần bị che là cột ít quan trọng.
   const columns = [
     {
       id: "code",
@@ -165,7 +167,7 @@ export default function OrdersList() {
         const o = row.original;
         const code = formatOrderCode(o);
         return (
-          <span className="font-semibold text-primary">{code}</span>
+          <span className="whitespace-nowrap font-mono text-[13px] font-semibold text-primary">{code}</span>
         );
       },
     },
@@ -173,7 +175,7 @@ export default function OrdersList() {
       id: "customer",
       header: "Khách hàng",
       cell: ({ row }) => (
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-[150px]">
           <p className="truncate font-medium text-foreground">
             {row.original.shippingAddress?.fullName || "—"}
           </p>
@@ -194,24 +196,6 @@ export default function OrdersList() {
       ),
     },
     {
-      id: "items",
-      header: "Sản phẩm",
-      // items.length là số dòng (đầu sách), không phải số cuốn; ghi rõ cả hai
-      // như CSV đang tách "Số loại sản phẩm" và "Tổng số lượng".
-      cell: ({ row }) => {
-        const items = row.original.items || [];
-        const copies = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
-        return (
-          <div className="flex items-center gap-1 text-muted-foreground">
-            <Package className="size-4 text-muted-foreground/70" />
-            <span>
-              {items.length} loại · {copies} cuốn
-            </span>
-          </div>
-        );
-      },
-    },
-    {
       id: "total",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Tổng" />,
       accessorFn: (r) => r.totalAmount || 0,
@@ -222,23 +206,29 @@ export default function OrdersList() {
       ),
     },
     {
+      id: "status",
+      header: "Trạng thái",
+      accessorKey: "status",
+      cell: ({ row }) => (
+        <div className="whitespace-nowrap">
+          <StatusBadge status={row.original.status || "PENDING"} />
+        </div>
+      ),
+    },
+    {
       id: "payment",
       header: "Thanh toán",
       cell: ({ row }) => {
         const p = row.original.payment || {};
         return (
-          <div className="flex flex-col gap-1">
-            <StatusBadge status={p.method || "COD"} />
+          <div className="flex flex-col items-start gap-1 whitespace-nowrap">
+            <span className="text-xs font-medium text-muted-foreground">
+              {PAYMENT_METHOD_LABEL[p.method] || p.method || "COD"}
+            </span>
             <StatusBadge status={p.status || "UNPAID"} />
           </div>
         );
       },
-    },
-    {
-      id: "status",
-      header: "Trạng thái",
-      accessorKey: "status",
-      cell: ({ row }) => <StatusBadge status={row.original.status || "PENDING"} />,
     },
     {
       id: "returnRequest",
@@ -258,13 +248,41 @@ export default function OrdersList() {
         ),
     },
     {
+      id: "items",
+      header: "Sản phẩm",
+      // items.length là số dòng (đầu sách), không phải số cuốn; ghi rõ cả hai
+      // như CSV đang tách "Số loại sản phẩm" và "Tổng số lượng".
+      cell: ({ row }) => {
+        const items = row.original.items || [];
+        const copies = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+        return (
+          <div className="flex items-center gap-1.5 whitespace-nowrap text-muted-foreground">
+            <Package className="size-4 shrink-0 text-muted-foreground/70" />
+            <span className="flex flex-col leading-tight">
+              <span className="text-foreground">{copies} cuốn</span>
+              <span className="text-xs">{items.length} loại</span>
+            </span>
+          </div>
+        );
+      },
+    },
+    {
       id: "actions",
       header: "",
+      // Dính mép phải để nút Xem luôn thấy được khi bảng phải cuộn ngang
+      // (màn hình laptop có sidebar không đủ chỗ cho 9 cột).
+      meta: {
+        headerClassName:
+          "sticky right-0 z-10 bg-card shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]",
+        cellClassName:
+          "sticky right-0 z-10 bg-card shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] group-hover:bg-muted",
+      },
       cell: ({ row }) => (
         <div className="flex justify-end">
           <Button
             variant="ghost"
             size="sm"
+            className="px-2"
             aria-label={`Xem đơn ${formatOrderCode(row.original)}`}
             onClick={(event) => {
               // Hàng cũng mở chi tiết khi click; chặn nổi bọt để không navigate hai lần.
@@ -280,24 +298,58 @@ export default function OrdersList() {
     },
   ];
 
+  // Hai hàng: tìm kiếm + thao tác ở trên, bộ lọc ở dưới. Trước đây mọi thứ
+  // chung một hàng nên ở màn hình laptop bộ lọc vỡ thành 3 dòng lộn xộn.
   const toolbar = (
-    <DataTableToolbar>
-      <div className="flex flex-1 flex-wrap items-center gap-2">
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
-          <Input
-            aria-label="Tìm đơn theo mã, tên khách hoặc số điện thoại"
-            placeholder="Tìm theo mã, tên, SĐT..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              resetPage();
-            }}
-            className="h-9 pl-8"
-          />
+    <DataTableToolbar className="sm:flex-col sm:items-stretch">
+      <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-80">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
+            <Input
+              aria-label="Tìm đơn theo mã, tên khách hoặc số điện thoại"
+              placeholder="Tìm theo mã, tên, SĐT..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                resetPage();
+              }}
+              className="h-9 pl-8"
+            />
+          </div>
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          {hasFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <X className="size-4" />
+              Xóa bộ lọc
+            </Button>
+          )}
+          {ordersQ.dataUpdatedAt > 0 && (
+            <span className="text-xs text-muted-foreground">
+              Cập nhật lúc {new Date(ordersQ.dataUpdatedAt).toLocaleTimeString("vi-VN")}
+            </span>
+          )}
+          <Button variant="outline" size="sm" onClick={() => ordersQ.refetch()}>
+            <RotateCw className="size-4" />
+            Tải lại
+          </Button>
+          {can(user, "order.export") && (
+            <Button
+              size="sm"
+              onClick={exportCsv}
+              // Chỉ xuất khi bảng đã phản ánh đúng bộ lọc đang nhập.
+              disabled={exporting || filtersPending}
+            >
+              <Download className="size-4" />
+              {exporting ? "Đang xuất..." : "Xuất CSV"}
+            </Button>
+          )}
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         <select
           aria-label="Lọc yêu cầu đổi trả"
+          // Số trong ngoặc là số hồ sơ của toàn hệ thống, không theo bộ lọc khác.
+          title="Số trong ngoặc là số hồ sơ đổi trả của toàn hệ thống"
           value={returnStatus}
           onChange={(event) => {
             setReturnStatus(event.target.value);
@@ -305,8 +357,7 @@ export default function OrdersList() {
           }}
           className="h-9 rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
         >
-          {/* Số trong ngoặc là số hồ sơ toàn hệ thống, không theo bộ lọc khác. */}
-          <option value="all">Tất cả đổi trả (số hồ sơ toàn hệ thống)</option>
+          <option value="all">Tất cả đổi trả</option>
           <option value="PENDING">Chờ duyệt ({returnCounts.PENDING || 0})</option>
           {/* Hồ sơ duyệt mới lưu RETURNING; APPROVED chỉ còn ở dữ liệu cũ. Backend
               lọc APPROVED theo cả hai giá trị nên số đếm cũng cộng cả hai. */}
@@ -345,8 +396,8 @@ export default function OrdersList() {
             <option key={value} value={value}>{label}</option>
           ))}
         </select>
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          Từ ngày
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span>Ngày đặt</span>
           <Input
             type="date"
             aria-label="Từ ngày đặt"
@@ -358,9 +409,7 @@ export default function OrdersList() {
             }}
             className="h-9 w-auto"
           />
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          Đến ngày
+          <span aria-hidden="true">–</span>
           <Input
             type="date"
             aria-label="Đến ngày đặt"
@@ -372,35 +421,7 @@ export default function OrdersList() {
             }}
             className="h-9 w-auto"
           />
-        </label>
-      </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
-        {hasFilters && (
-          <Button variant="ghost" size="sm" onClick={clearFilters}>
-            <X className="size-4" />
-            Xóa bộ lọc
-          </Button>
-        )}
-        {ordersQ.dataUpdatedAt > 0 && (
-          <span className="text-xs text-muted-foreground">
-            Cập nhật lúc {new Date(ordersQ.dataUpdatedAt).toLocaleTimeString("vi-VN")}
-          </span>
-        )}
-        <Button variant="outline" size="sm" onClick={() => ordersQ.refetch()}>
-          <RotateCw className="size-4" />
-          Tải lại
-        </Button>
-        {can(user, "order.export") && (
-          <Button
-            size="sm"
-            onClick={exportCsv}
-            // Chỉ xuất khi bảng đã phản ánh đúng bộ lọc đang nhập.
-            disabled={exporting || filtersPending}
-          >
-            <Download className="size-4" />
-            {exporting ? "Đang xuất..." : "Xuất CSV"}
-          </Button>
-        )}
+        </div>
       </div>
     </DataTableToolbar>
   );
@@ -453,6 +474,8 @@ export default function OrdersList() {
       {/* Lỗi hiển thị trong bảng để toolbar vẫn còn: lỗi thường do chính bộ lọc
           (ví dụ từ ngày sau đến ngày), người dùng cần sửa/xoá lọc tại chỗ. */}
       <DataTable
+        // Đệm ô gọn hơn mặc định để 9 cột vừa màn hình laptop có sidebar.
+        className="[&_td]:px-3 [&_th]:px-3"
         columns={columns}
         data={orders}
         isLoading={ordersQ.isLoading}

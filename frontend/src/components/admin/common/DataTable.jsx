@@ -99,6 +99,8 @@ export function DataTable({
                 {hg.headers.map((h) => (
                   <TableHead
                     key={h.id}
+                    // Optional per-column classes, e.g. a sticky actions column.
+                    className={h.column.columnDef.meta?.headerClassName}
                     style={{ width: h.getSize?.() || undefined }}
                     // Screen readers learn the sort order, not just the arrow icon.
                     aria-sort={
@@ -125,10 +127,10 @@ export function DataTable({
                 key={row.id}
                 data-state={row.getIsSelected() ? "selected" : undefined}
                 onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                className={cn(onRowClick && "cursor-pointer")}
+                className={cn("group", onRowClick && "cursor-pointer")}
               >
                 {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id}>
+                  <TableCell key={cell.id} className={cell.column.columnDef.meta?.cellClassName}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </TableCell>
                 ))}
