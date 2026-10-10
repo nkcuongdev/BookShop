@@ -21,6 +21,7 @@ const ReturnRequest = require("../models/ReturnRequest");
 const {
   completeReturnRefund,
   createReturnRequest,
+  findSupportLineCompensations,
   getReturnEligibility,
   serializeReturnRequest,
 } = require("../services/returnRequestService");
@@ -91,7 +92,10 @@ async function serializeOrderWithReturn(order) {
     // Compatibility alias for existing clients; new clients render the full history.
     returnRequest: serializedRequests[0] || null,
     returnRequests: serializedRequests,
-    returnEligibility: getReturnEligibility(order, returnRequests),
+    returnEligibility: getReturnEligibility(order, [
+      ...returnRequests,
+      ...(await findSupportLineCompensations(order._id)),
+    ]),
   };
 }
 
@@ -398,7 +402,10 @@ router.post("/:id([0-9a-fA-F]{24})/return-request", auth, async (req, res) => {
       message: "Đã gửi yêu cầu đổi trả",
       data: {
         returnRequest: serializeReturnRequest(request),
-        returnEligibility: getReturnEligibility(order, returnRequests),
+        returnEligibility: getReturnEligibility(order, [
+          ...returnRequests,
+          ...(await findSupportLineCompensations(order._id)),
+        ]),
       },
     });
   } catch (error) {

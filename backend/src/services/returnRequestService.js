@@ -129,6 +129,37 @@ function serializeReturnRequest(request) {
   };
 }
 
+// Support resolutions that settle a line without a return (item refund, reship,
+// lost-in-transit refund/reship) use up the same per-line entitlement as a
+// ReturnRequest. RETURN_REFUND is left out: it creates a ReturnRequest, which is
+// already counted. Shaped like return requests so getReturnEligibility can sum
+// both channels.
+const LINE_COMPENSATION_TYPES = Object.freeze([
+  "PARTIAL_REFUND",
+  "RESHIP",
+  "LOST_IN_TRANSIT_REFUND",
+  "LOST_IN_TRANSIT_RESHIP",
+]);
+
+async function findSupportLineCompensations(
+  orderId,
+  { excludeTicketId = null, session = null } = {}
+) {
+  const tickets = await SupportTicket.find({
+    ...(excludeTicketId ? { _id: { $ne: excludeTicketId } } : {}),
+    order: orderId,
+    "resolution.type": { $in: LINE_COMPENSATION_TYPES },
+    "resolution.status": { $nin: ["FAILED", "REFUND_FAILED", "CANCELLED"] },
+  })
+    .select("resolution.items.book resolution.items.quantity")
+    .session(session)
+    .lean();
+  return tickets.map((ticket) => ({
+    status: "SUPPORT_COMPENSATION",
+    items: ticket.resolution?.items || [],
+  }));
+}
+
 function normalizeReturnItems(order, submittedItems) {
   if (!Array.isArray(submittedItems) || submittedItems.length < 1) {
     throw serviceError(
@@ -217,7 +248,10 @@ async function createReturnRequest({
   const resolvedFaultParty =
     faultParty ||
     (normalized.reason === ReturnRequest.REASON.OTHER ? "customer" : "shop");
-  const existing = await ReturnRequest.find({ order: order._id }).lean();
+  const existing = [
+    ...(await ReturnRequest.find({ order: order._id }).lean()),
+    ...(await findSupportLineCompensations(order._id)),
+  ];
   const eligibility = getReturnEligibility(order, existing, {
     now,
     faultParty: resolvedFaultParty,
@@ -263,9 +297,10 @@ async function createReturnRequest({
         { $set: { returnRequestGuardAt: new Date() } },
         { returnDocument: "after", session }
       );
-      const currentRequests = await ReturnRequest.find({ order: order._id })
-        .session(session)
-        .lean();
+      const currentRequests = [
+        ...(await ReturnRequest.find({ order: order._id }).session(session).lean()),
+        ...(await findSupportLineCompensations(order._id, { session })),
+      ];
       const currentEligibility = getReturnEligibility(lockedOrder, currentRequests, {
         now,
         faultParty: resolvedFaultParty,
@@ -1046,6 +1081,7 @@ module.exports = {
   RETURN_WINDOW_DAYS,
   SHOP_FAULT_WINDOW_DAYS,
   createReturnRequest,
+  findSupportLineCompensations,
   getReturnEligibility,
   normalizeReturnPayload,
   advanceReturnRequest,

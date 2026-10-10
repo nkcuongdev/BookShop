@@ -676,3 +676,27 @@ test("a support refund left in REFUND_PENDING by a crash is recovered once stale
   assert.equal(ticket.resolution.status, "REFUND_COMPLETED");
   assert.equal(ticket.resolution.refund.transactionId, "refund-after-crash");
 });
+
+test("two support compensations cannot both claim the same line concurrently", async () => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const { order, book } = await shippedOrder(customer, { method: "COD", paymentStatus: "UNPAID" });
+  const first = await ticketFor(customer, order);
+  const second = await ticketFor(customer, order, "OTHER");
+  const payload = {
+    type: "LOST_IN_TRANSIT_RESHIP",
+    note: "Giao lại",
+    items: [{ bookId: String(book._id), quantity: 1 }],
+  };
+
+  const attempts = await Promise.allSettled([
+    supportResolutionService.createResolution({ ticketId: first.ticketId, adminId: admin._id, payload }),
+    supportResolutionService.createResolution({ ticketId: second.ticketId, adminId: admin._id, payload }),
+  ]);
+
+  assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+  const rejected = attempts.find((attempt) => attempt.status === "rejected");
+  assert.equal(rejected.reason.code, "ITEM_COMPENSATION_LIMIT_EXCEEDED");
+  // Only one replacement copy was held back from stock.
+  assert.equal((await Book.findById(book._id)).stock, 9);
+});

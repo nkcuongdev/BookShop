@@ -13,6 +13,7 @@ const Book = require("../src/models/Book");
 const Notification = require("../src/models/Notification");
 const Order = require("../src/models/Order");
 const ReturnRequest = require("../src/models/ReturnRequest");
+const SupportTicket = require("../src/models/SupportTicket");
 const UploadedAsset = require("../src/models/UploadedAsset");
 const User = require("../src/models/User");
 const paymentGateway = require("../src/services/paymentGateway");
@@ -169,6 +170,74 @@ test("customer can create multiple requests within the remaining line quantity",
     .send(requestPayload(order));
   assert.equal(exhausted.status, 409);
   assert.equal(exhausted.body.code, "RETURN_QUANTITY_EXCEEDED");
+});
+
+test("a line already refunded through support cannot be returned and refunded again", async () => {
+  const customer = await User.create({
+    name: "Return Customer",
+    email: "return-support-overlap@example.com",
+    password: "secure-password",
+  });
+  const order = await Order.create(
+    orderPayload(customer._id, {
+      payment: {
+        method: Order.PAYMENT_METHOD.VNPAY,
+        status: Order.PAYMENT_STATUS.PAID,
+        transactionId: "tx-overlap",
+      },
+    })
+  );
+  const refundedLine = order.items[1];
+  // Support already refunded "Hoàng Tử Bé" (quantity 1) without a return.
+  await SupportTicket.collection.insertOne({
+    ticketCode: "TK-OVERLAP",
+    user: customer._id,
+    order: order._id,
+    category: "ITEM_FAULT",
+    subject: "Sách lỗi",
+    description: "Sách bị lỗi in",
+    resolution: {
+      type: "PARTIAL_REFUND",
+      status: "REFUND_COMPLETED",
+      amount: refundedLine.price,
+      items: [
+        {
+          book: refundedLine.book,
+          title: refundedLine.title,
+          unitPrice: refundedLine.price,
+          orderedQuantity: 1,
+          quantity: 1,
+        },
+      ],
+    },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const { agent, csrf } = await sessionFor(customer);
+
+  const detail = await agent.get(`/api/orders/${order._id}`);
+  assert.equal(detail.status, 200);
+  const remaining = detail.body.data.order.returnEligibility.remainingItems;
+  assert.equal(
+    remaining.find((item) => item.bookId === String(refundedLine.book)).quantity,
+    0
+  );
+
+  const duplicate = await agent
+    .post(`/api/orders/${order._id}/return-request`)
+    .set("x-csrf-token", csrf)
+    .send({
+      ...requestPayload(order),
+      items: [{ bookId: String(refundedLine.book), quantity: 1 }],
+    });
+  assert.equal(duplicate.status, 409, JSON.stringify(duplicate.body));
+  assert.equal(duplicate.body.code, "RETURN_QUANTITY_EXCEEDED");
+
+  const otherLine = await agent
+    .post(`/api/orders/${order._id}/return-request`)
+    .set("x-csrf-token", csrf)
+    .send(requestPayload(order));
+  assert.equal(otherLine.status, 201, JSON.stringify(otherLine.body));
 });
 
 test("return request rejects invalid ownership, quantity, state and expired window", async () => {

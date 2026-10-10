@@ -18,6 +18,7 @@ const {
 const {
   calculateRefundAmount,
   createReturnRequest,
+  findSupportLineCompensations,
   resolveReturnRequest,
 } = require("./returnRequestService");
 const { runInTransaction } = require("../utils/transaction");
@@ -210,6 +211,7 @@ async function reserveRefundAndResolution(
   type = "PARTIAL_REFUND"
 ) {
   return runInTransaction(async (session) => {
+    await lockOrderEntitlements(order, ticket._id, items, session);
     const updatedOrder = await Order.findOneAndUpdate(
       {
         _id: order._id,
@@ -285,28 +287,23 @@ async function releaseRefundReservation(orderId, amount) {
   );
 }
 
-async function assertLineEntitlements(order, ticketId, items) {
+// With a session, the caller's transaction must also write the order (see
+// lockOrderEntitlements) so two concurrent compensations - or a compensation
+// and a ReturnRequest - cannot both pass this check on the same snapshot.
+async function assertLineEntitlements(order, ticketId, items, session = null) {
   const [returns, tickets] = await Promise.all([
     ReturnRequest.find({
       order: order._id,
       status: { $ne: ReturnRequest.STATUS.REJECTED },
-    }).select("items.book items.quantity").lean(),
-    SupportTicket.find({
-      _id: { $ne: ticketId },
-      order: order._id,
-      "resolution.type": {
-        $in: COMPENSATION_TYPES.filter((type) => type !== "RETURN_REFUND"),
-      },
-      "resolution.status": { $nin: ["FAILED", "REFUND_FAILED", "CANCELLED"] },
-    }).select("resolution.items.book resolution.items.quantity").lean(),
+    }).select("items.book items.quantity").session(session).lean(),
+    findSupportLineCompensations(order._id, { excludeTicketId: ticketId, session }),
   ]);
   const consumed = new Map();
   const add = (entry) => {
     const key = String(entry.book?._id || entry.book || "");
     consumed.set(key, (consumed.get(key) || 0) + (Number(entry.quantity) || 0));
   };
-  returns.flatMap((request) => request.items || []).forEach(add);
-  tickets.flatMap((entry) => entry.resolution?.items || []).forEach(add);
+  [...returns, ...tickets].flatMap((entry) => entry.items || []).forEach(add);
   const ordered = new Map(
     order.items.map((item) => [
       String(item.book?._id || item.book),
@@ -323,6 +320,18 @@ async function assertLineEntitlements(order, ticketId, items) {
       "ITEM_COMPENSATION_LIMIT_EXCEEDED"
     );
   }
+}
+
+async function lockOrderEntitlements(order, ticketId, items, session) {
+  // Same guard field ReturnRequest creation writes: concurrent writers to the
+  // order conflict, so the losing transaction retries and re-checks against
+  // the winner's committed compensation.
+  await Order.updateOne(
+    { _id: order._id },
+    { $set: { returnRequestGuardAt: new Date() } },
+    { session }
+  );
+  await assertLineEntitlements(order, ticketId, items, session);
 }
 
 async function revokeSupportRefundPoints(ticket, order, session) {
@@ -530,6 +539,7 @@ async function createLostReshipResolution(ticket, order, adminId, items, note) {
     order
   );
   const updatedTicket = await runInTransaction(async (session) => {
+    await lockOrderEntitlements(order, ticket._id, items, session);
     for (const item of items) {
       const reserved = await decrementStock(item.book, item.quantity, session, {
         orderId: order._id,
@@ -584,6 +594,7 @@ async function createReshipResolution(ticket, order, adminId, items, note) {
     throw serviceError(422, "Chỉ đơn đã giao mới có thể tạo giao bù/giao lại", "ORDER_NOT_DELIVERED");
   }
   const updatedTicket = await runInTransaction(async (session) => {
+    await lockOrderEntitlements(order, ticket._id, items, session);
     for (const item of items) {
       const reserved = await decrementStock(item.book, item.quantity, session, {
         orderId: order._id,
