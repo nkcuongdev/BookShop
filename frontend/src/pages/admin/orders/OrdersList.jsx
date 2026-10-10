@@ -196,12 +196,20 @@ export default function OrdersList() {
     {
       id: "items",
       header: "Sản phẩm",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-1 text-muted-foreground">
-          <Package className="size-4 text-muted-foreground/70" />
-          {row.original.items?.length || 0}
-        </div>
-      ),
+      // items.length là số dòng (đầu sách), không phải số cuốn; ghi rõ cả hai
+      // như CSV đang tách "Số loại sản phẩm" và "Tổng số lượng".
+      cell: ({ row }) => {
+        const items = row.original.items || [];
+        const copies = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+        return (
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <Package className="size-4 text-muted-foreground/70" />
+            <span>
+              {items.length} loại · {copies} cuốn
+            </span>
+          </div>
+        );
+      },
     },
     {
       id: "total",
