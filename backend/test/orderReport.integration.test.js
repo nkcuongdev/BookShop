@@ -263,6 +263,32 @@ test("CSV export streams every matching order and protects spreadsheet cells", a
   assert.match(response.text, /'=HYPERLINK/);
   assert.match(response.text, /Sách, có dấu phẩy/);
   assert.match(response.text, /"=""0901234567"""/);
+  // F36: after-sales columns explain why an order sits in a return/refund queue.
+  const [header] = response.text.replace("﻿", "").split(/\r?\n/);
+  assert.ok(
+    header.endsWith('"Giảm bằng điểm","Hoàn cả đơn","Đã hoàn hậu mãi","Đổi trả (hồ sơ mới nhất)","Số hồ sơ đổi trả"'),
+    header
+  );
+});
+
+test("CSV rows carry the latest return status and refund totals", async () => {
+  const { agent } = await adminSession();
+  const customer = await User.create({
+    name: "CSV Return",
+    email: "csv-return@example.com",
+    password: "secure-password",
+  });
+  const order = await createOrder(customer._id, {
+    status: Order.STATUS.DELIVERED,
+    transactionId: "TX-CSV-RETURN",
+    document: { supportCompensation: { refundedAmount: 40_000 } },
+  });
+  await createReturnRequest(order, ReturnRequest.STATUS.RETURNING);
+
+  const response = await agent.get("/api/admin/orders/export.csv");
+  assert.equal(response.status, 200);
+  const row = response.text.split(/\r?\n/).find((line) => line.includes("TX-CSV-RETURN"));
+  assert.ok(row.endsWith('"40000","RETURNING","1"'), row);
 });
 
 test("order report rejects invalid or reversed calendar dates", async () => {

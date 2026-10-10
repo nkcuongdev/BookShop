@@ -169,7 +169,8 @@ function fullShippingAddress(address = {}) {
     .join(", ");
 }
 
-function orderCsvRow(order) {
+// `returns` = the order's return requests, newest first (may be empty).
+function orderCsvRow(order, returns = []) {
   const itemQuantity = (order.items || []).reduce(
     (total, item) => total + (Number(item.quantity) || 0),
     0
@@ -202,6 +203,15 @@ function orderCsvRow(order) {
     order.trackingNumber || order.shipment?.providerOrderCode,
     order.shipment?.providerStatus,
     fullShippingAddress(order.shippingAddress),
+    // Appended so existing column positions stay put. Order-level refund and
+    // after-sales refunds are separate columns so they are never summed twice.
+    order.pointsDiscountAmount || 0,
+    [Order.STATUS.REFUNDING, Order.STATUS.REFUNDED].includes(order.status)
+      ? order.payment?.refundAmount || 0
+      : 0,
+    order.supportCompensation?.refundedAmount || 0,
+    returns[0]?.status || "",
+    returns.length,
   ];
   return `${values
     .map((value, index) => (index === 4 ? phoneCsvCell(value) : csvCell(value)))
@@ -231,7 +241,32 @@ const CSV_HEADERS = [
   "Mã vận đơn",
   "Trạng thái vận chuyển",
   "Địa chỉ giao hàng",
+  "Giảm bằng điểm",
+  "Hoàn cả đơn",
+  "Đã hoàn hậu mãi",
+  "Đổi trả (hồ sơ mới nhất)",
+  "Số hồ sơ đổi trả",
 ];
+
+const CSV_BATCH_SIZE = 200;
+
+async function writeCsvBatch(res, orders) {
+  const returns = await ReturnRequest.find({ order: { $in: orders.map((order) => order._id) } })
+    .select("order status createdAt")
+    .sort({ createdAt: -1, _id: -1 })
+    .lean();
+  const byOrder = new Map();
+  for (const request of returns) {
+    const key = String(request.order);
+    if (!byOrder.has(key)) byOrder.set(key, []);
+    byOrder.get(key).push(request);
+  }
+  for (const order of orders) {
+    if (!res.write(orderCsvRow(order, byOrder.get(String(order._id)) || []))) {
+      await once(res, "drain");
+    }
+  }
+}
 
 async function writeOrdersCsv(res, filter, sort = { placedAt: -1, _id: -1 }) {
   const filename = `bookshop-orders-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -245,9 +280,16 @@ async function writeOrdersCsv(res, filter, sort = { placedAt: -1, _id: -1 }) {
     .populate("user", "email")
     .sort(sort)
     .cursor();
+  // Batched so return requests are looked up per page of orders, not per row.
+  let batch = [];
   for await (const order of cursor) {
-    if (!res.write(orderCsvRow(order))) await once(res, "drain");
+    batch.push(order);
+    if (batch.length >= CSV_BATCH_SIZE) {
+      await writeCsvBatch(res, batch);
+      batch = [];
+    }
   }
+  if (batch.length) await writeCsvBatch(res, batch);
   res.end();
 }
 
