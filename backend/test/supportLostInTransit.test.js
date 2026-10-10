@@ -877,3 +877,63 @@ test("a lost refund still settles when staff moved the order on meanwhile", asyn
   assert.equal(stored.supportCompensation.refundedAmount, 200000);
   assert.equal(stored.supportCompensation.reservedRefundAmount, 0);
 });
+
+test("partial lost refunds give back redeemed points without double counting", async (t) => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const books = await Book.create([
+    { title: "Points A", author: "A", price: 100000, category: "technology", stock: 5, status: "active" },
+    { title: "Points B", author: "B", price: 100000, category: "technology", stock: 5, status: "active" },
+  ]);
+  const order = await Order.create({
+    user: customer._id,
+    items: books.map((book) => ({
+      book: book._id,
+      title: book.title,
+      category: "technology",
+      price: 100000,
+      quantity: 1,
+      subtotal: 100000,
+    })),
+    subtotal: 200000,
+    totalAmount: 200000,
+    pointsRedeemed: 20,
+    status: Order.STATUS.SHIPPED,
+    shippedAt: new Date(),
+    placedAt: new Date(),
+    payment: {
+      method: "VNPAY",
+      status: "PAID",
+      transactionId: "tx-points-1",
+      providerOrderId: "provider-points-1",
+      paidAt: new Date(),
+    },
+    shippingAddress: { fullName: customer.name, phone: "0900000000", address: "1 Test Street" },
+  });
+  t.mock.method(paymentGateway, "requestRefund", async ({ idempotencyKey }) => ({
+    ok: true,
+    completed: true,
+    refundTransactionId: `refund-${idempotencyKey.slice(-12)}`,
+  }));
+  const first = await ticketFor(customer, order);
+  const second = await ticketFor(customer, order, "OTHER");
+  const refund = (ticketId, book) =>
+    supportResolutionService.createResolution({
+      ticketId,
+      adminId: admin._id,
+      payload: {
+        type: "LOST_IN_TRANSIT_REFUND",
+        note: "Thất lạc",
+        items: [{ bookId: String(book._id), quantity: 1 }],
+      },
+    });
+
+  await refund(first.ticketId, books[0]);
+  let balance = (await User.findById(customer._id).lean()).loyalty?.pointsBalance || 0;
+  assert.equal(balance, 10, "half the goods lost, half the redeemed points back");
+
+  await refund(second.ticketId, books[1]);
+  balance = (await User.findById(customer._id).lean()).loyalty?.pointsBalance || 0;
+  assert.equal(balance, 20, "closing the order returns only the remaining points");
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.REFUNDED);
+});

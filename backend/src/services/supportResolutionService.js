@@ -344,7 +344,22 @@ async function lockOrderEntitlements(order, ticketId, items, session) {
 async function revokeSupportRefundPoints(ticket, order, session) {
   // PARTIAL_REFUND is priced from the affected goods and therefore reverses
   // the matching share of earned points. A lost-in-transit refund never earned
-  // delivery points, while reships/guidance do not return money.
+  // delivery points, but gives back the share of redeemed points spent on the
+  // lost goods, as a return does. Reships/guidance do not return money.
+  if (ticket.resolution?.type === "LOST_IN_TRANSIT_REFUND") {
+    return loyaltyService.refundOrderPointsPartial(
+      order,
+      {
+        returnedGrossAmount: (ticket.resolution.items || []).reduce(
+          (sum, item) => sum + Number(item.unitPrice) * Number(item.quantity),
+          0
+        ),
+        returnId: `support-${ticket._id}`,
+        returnCode: ticket.ticketCode || "",
+      },
+      session
+    );
+  }
   if (ticket.resolution?.type !== "PARTIAL_REFUND") return null;
   return loyaltyService.revokeOrderPointsPartial(
     order,

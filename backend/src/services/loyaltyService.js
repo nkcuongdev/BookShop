@@ -425,7 +425,19 @@ async function redeemForOrder(
  */
 async function refundOrderPoints(order, session, { reason = "" } = {}) {
   if (order.pointsRefundedAt) return null;
-  const points = Number(order.pointsRedeemed) || 0;
+  // Partial refunds (returns, lost-parcel refunds) may already have given part
+  // of the redeemed points back; only the rest is still owed.
+  const partials = await LoyaltyLedger.find({
+    type: "REFUND_ORDER",
+    refType: "Order",
+    refId: order._id,
+    uniqueKey: { $ne: `REFUND_ORDER:Order:${order._id}` },
+  })
+    .select("points")
+    .session(session)
+    .lean();
+  const alreadyRefunded = partials.reduce((sum, entry) => sum + (Number(entry.points) || 0), 0);
+  const points = Math.max(0, (Number(order.pointsRedeemed) || 0) - alreadyRefunded);
   if (points <= 0) {
     order.pointsRefundedAt = new Date();
     return null;
@@ -624,27 +636,33 @@ async function priorPartialAmounts(order, returnId, session) {
     .lean();
   const tickets = await SupportTicket.find({
     order: order._id,
-    "resolution.type": "PARTIAL_REFUND",
+    "resolution.type": { $in: ["PARTIAL_REFUND", "LOST_IN_TRANSIT_REFUND"] },
     "resolution.status": "REFUND_COMPLETED",
   })
-    .select("resolution.amount")
+    .select("resolution.type resolution.amount resolution.items")
     .session(session)
     .lean();
   const priorReturns = returns.filter((request) => String(request._id) !== current);
   const priorTickets = tickets.filter((ticket) => `support-${ticket._id}` !== current);
+  const gross = (items) =>
+    (items || []).reduce(
+      (sum, item) => sum + Number(item.unitPrice) * Number(item.quantity),
+      0
+    );
   return {
+    // Item refunds on a delivered order take back earned points; a lost parcel
+    // never earned any.
     refundedGoods:
       priorReturns.reduce((sum, request) => sum + (Number(request.refund?.amount) || 0), 0) +
-      priorTickets.reduce((sum, ticket) => sum + (Number(ticket.resolution?.amount) || 0), 0),
-    returnedGross: priorReturns.reduce(
-      (sum, request) =>
-        sum +
-        (request.items || []).reduce(
-          (lineSum, item) => lineSum + Number(item.unitPrice) * Number(item.quantity),
-          0
-        ),
-      0
-    ),
+      priorTickets
+        .filter((ticket) => ticket.resolution?.type === "PARTIAL_REFUND")
+        .reduce((sum, ticket) => sum + (Number(ticket.resolution?.amount) || 0), 0),
+    // Goods returned or lost both give back their share of redeemed points.
+    returnedGross:
+      priorReturns.reduce((sum, request) => sum + gross(request.items), 0) +
+      priorTickets
+        .filter((ticket) => ticket.resolution?.type === "LOST_IN_TRANSIT_REFUND")
+        .reduce((sum, ticket) => sum + gross(ticket.resolution?.items), 0),
   };
 }
 
