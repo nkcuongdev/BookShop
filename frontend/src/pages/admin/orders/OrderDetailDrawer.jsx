@@ -83,6 +83,20 @@ function StatusTimeline({ order, current }) {
   );
 }
 
+const statusLabel = (status) =>
+  ORDER_STATUSES.find((item) => item.value === status)?.label || status || "—";
+
+// history.by là chuỗi kỹ thuật ("admin:<id>", "gateway", "carrier:ghn-sandbox").
+function actorLabel(by) {
+  const value = String(by || "");
+  if (value.startsWith("admin:")) return "Nhân viên";
+  if (value.startsWith("user:")) return "Khách hàng";
+  if (value.startsWith("carrier:")) return "Hãng vận chuyển";
+  return (
+    { gateway: "Cổng thanh toán", system: "Hệ thống", support: "CSKH" }[value] || value
+  );
+}
+
 export function OrderDetailDrawer({ order, open, onOpenChange }) {
   const orderAction = useOrderAction();
   const returnRequestAction = useReturnRequestAction();
@@ -392,8 +406,58 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
                   </p>
                 </div>
               )}
+              {/* Hai nguồn hoàn tiền tách riêng để không cộng trùng: hoàn cả đơn
+                  (huỷ/thanh toán muộn) và hoàn hậu mãi (đổi trả, ticket). */}
+              {["REFUNDING", "REFUNDED"].includes(normalizedStatus) &&
+                Number(payment.refundAmount) > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground">
+                      {normalizedStatus === "REFUNDED" ? "Đã hoàn cả đơn" : "Đang hoàn cả đơn"}
+                    </p>
+                    <p className="font-medium text-foreground">
+                      {formatVND(payment.refundAmount)}
+                    </p>
+                  </div>
+                )}
+              {Number(order.supportCompensation?.refundedAmount) > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Đã hoàn hậu mãi (đổi trả/ticket)</p>
+                  <p className="font-medium text-foreground">
+                    {formatVND(order.supportCompensation.refundedAmount)}
+                  </p>
+                </div>
+              )}
+              {order.cancelReason && (
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-muted-foreground">Lý do huỷ</p>
+                  <p className="whitespace-pre-wrap break-words font-medium text-foreground">
+                    {order.cancelReason}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Lịch sử trạng thái thật của đơn (ai, khi nào, lý do) */}
+          {(order.history || []).length > 0 && (
+            <div className="rounded-xl border border-border p-4">
+              <h4 className="mb-3 text-sm font-semibold text-foreground">Lịch sử trạng thái</h4>
+              <ol className="space-y-2 text-sm">
+                {[...order.history].reverse().map((entry, index) => (
+                  <li key={`${entry.at}-${index}`} className="flex flex-col gap-0.5">
+                    <span className="font-medium text-foreground">
+                      {statusLabel(entry.from)} → {statusLabel(entry.to)}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {[formatDateTimeVN(entry.at), actorLabel(entry.by), entry.reason]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
 
           {/* Sản phẩm */}
           <div className="rounded-xl border border-border">
@@ -456,6 +520,15 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
                         : ""}
                   </span>
                   <span>- {formatVND(shippingDiscount)}</span>
+                </div>
+              )}
+              {Number(order.pointsDiscountAmount) > 0 && (
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>
+                    Giảm bằng điểm
+                    {order.pointsRedeemed ? ` (${order.pointsRedeemed} điểm)` : ""}
+                  </span>
+                  <span>- {formatVND(order.pointsDiscountAmount)}</span>
                 </div>
               )}
               <div className="flex items-center justify-between text-muted-foreground">
