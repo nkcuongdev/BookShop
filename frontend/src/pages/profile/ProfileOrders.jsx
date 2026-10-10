@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Package, Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -87,6 +87,13 @@ export default function ProfileOrders() {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
   const debouncedQuery = useDebounce(query, 250);
+  const tabsListRef = useRef(null);
+
+  useEffect(() => {
+    tabsListRef.current
+      ?.querySelector('[data-state="active"]')
+      ?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+  }, [filter]);
 
   useEffect(() => {
     let active = true;
@@ -147,9 +154,12 @@ export default function ProfileOrders() {
           }}
           className="mt-4"
         >
-          <TabsList className="w-full overflow-x-auto no-scrollbar justify-start">
+          <TabsList
+            ref={tabsListRef}
+            className="w-full overflow-x-auto no-scrollbar justify-start"
+          >
             {FILTERS.map((f) => (
-              <TabsTrigger key={f.value} value={f.value} className="shrink-0">
+              <TabsTrigger key={f.value} value={f.value} className="shrink-0 px-3">
                 {f.label}
               </TabsTrigger>
             ))}
