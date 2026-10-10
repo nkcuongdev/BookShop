@@ -699,6 +699,73 @@ test("shipment cancellation stays retryable until provider cancel and order fina
   assert.equal((await Book.findById(book._id)).stock, 10);
 });
 
+test("a cancellation the carrier keeps refusing is parked for staff and can be retried", async () => {
+  const book = await createBook();
+  const { order } = await orderService.createOrder(
+    orderInput(book, { idempotencyKey: "cancel-refused-by-carrier" })
+  );
+  await orderService.adminApproveOrder(order._id, new mongoose.Types.ObjectId());
+  await Order.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        "shipment.provider": "ghn",
+        "shipment.environment": "sandbox",
+        "shipment.providerOrderCode": "GHN-PICKED-1",
+        "shipment.providerStatus": "picking",
+      },
+    }
+  );
+  const requested = await orderCancellationService.requestCustomerCancellation(
+    order._id,
+    userId,
+    "Đổi ý"
+  );
+  // One attempt short of giving up.
+  await OrderOutboxEvent.updateOne(
+    { _id: requested.event._id },
+    {
+      $set: {
+        attempts: orderCancellationService.MAX_ATTEMPTS - 1,
+        nextAttemptAt: new Date(0),
+      },
+    }
+  );
+
+  const originalCancel = shippingService.cancelGhnShipmentAtProvider;
+  shippingService.cancelGhnShipmentAtProvider = async () => {
+    throw new Error("Đơn hàng đã được lấy, không thể huỷ");
+  };
+  try {
+    const last = await orderCancellationService.processOne({ eventId: requested.event._id });
+    assert.equal(last.exhausted, true);
+    let event = await OrderOutboxEvent.findById(requested.event._id);
+    assert.equal(event.status, OrderOutboxEvent.STATUS.FAILED);
+    assert.match(event.lastError, /không thể huỷ/);
+    const alert = await Notification.findOne({ role: "admin", type: "order" }).lean();
+    assert.ok(alert, "admins are told the cancellation needs a person");
+    // Parked: the worker no longer picks it up.
+    assert.equal((await orderCancellationService.processOne()).processed, false);
+    assert.equal((await Order.findById(order._id)).status, Order.STATUS.CANCELLING);
+
+    shippingService.cancelGhnShipmentAtProvider = async () => true;
+    await orderCancellationService.retryFailedCancellation(order._id);
+    event = await OrderOutboxEvent.findById(requested.event._id);
+    assert.equal(event.status, OrderOutboxEvent.STATUS.PENDING);
+    assert.equal(event.attempts, 0);
+    const done = await orderCancellationService.processOne({ eventId: requested.event._id });
+    assert.equal(done.completed, true);
+  } finally {
+    shippingService.cancelGhnShipmentAtProvider = originalCancel;
+  }
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.CANCELLED);
+  assert.equal((await Book.findById(book._id)).stock, 10);
+  await assert.rejects(
+    orderCancellationService.retryFailedCancellation(order._id),
+    (error) => error.code === "NO_FAILED_CANCELLATION"
+  );
+});
+
 test("concurrent delivery increments sold at most once", async () => {
   const book = await createBook();
   const { order } = await orderService.createOrder(orderInput(book));

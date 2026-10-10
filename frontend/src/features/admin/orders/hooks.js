@@ -40,6 +40,7 @@ export function useOrder(id) {
 const ACTION_MAP = {
   confirm: (id) => adminAPI.confirmOrder(id),
   cancel: (id, payload) => adminAPI.cancelOrder(id, payload),
+  retryCancellation: (id) => adminAPI.retryCancellation(id),
   ship: (id, payload) => adminAPI.shipOrder(id, payload),
   deliver: (id) => adminAPI.deliverOrder(id),
   createShipment: (id) => adminAPI.createShipment(id),

@@ -302,6 +302,48 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
             <StatusTimeline order={order} current={normalizedStatus} />
           </div>
 
+          {/* Đơn đang huỷ: cho biết việc huỷ vận đơn còn đang thử lại hay đã dừng
+              chờ nhân viên (hãng từ chối huỷ, mất kết nối...). */}
+          {normalizedStatus === "CANCELLING" && order.cancellation && (
+            <div
+              role={order.cancellation.status === "FAILED" ? "alert" : "status"}
+              className={`rounded-xl border p-4 text-sm ${
+                order.cancellation.status === "FAILED"
+                  ? "border-danger-strong/40 bg-danger-muted text-danger-strong"
+                  : "border-warning/30 bg-warning-muted/40 text-foreground"
+              }`}
+            >
+              {order.cancellation.status === "FAILED" ? (
+                <p className="font-medium">
+                  Không huỷ được vận đơn sau {order.cancellation.attempts} lần thử. Cần kiểm tra
+                  với đơn vị vận chuyển (có thể hàng đã được lấy) rồi thử lại.
+                </p>
+              ) : (
+                <p className="font-medium">
+                  Đang chờ huỷ vận đơn
+                  {order.cancellation.attempts > 0
+                    ? ` (đã thử ${order.cancellation.attempts} lần)`
+                    : ""}
+                  .
+                </p>
+              )}
+              {order.cancellation.lastError && (
+                <p className="mt-1 text-xs">Lỗi gần nhất: {order.cancellation.lastError}</p>
+              )}
+              {order.cancellation.status === "FAILED" && can(user, "order.support") && (
+                <Button
+                  className="mt-3"
+                  size="sm"
+                  variant="outline"
+                  loading={orderAction.isPending}
+                  onClick={() => orderAction.mutate({ id, action: "retryCancellation" })}
+                >
+                  Thử huỷ vận đơn lại
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* Một đơn có thể có nhiều hồ sơ đổi trả: hiện tất cả và gửi kèm id hồ sơ
               để thao tác đúng hồ sơ đang xem. */}
           {(order.returnRequests?.length

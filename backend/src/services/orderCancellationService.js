@@ -4,9 +4,14 @@ const OrderOutboxEvent = require("../models/OrderOutboxEvent");
 const { runInTransaction } = require("../utils/transaction");
 const orderService = require("./orderService");
 const shippingService = require("./shippingService");
+const notificationService = require("./notificationService");
 
 const LOCK_MS = 60 * 1000;
 const MAX_RETRY_MS = 60 * 60 * 1000;
+// With the backoff below this is roughly an hour of retries. A carrier that
+// still refuses by then (typically: parcel already picked up) will not change
+// its mind, so the order is handed to staff instead of retrying forever.
+const MAX_ATTEMPTS = 8;
 
 function cancellationError(message, code, statusCode = 400) {
   const error = new Error(message);
@@ -171,7 +176,9 @@ async function processOne(options = {}) {
     return { processed: true, completed: true, order: finalizedOrder };
   } catch (error) {
     const attempts = Number(event.attempts) || 1;
-    await OrderOutboxEvent.updateOne(
+    const exhausted = attempts >= MAX_ATTEMPTS;
+    const lastError = String(error.message || error).slice(0, 500);
+    const parked = await OrderOutboxEvent.updateOne(
       {
         _id: event._id,
         status: OrderOutboxEvent.STATUS.PROCESSING,
@@ -179,16 +186,62 @@ async function processOne(options = {}) {
       },
       {
         $set: {
-          status: OrderOutboxEvent.STATUS.PENDING,
-          nextAttemptAt: new Date(Date.now() + retryDelay(attempts)),
+          status: exhausted
+            ? OrderOutboxEvent.STATUS.FAILED
+            : OrderOutboxEvent.STATUS.PENDING,
+          nextAttemptAt: exhausted
+            ? null
+            : new Date(Date.now() + retryDelay(attempts)),
           lockUntil: null,
           lockToken: "",
-          lastError: String(error.message || error).slice(0, 500),
+          lastError,
         },
       }
     );
-    return { processed: true, completed: false, error };
+    if (exhausted && parked.modifiedCount === 1) {
+      const order = await Order.findById(event.order).select("orderCode").lean();
+      await notificationService
+        .notifyAdmins({
+          type: "order",
+          title: "Huỷ đơn cần xử lý thủ công",
+          message: `Không huỷ được vận đơn của đơn ${order?.orderCode || event.order} sau ${attempts} lần thử: ${lastError}`,
+          link: `/admin/orders/${event.order}`,
+          metadata: { orderId: event.order, orderCode: order?.orderCode },
+        })
+        .catch(() => null);
+    }
+    return { processed: true, completed: false, exhausted, error };
   }
+}
+
+// Staff put a parked cancellation back in the queue, e.g. after checking with
+// the carrier or once its credentials work again.
+async function retryFailedCancellation(orderId) {
+  const event = await OrderOutboxEvent.findOneAndUpdate(
+    {
+      order: orderId,
+      type: OrderOutboxEvent.TYPE.SHIPMENT_CANCEL_REQUESTED,
+      status: OrderOutboxEvent.STATUS.FAILED,
+    },
+    {
+      $set: {
+        status: OrderOutboxEvent.STATUS.PENDING,
+        attempts: 0,
+        nextAttemptAt: new Date(),
+        lockUntil: null,
+        lockToken: "",
+      },
+    },
+    { returnDocument: "after" }
+  );
+  if (!event) {
+    throw cancellationError(
+      "Đơn không có yêu cầu huỷ đang chờ xử lý thủ công",
+      "NO_FAILED_CANCELLATION",
+      409
+    );
+  }
+  return event;
 }
 
 async function processPending({ limit = 20 } = {}) {
@@ -207,8 +260,10 @@ async function processPending({ limit = 20 } = {}) {
 }
 
 module.exports = {
+  MAX_ATTEMPTS,
   processOne,
   processPending,
+  retryFailedCancellation,
   requestAdminCancellation,
   requestCustomerCancellation,
 };

@@ -1,6 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const Order = require("../models/Order");
+const OrderOutboxEvent = require("../models/OrderOutboxEvent");
 const Book = require("../models/Book");
 const User = require("../models/User");
 const Review = require("../models/Review");
@@ -361,12 +362,31 @@ router.get("/orders/:id", requirePermission("order.read"), async (req, res) => {
 
     const returnRequests = await ReturnRequest.find({ order: order._id })
       .sort({ createdAt: -1, _id: -1 });
+    // While CANCELLING, staff need to see whether the carrier cancel is still
+    // being retried or has been parked for them (FAILED).
+    const cancellationEvent =
+      order.status === Order.STATUS.CANCELLING
+        ? await OrderOutboxEvent.findOne({
+            order: order._id,
+            type: OrderOutboxEvent.TYPE.SHIPMENT_CANCEL_REQUESTED,
+          })
+            .select("status attempts nextAttemptAt lastError")
+            .lean()
+        : null;
     res.json({
       success: true,
       data: {
         order: {
           ...order.toObject(),
           id: order._id,
+          cancellation: cancellationEvent
+            ? {
+                status: cancellationEvent.status,
+                attempts: cancellationEvent.attempts,
+                nextAttemptAt: cancellationEvent.nextAttemptAt,
+                lastError: cancellationEvent.lastError,
+              }
+            : null,
           returnRequest: serializeReturnRequest(returnRequests[0]),
           returnRequests: returnRequests.map(serializeReturnRequest),
         },
@@ -501,6 +521,23 @@ router.post("/orders/:id/confirm", requirePermission("order.support"), async (re
     });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// POST /api/admin/orders/:id/cancellation/retry - requeue a parked cancellation
+router.post("/orders/:id/cancellation/retry", requirePermission("order.support"), async (req, res) => {
+  try {
+    await orderCancellationService.retryFailedCancellation(req.params.id);
+    return res.status(202).json({
+      success: true,
+      message: "Đã đưa yêu cầu huỷ vận đơn vào hàng đợi xử lý lại",
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({
+      success: false,
+      message: error.message,
+      code: error.code,
+    });
   }
 });
 

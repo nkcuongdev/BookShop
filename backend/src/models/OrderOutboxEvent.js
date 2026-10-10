@@ -4,6 +4,9 @@ const STATUS = Object.freeze({
   PENDING: "PENDING",
   PROCESSING: "PROCESSING",
   COMPLETED: "COMPLETED",
+  // Gave up after repeated failures (e.g. the carrier refuses to cancel a parcel
+  // it already picked up). Waits for staff; never claimed automatically.
+  FAILED: "FAILED",
 });
 
 const TYPE = Object.freeze({
