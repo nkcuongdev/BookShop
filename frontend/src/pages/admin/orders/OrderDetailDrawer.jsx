@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/admin/common/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/admin/common/ErrorState";
 import {
   CreditCard,
   MapPin,
@@ -106,7 +107,15 @@ function actorLabel(by) {
   );
 }
 
-export function OrderDetailDrawer({ order, open, onOpenChange }) {
+// `error`/`onRetry` come from the detail query. Without them a 404/403 looked
+// like an endless skeleton, and a failed refresh silently kept stale data.
+function detailErrorMessage(error) {
+  if (error?.status === 404) return "Không tìm thấy đơn hàng này.";
+  if (error?.status === 403) return "Bạn không có quyền xem đơn hàng này.";
+  return error?.message || "Không tải được chi tiết đơn hàng.";
+}
+
+export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onRetry }) {
   const orderAction = useOrderAction();
   const returnRequestAction = useReturnRequestAction();
   const confirm = useConfirm();
@@ -153,8 +162,28 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent className="w-full sm:max-w-xl">
-          <Skeleton className="h-6 w-32" />
-          <Skeleton className="mt-4 h-40 w-full" />
+          {error ? (
+            <>
+              <SheetHeader>
+                <SheetTitle>Chi tiết đơn hàng</SheetTitle>
+                <SheetDescription>{detailErrorMessage(error)}</SheetDescription>
+              </SheetHeader>
+              <ErrorState
+                description={detailErrorMessage(error)}
+                onRetry={error?.status === 404 || error?.status === 403 ? undefined : onRetry}
+              />
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => onOpenChange?.(false)}>
+                  Đóng
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <Skeleton className="h-6 w-32" />
+              <Skeleton className="mt-4 h-40 w-full" />
+            </>
+          )}
         </SheetContent>
       </Sheet>
     );
@@ -240,6 +269,19 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+        {error && (
+          <div
+            role="alert"
+            className="rounded-lg border border-danger-strong/40 bg-danger-muted p-3 text-sm text-danger-strong"
+          >
+            {detailErrorMessage(error)} Thông tin dưới đây có thể đã cũ; thao tác tạm khoá.{" "}
+            {onRetry && (
+              <button type="button" className="underline" onClick={onRetry}>
+                Thử lại
+              </button>
+            )}
+          </div>
+        )}
         <SheetHeader>
           <div className="flex items-start justify-between gap-3 pr-8">
             <div className="flex flex-wrap items-center gap-3">
@@ -543,7 +585,7 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
           </div>
 
           {/* Actions */}
-          {(actions.length > 0 || showSandboxPanel) && (
+          {!error && (actions.length > 0 || showSandboxPanel) && (
             <div className="rounded-xl border border-border p-4">
               <p className="mb-3 text-sm font-semibold text-foreground">
                 Hành động

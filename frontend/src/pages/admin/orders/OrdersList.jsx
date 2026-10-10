@@ -477,6 +477,8 @@ export default function OrdersList() {
         order={orderDetailQ.data || orders.find((o) => (o._id || o.id) === id)}
         open={Boolean(id)}
         onOpenChange={closeDrawer}
+        error={orderDetailQ.isError ? orderDetailQ.error : null}
+        onRetry={() => orderDetailQ.refetch()}
       />
     </div>
   );
