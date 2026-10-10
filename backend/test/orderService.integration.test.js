@@ -521,6 +521,46 @@ test("cancelling a GHN shipment pauses the sandbox simulation first", async () =
   );
 });
 
+test("carrier movement on a cancelling order alerts staff and stops the simulation", async () => {
+  const book = await createBook({ weight: 400 });
+  const { order } = await orderService.createOrder(
+    orderInput(book, { idempotencyKey: "ghn-movement-after-cancel" })
+  );
+  await orderService.adminApproveOrder(order._id, new mongoose.Types.ObjectId());
+  await Order.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        "shipment.provider": "ghn",
+        "shipment.environment": "sandbox",
+        "shipment.providerOrderCode": "GHN-MOVING-1",
+        "shipment.providerStatus": "ready_to_pick",
+        "shipment.simulation.enabled": true,
+        "shipment.simulation.step": 0,
+        "shipment.simulation.nextAt": new Date(0),
+      },
+    }
+  );
+  await orderCancellationService.requestCustomerCancellation(order._id, userId, "Đổi ý");
+
+  const simulated = await shippingService.advanceSandboxSimulation(order._id);
+  assert.equal(simulated.advanced, false);
+
+  await shippingService.syncGhnWebhook({
+    OrderCode: "GHN-MOVING-1",
+    ClientOrderCode: order.orderCode,
+    Status: "picked",
+    Description: "Đã lấy hàng",
+    UpdatedDate: "2026-10-10T09:00:00.000Z",
+  });
+
+  const stored = await Order.findById(order._id);
+  assert.equal(stored.status, Order.STATUS.CANCELLING);
+  const alert = await Notification.findOne({ role: "admin", type: "shipping" }).lean();
+  assert.ok(alert, "staff learn the carrier is still moving a cancelled parcel");
+  assert.match(alert.message, /GHN-MOVING-1|picked/);
+});
+
 test("online payment creation runs only after the order transaction commits", async () => {
   const book = await createBook();
   const originalCreatePaymentUrl = paymentGateway.createPaymentUrl;

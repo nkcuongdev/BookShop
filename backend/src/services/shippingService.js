@@ -1106,21 +1106,35 @@ async function syncGhnWebhook(payload = {}) {
     }
   );
   const duplicate = result.modifiedCount === 0;
-  if (
-    !duplicate &&
-    DELIVERED_STATUSES.has(status) &&
-    order.status !== Order.STATUS.DELIVERED
-  ) {
+  // The carrier still moving a parcel the shop cancelled means the cancel did
+  // not take (or raced a shipment creation): stock and money may already have
+  // been released, so somebody has to look.
+  const shipmentShouldBeDead =
+    Boolean(order.shipment?.cancelledAt) ||
+    [
+      Order.STATUS.CANCELLING,
+      Order.STATUS.CANCELLED,
+      Order.STATUS.FAILED,
+      Order.STATUS.REFUNDING,
+      Order.STATUS.REFUNDED,
+    ].includes(order.status);
+  let alertMessage = "";
+  if (shipmentShouldBeDead && !["cancel", "cancelled"].includes(status)) {
+    alertMessage = `GHN báo trạng thái "${status}" cho đơn ${order.orderCode} trong khi đơn/vận đơn đã huỷ hoặc đang huỷ (${order.status}).`;
+  } else if (DELIVERED_STATUSES.has(status) && order.status !== Order.STATUS.DELIVERED) {
     // Previously an invalid transition here was swallowed and nobody learned
     // that the carrier delivered an order the shop had already closed.
+    alertMessage = deliveredAfterLostClaim
+      ? `GHN báo đã giao đơn ${order.orderCode} nhưng đơn đang có hồ sơ thất lạc; đơn chưa được chuyển sang Đã giao.`
+      : `GHN báo đã giao đơn ${order.orderCode} trong khi đơn đang ở trạng thái ${order.status}.`;
+  }
+  if (!duplicate && alertMessage) {
     const notificationService = require("./notificationService");
     await notificationService
       .notifyAdmins({
         type: "shipping",
-        title: "Hãng báo giao thành công cần đối soát",
-        message: deliveredAfterLostClaim
-          ? `GHN báo đã giao đơn ${order.orderCode} nhưng đơn đang có hồ sơ thất lạc; đơn chưa được chuyển sang Đã giao.`
-          : `GHN báo đã giao đơn ${order.orderCode} trong khi đơn đang ở trạng thái ${order.status}.`,
+        title: "Trạng thái vận chuyển cần đối soát",
+        message: alertMessage,
         link: `/admin/orders/${order._id}`,
         metadata: { orderId: order._id, orderCode: order.orderCode },
       })
@@ -1166,6 +1180,9 @@ async function advanceSandboxSimulation(
 
   const claimFilter = {
     _id: current._id,
+    // A cancellation request moves the order to CANCELLING before the parcel
+    // is cancelled at GHN; the simulation must not keep "shipping" it.
+    status: { $in: [Order.STATUS.PROCESSING, Order.STATUS.SHIPPED] },
     "shipment.environment": "sandbox",
     "shipment.cancelledAt": null,
     "shipment.simulation.step": stepIndex,
