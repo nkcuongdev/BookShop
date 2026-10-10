@@ -148,6 +148,9 @@ export default function ProfileOrders() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Skeleton chỉ cho lần tải đầu. Đổi tab/trang/từ khoá thì giữ nội dung đang
+  // hiện (làm mờ) tới khi có dữ liệu mới, tránh trang co giãn liên tục.
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -186,7 +189,10 @@ export default function ProfileOrders() {
         // Một lỗi tải không có nghĩa là khách chưa có đơn nào.
         if (active) setLoadError(true);
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setHasLoaded(true);
+        }
       }
     };
     load();
@@ -246,74 +252,83 @@ export default function ProfileOrders() {
         </Tabs>
       </Card>
 
-      {loading ? (
+      {loading && !hasLoaded ? (
         <div className="space-y-3">
           {[...Array(4)].map((_, i) => (
             <Skeleton key={i} className="h-28 rounded-2xl" />
           ))}
         </div>
-      ) : loadError ? (
-        <Card className="p-6">
-          <EmptyState
-            icon={Package}
-            title="Không tải được danh sách đơn hàng"
-            description="Đã có lỗi khi tải đơn hàng của bạn. Vui lòng thử lại."
-            action={
-              <Button variant="outline" onClick={() => setReloadKey((key) => key + 1)}>
-                Thử lại
-              </Button>
-            }
-          />
-        </Card>
-      ) : orders.length === 0 ? (
-        <Card className="p-6">
-          <EmptyState
-            icon={Package}
-            title={pagination.total === 0 && filter === "all" && !debouncedQuery ? "Chưa có đơn hàng" : "Không có kết quả"}
-            description={
-              pagination.total === 0 && filter === "all" && !debouncedQuery
-                ? "Khi bạn đặt hàng, đơn hàng sẽ xuất hiện ở đây."
-                : "Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm."
-            }
-            action={
-              pagination.total === 0 && filter === "all" && !debouncedQuery ? (
-                <Button asChild>
-                  <Link to="/products">Bắt đầu mua sắm</Link>
-                </Button>
-              ) : null
-            }
-          />
-        </Card>
       ) : (
-        <div className="space-y-3">
-          {orders.map((o) => (
-            <OrderRow
-              key={o._id || o.id}
-              order={o}
-              onSelect={(id) => navigate(`/profile/orders/${id}`)}
-            />
-          ))}
-          {pagination.totalPages > 1 && (
-            <div className="flex items-center justify-center gap-3 pt-2">
-              <Button
-                variant="outline"
-                disabled={page <= 1 || loading}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-              >
-                Trang trước
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                Trang {pagination.page} / {pagination.totalPages}
-              </span>
-              <Button
-                variant="outline"
-                disabled={page >= pagination.totalPages || loading}
-                onClick={() =>
-                  setPage((current) => Math.min(pagination.totalPages, current + 1))
+        <div
+          aria-busy={loading}
+          className={`transition-opacity duration-150 ${
+            loading ? "pointer-events-none opacity-60" : ""
+          }`}
+        >
+          {loadError ? (
+            <Card className="p-6">
+              <EmptyState
+                icon={Package}
+                title="Không tải được danh sách đơn hàng"
+                description="Đã có lỗi khi tải đơn hàng của bạn. Vui lòng thử lại."
+                action={
+                  <Button variant="outline" onClick={() => setReloadKey((key) => key + 1)}>
+                    Thử lại
+                  </Button>
                 }
-              >
-                Trang sau
-              </Button>
+              />
+            </Card>
+          ) : orders.length === 0 ? (
+            <Card className="p-6">
+              <EmptyState
+                icon={Package}
+                title={pagination.total === 0 && filter === "all" && !debouncedQuery ? "Chưa có đơn hàng" : "Không có kết quả"}
+                description={
+                  pagination.total === 0 && filter === "all" && !debouncedQuery
+                    ? "Khi bạn đặt hàng, đơn hàng sẽ xuất hiện ở đây."
+                    : "Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm."
+                }
+                action={
+                  pagination.total === 0 && filter === "all" && !debouncedQuery ? (
+                    <Button asChild>
+                      <Link to="/products">Bắt đầu mua sắm</Link>
+                    </Button>
+                  ) : null
+                }
+              />
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {orders.map((o) => (
+                <OrderRow
+                  key={o._id || o.id}
+                  order={o}
+                  onSelect={(id) => navigate(`/profile/orders/${id}`)}
+                />
+              ))}
+              {pagination.totalPages > 1 && (
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    disabled={page <= 1 || loading}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  >
+                    Trang trước
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    Trang {pagination.page} / {pagination.totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    disabled={page >= pagination.totalPages || loading}
+                    onClick={() =>
+                      setPage((current) => Math.min(pagination.totalPages, current + 1))
+                    }
+                  >
+                    Trang sau
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>
