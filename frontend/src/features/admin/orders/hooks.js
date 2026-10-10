@@ -51,10 +51,10 @@ export function useOrderAction() {
       if (!fn) throw new Error(`Unknown order action: ${action}`);
       return fn(id, payload);
     },
-    onSuccess: (_res, vars) => {
+    onSuccess: (res, vars) => {
       qc.invalidateQueries({ queryKey: ["admin", "orders"] });
       qc.invalidateQueries({ queryKey: ["admin", "order", vars.id] });
-      toast.success("Đã cập nhật đơn hàng");
+      toast.success(res?.message || "Đã cập nhật đơn hàng");
     },
     onError: (err) => {
       toast.error(err?.message || "Cập nhật đơn thất bại");

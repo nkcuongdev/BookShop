@@ -2034,6 +2034,50 @@ async function finalizeShipmentCancellation({ eventId, lockToken }) {
   return order;
 }
 
+// Cancels a PENDING order inside the caller's transaction. A PENDING order has
+// no shipment and no captured payment, so it goes straight to CANCELLED rather
+// than through CANCELLING: a payment callback arriving afterwards then takes
+// the existing late-payment refund path instead of failing on CANCELLING.
+async function cancelPendingOrderInSession(orderId, session, { by, reason }) {
+  const order = await Order.findOne({ _id: orderId, status: ORDER_STATUS.PENDING })
+    .select(INTERNAL_ORDER_FIELDS)
+    .session(session);
+  if (!order) return null;
+
+  if (!order.inventoryRestoredAt) {
+    await restoreItems(order.items, session, {
+      orderId: order._id,
+      orderCode: order.orderCode,
+      reason: reason || "Huỷ đơn hàng",
+    });
+    order.inventoryRestoredAt = new Date();
+  }
+  await releaseOrderVoucher(order, session);
+  await loyaltyService.refundOrderPoints(order, session, {
+    reason: `Hoàn điểm đơn ${order.orderCode} do huỷ đơn`,
+  });
+  order.applyTransition(ORDER_STATUS.CANCELLED, {
+    by,
+    reason: reason || "Order cancelled",
+  });
+  order.cancelReason = reason;
+  order.payment.retryLockUntil = null;
+  order.payment.checkoutUrl = "";
+  order.expiresAt = null;
+  await order.save({ session });
+  return order;
+}
+
+async function notifyOrderCancelled(order) {
+  await notifyUserSafe(order.user, {
+    type: "order",
+    title: "Đơn hàng đã hủy",
+    message: `Đơn hàng ${order.orderCode} đã được hủy.`,
+    link: `/profile/orders/${order._id}`,
+    metadata: { orderId: order._id, orderCode: order.orderCode },
+  });
+}
+
 // ──────────────────────────────────────────────────────────────
 // Cancel / Refund
 // ──────────────────────────────────────────────────────────────
@@ -2478,6 +2522,8 @@ module.exports = {
   adminMarkShipped,
   adminMarkDelivered,
   finalizeShipmentCancellation,
+  cancelPendingOrderInSession,
+  notifyOrderCancelled,
   cancelOrder,
   handleRefundSuccess,
   completeLostInTransitRefund,

@@ -479,15 +479,16 @@ router.post("/orders/:id/cancel", requirePermission("order.support"), async (req
       });
     }
     const previousStatus = await currentOrderStatus(req.params.id);
-    const { order, replayed } = await orderCancellationService.requestAdminCancellation(
-      req.params.id,
-      req.user._id,
-      reason
-    );
+    const { order, replayed, cancelled } =
+      await orderCancellationService.requestAdminCancellation(
+        req.params.id,
+        req.user._id,
+        reason
+      );
     await recordOrderStatusChange(req, order, previousStatus, reason);
-    return res.status(202).json({
+    return res.status(cancelled ? 200 : 202).json({
       success: true,
-      message: "Yêu cầu huỷ đơn đang được xử lý",
+      message: cancelled ? "Đã huỷ đơn hàng" : "Yêu cầu huỷ đơn đang được xử lý",
       data: { order: { ...order.toObject(), id: order._id }, replayed },
     });
   } catch (error) {

@@ -42,9 +42,9 @@ export const ADMIN_ORDER_ACTIONS = {
       next: "PROCESSING",
       permission: "order.support",
     },
-    // Backend cho phép huỷ ở PENDING/PAID/PROCESSING, không phân biệt phương
-    // thức thanh toán. Đơn đã trả tiền sẽ đi qua CANCELLING rồi hoàn tiền bất
-    // đồng bộ, nên nhãn nói rõ điều đó thay vì hứa huỷ xong ngay.
+    // Backend (orderCancellationService) huỷ PENDING ngay sang CANCELLED; với
+    // PAID/PROCESSING thì đơn đi qua CANCELLING, hệ thống huỷ vận đơn (nếu có)
+    // rồi hoàn tiền bất đồng bộ nếu đã thanh toán.
     {
       action: "cancel",
       label: "Từ chối / Huỷ đơn",

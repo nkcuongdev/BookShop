@@ -721,6 +721,118 @@ test("admin cancellation restores a pending COD reservation exactly once", async
   assert.equal((await Book.findById(book._id)).stock, 10);
 });
 
+test("customer cancels a PENDING COD order directly without an outbox event", async () => {
+  const book = await createBook();
+  const voucher = await createVoucher();
+  const { order } = await orderService.createOrder(
+    orderInput(book, {
+      idempotencyKey: "customer-cancel-pending-cod",
+      voucherCode: voucher.code,
+    })
+  );
+  assert.equal((await Book.findById(book._id)).stock, 8);
+
+  const result = await orderCancellationService.requestCustomerCancellation(
+    order._id,
+    userId,
+    "Đặt nhầm",
+    "127.0.0.1"
+  );
+
+  assert.equal(result.cancelled, true);
+  assert.equal(result.event, null);
+  assert.equal(result.order.status, Order.STATUS.CANCELLED);
+  assert.equal(result.order.cancelReason, "Đặt nhầm");
+  assert.equal(result.order.history.at(-1).from, Order.STATUS.PENDING);
+  assert.equal(result.order.history.at(-1).by, `user:${userId}`);
+  assert.equal(await OrderOutboxEvent.countDocuments(), 0);
+  assert.equal((await Book.findById(book._id)).stock, 10);
+  assert.equal((await Voucher.findById(voucher._id)).usedCount, 0);
+
+  await assert.rejects(
+    orderCancellationService.requestCustomerCancellation(order._id, userId, ""),
+    (error) => error.code === "INVALID_CANCELLATION_STATE"
+  );
+  assert.equal((await Book.findById(book._id)).stock, 10);
+});
+
+test("concurrent PENDING cancellations restore stock exactly once", async () => {
+  const book = await createBook();
+  const { order } = await orderService.createOrder(
+    orderInput(book, { idempotencyKey: "concurrent-cancel-pending" })
+  );
+  const adminId = new mongoose.Types.ObjectId();
+
+  const attempts = await Promise.allSettled([
+    orderCancellationService.requestCustomerCancellation(order._id, userId, ""),
+    orderCancellationService.requestAdminCancellation(order._id, adminId, ""),
+  ]);
+
+  assert.equal(
+    attempts.filter((attempt) => attempt.status === "fulfilled").length,
+    1
+  );
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.CANCELLED);
+  assert.equal((await Book.findById(book._id)).stock, 10);
+});
+
+test("admin cancels a PENDING online order and a later payment is refunded", async () => {
+  const book = await createBook();
+  const { order } = await orderService.createOrder(
+    orderInput(book, {
+      idempotencyKey: "admin-cancel-pending-online",
+      paymentMethod: "VNPAY",
+    })
+  );
+  const adminId = new mongoose.Types.ObjectId();
+
+  const result = await orderCancellationService.requestAdminCancellation(
+    order._id,
+    adminId,
+    "Khách yêu cầu qua điện thoại"
+  );
+  assert.equal(result.cancelled, true);
+  assert.equal(result.order.status, Order.STATUS.CANCELLED);
+  assert.equal(result.order.history.at(-1).by, `admin:${adminId}`);
+  assert.equal(await OrderOutboxEvent.countDocuments(), 0);
+  assert.equal((await Book.findById(book._id)).stock, 10);
+
+  // The customer had already been sent to the gateway; the capture arrives
+  // after the cancellation and must be recorded and refunded, not dropped.
+  const originalRequestRefund = paymentGateway.requestRefund;
+  paymentGateway.requestRefund = async () => ({
+    ok: true,
+    completed: true,
+    refundTransactionId: "cancelled-pending-refund",
+    rawPayload: { test: true },
+  });
+  let late;
+  try {
+    late = await orderService.handlePaymentSuccess({
+      orderCode: order.orderCode,
+      method: "VNPAY",
+      providerOrderId: order.payment.providerOrderId,
+      transactionId: "captured-after-cancel",
+      amount: order.totalAmount,
+      rawPayload: { test: true },
+    });
+  } finally {
+    paymentGateway.requestRefund = originalRequestRefund;
+  }
+  assert.equal(late.latePayment, true);
+  assert.equal(late.order.status, Order.STATUS.REFUNDED);
+  assert.equal(late.order.payment.transactionId, "captured-after-cancel");
+  assert.equal((await Book.findById(book._id)).stock, 10);
+});
+
+test("PENDING orders are never moved into CANCELLING", () => {
+  // A payment callback cannot settle a CANCELLING order (it only handles
+  // PENDING/CANCELLED/FAILED/REFUNDING/REFUNDED), so PENDING must not gain
+  // this edge; cancellation of PENDING goes straight to CANCELLED instead.
+  assert.ok(!Order.TRANSITIONS.PENDING.includes(Order.STATUS.CANCELLING));
+  assert.ok(Order.TRANSITIONS.PENDING.includes(Order.STATUS.CANCELLED));
+});
+
 test("late online payment is refunded without restoring stock twice", async () => {
   const book = await createBook();
   const { order } = await orderService.createOrder(

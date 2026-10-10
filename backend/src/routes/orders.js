@@ -760,15 +760,16 @@ router.post("/webhook/momo", async (req, res) => {
 // POST /api/orders/:id/cancel - Khách hủy đơn
 router.post("/:id/cancel", auth, async (req, res) => {
   try {
-    const { order, replayed } = await orderCancellationService.requestCustomerCancellation(
-      req.params.id,
-      req.user._id,
-      req.body?.reason || "",
-      getClientIp(req)
-    );
-    res.status(202).json({
+    const { order, replayed, cancelled } =
+      await orderCancellationService.requestCustomerCancellation(
+        req.params.id,
+        req.user._id,
+        req.body?.reason || "",
+        getClientIp(req)
+      );
+    res.status(cancelled ? 200 : 202).json({
       success: true,
-      message: "Yêu cầu hủy đơn đang được xử lý",
+      message: cancelled ? "Đã hủy đơn hàng" : "Yêu cầu hủy đơn đang được xử lý",
       data: { order: { ...order.toObject(), id: order._id }, replayed },
     });
   } catch (error) {

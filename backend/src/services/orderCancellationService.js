@@ -27,7 +27,7 @@ async function requestCancellation({
   clientIp = "",
 }) {
   const normalizedReason = String(reason || "").trim().slice(0, 500);
-  return runInTransaction(async (session) => {
+  const result = await runInTransaction(async (session) => {
     const order = await Order.findById(orderId).session(session);
     if (!order) {
       throw cancellationError("Order không tồn tại", "ORDER_NOT_FOUND", 404);
@@ -70,6 +70,14 @@ async function requestCancellation({
     }
 
     const requestedBy = `${actorType}:${actorId}`;
+    if (previousStatus === Order.STATUS.PENDING) {
+      const cancelled = await orderService.cancelPendingOrderInSession(
+        order._id,
+        session,
+        { by: requestedBy, reason: normalizedReason }
+      );
+      return { order: cancelled, event: null, replayed: false, cancelled: true };
+    }
     order.applyTransition(Order.STATUS.CANCELLING, {
       by: requestedBy,
       reason: normalizedReason || "Cancellation requested",
@@ -93,8 +101,10 @@ async function requestCancellation({
       ],
       { session }
     );
-    return { order, event, replayed: false };
+    return { order, event, replayed: false, cancelled: false };
   });
+  if (result.cancelled) await orderService.notifyOrderCancelled(result.order);
+  return result;
 }
 
 function requestCustomerCancellation(orderId, userId, reason, clientIp) {

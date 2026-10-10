@@ -162,11 +162,15 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
 
   const runAction = async (action) => {
     if (action === "cancel") {
-      // Huỷ đơn đã thanh toán không kết thúc ngay: đơn chuyển sang CANCELLING,
+      // Đơn PENDING được huỷ ngay. Đơn PAID/PROCESSING chuyển sang CANCELLING,
       // hệ thống huỷ vận đơn (nếu có) rồi hoàn tiền qua cổng thanh toán. Mô tả
       // đúng quá trình này để CSKH không nghĩ đã xong khi bấm xong.
       const isPrepaid = payment.method !== "COD" && payment.status === "PAID";
-      const steps = ["Tồn kho và lượt voucher đã giữ cho đơn này sẽ được hoàn lại."];
+      const steps = [
+        normalizedStatus === "PENDING"
+          ? "Đơn chưa được duyệt nên sẽ được huỷ ngay. Tồn kho, lượt voucher và điểm đã dùng cho đơn này sẽ được hoàn lại."
+          : "Tồn kho, lượt voucher và điểm đã dùng cho đơn này sẽ được hoàn lại.",
+      ];
       if (hasGhnShipment && !ghnShipmentCancelled) {
         steps.push("Vận đơn đã tạo sẽ được yêu cầu huỷ với đơn vị vận chuyển.");
       }
