@@ -10,6 +10,7 @@ const supertest = require("supertest");
 
 const app = require("../src/index");
 const Book = require("../src/models/Book");
+const Notification = require("../src/models/Notification");
 const Order = require("../src/models/Order");
 const SupportTicket = require("../src/models/SupportTicket");
 const User = require("../src/models/User");
@@ -745,4 +746,48 @@ test("a lost-parcel reship must cover every line not already refunded", async ()
   );
   assert.equal(result.ticket.resolution.status, "PREPARING");
   assert.equal(result.ticket.resolution.items.length, 2);
+});
+
+test("a late delivered webhook does not deliver an order already declared lost", async () => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const { order, book } = await shippedOrder(customer, { method: "COD", paymentStatus: "UNPAID" });
+  await Order.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        "shipment.provider": "ghn",
+        "shipment.environment": "sandbox",
+        "shipment.providerOrderCode": "GHN-LOST-1",
+        "shipment.providerStatus": "transporting",
+      },
+    }
+  );
+  const { ticketId } = await ticketFor(customer, order);
+  await supportResolutionService.createResolution({
+    ticketId,
+    adminId: admin._id,
+    payload: {
+      type: "LOST_IN_TRANSIT_RESHIP",
+      note: "Giao lại",
+      items: [{ bookId: String(book._id), quantity: 1 }],
+    },
+  });
+
+  const result = await shippingService.syncGhnWebhook({
+    OrderCode: "GHN-LOST-1",
+    ClientOrderCode: order.orderCode,
+    Status: "delivered",
+    Description: "Giao hàng thành công",
+    UpdatedDate: "2026-10-10T10:00:00.000Z",
+  });
+
+  assert.equal(result.found, true);
+  const stored = await Order.findById(order._id).select("+pointsEarnedAt").lean();
+  assert.equal(stored.status, Order.STATUS.SHIPPED);
+  assert.equal(stored.pointsEarnedAt || null, null);
+  assert.equal(stored.shipment.providerStatus, "delivered");
+  const alert = await Notification.findOne({ role: "admin", type: "shipping" }).lean();
+  assert.ok(alert, "an agent is told the carrier delivered a lost order");
+  assert.match(alert.message, /hồ sơ thất lạc/);
 });

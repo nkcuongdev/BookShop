@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const Book = require("../models/Book");
 const Order = require("../models/Order");
+const SupportTicket = require("../models/SupportTicket");
 const config = require("../config");
 
 const GHN_SANDBOX_BASE_URL =
@@ -974,7 +975,21 @@ async function syncGhnWebhook(payload = {}) {
       })
     );
   }
-  if (DELIVERED_STATUSES.has(status)) {
+  // A parcel already declared lost can still turn up. Delivering the order then
+  // would award points and a return window on goods that were refunded or are
+  // being resent, so leave it where it is and ask an agent to reconcile.
+  const deliveredAfterLostClaim =
+    DELIVERED_STATUSES.has(status) &&
+    Boolean(
+      await SupportTicket.exists({
+        order: order._id,
+        "resolution.type": {
+          $in: ["LOST_IN_TRANSIT_REFUND", "LOST_IN_TRANSIT_RESHIP"],
+        },
+        "resolution.status": { $nin: ["FAILED", "REFUND_FAILED", "CANCELLED"] },
+      })
+    );
+  if (DELIVERED_STATUSES.has(status) && !deliveredAfterLostClaim) {
     if (order.status === Order.STATUS.PROCESSING) {
       order = await transitionSafely(() =>
         orderService.adminMarkShipped(order._id, "carrier:ghn-sandbox", {
@@ -1025,7 +1040,28 @@ async function syncGhnWebhook(payload = {}) {
       },
     }
   );
-  return { found: true, duplicate: result.modifiedCount === 0 };
+  const duplicate = result.modifiedCount === 0;
+  if (
+    !duplicate &&
+    DELIVERED_STATUSES.has(status) &&
+    order.status !== Order.STATUS.DELIVERED
+  ) {
+    // Previously an invalid transition here was swallowed and nobody learned
+    // that the carrier delivered an order the shop had already closed.
+    const notificationService = require("./notificationService");
+    await notificationService
+      .notifyAdmins({
+        type: "shipping",
+        title: "Hãng báo giao thành công cần đối soát",
+        message: deliveredAfterLostClaim
+          ? `GHN báo đã giao đơn ${order.orderCode} nhưng đơn đang có hồ sơ thất lạc; đơn chưa được chuyển sang Đã giao.`
+          : `GHN báo đã giao đơn ${order.orderCode} trong khi đơn đang ở trạng thái ${order.status}.`,
+        link: `/admin/orders/${order._id}`,
+        metadata: { orderId: order._id, orderCode: order.orderCode },
+      })
+      .catch(() => null);
+  }
+  return { found: true, duplicate };
 }
 
 function assertSandboxSimulationOrder(order) {
