@@ -68,4 +68,49 @@ describe("AdminReturnRequestCard", () => {
       "Không đúng điều kiện đổi trả."
     );
   });
+  // F32: receiving touches stock and money, so the goods condition is an
+  // explicit choice and the summary must be confirmed.
+  it("requires a goods condition and a confirmation before receiving", () => {
+    const onResolve = vi.fn();
+    render(
+      <AdminReturnRequestCard
+        request={{ ...request, status: "RETURNING", returnCode: "RT-1" }}
+        onResolve={onResolve}
+      />
+    );
+
+    const receive = screen.getByRole("button", { name: "Đã nhận hàng trả" });
+    expect(receive.disabled).toBe(true);
+
+    fireEvent.click(screen.getByLabelText("Hư hỏng, không nhập kho"));
+    fireEvent.click(screen.getByRole("button", { name: "Đã nhận hàng trả" }));
+    expect(onResolve).not.toHaveBeenCalled();
+    expect(screen.getByText("Kiểm tra lại trước khi xác nhận")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận đã nhận hàng" }));
+    expect(onResolve).toHaveBeenCalledWith("RECEIVED", "", { restock: false });
+  });
+
+  it("confirms the amount and reference before closing a manual refund", () => {
+    const onResolve = vi.fn();
+    render(
+      <AdminReturnRequestCard
+        request={{
+          ...request,
+          status: "RECEIVED",
+          refund: { status: "MANUAL_REQUIRED", amount: 90_000 },
+        }}
+        onResolve={onResolve}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Mã giao dịch hoàn tiền"), {
+      target: { value: "BANK-001" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Hoàn tất yêu cầu" }));
+    expect(onResolve).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận đã hoàn tiền" }));
+    expect(onResolve).toHaveBeenCalledWith("CLOSED", "", { refundTransactionId: "BANK-001" });
+  });
 });

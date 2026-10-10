@@ -19,8 +19,12 @@ export default function AdminReturnRequestCard({
   readOnly = false,
 }) {
   const [adminNote, setAdminNote] = useState(request?.adminNote || "");
-  const [restock, setRestock] = useState(true);
+  // No default condition: nhập lại kho hay ghi hỏng phải là lựa chọn chủ động,
+  // và mỗi bước động tới kho/tiền có một bước xác nhận lại nội dung.
+  const [disposition, setDisposition] = useState("");
+  const [confirmingReceive, setConfirmingReceive] = useState(false);
   const [refundTransactionId, setRefundTransactionId] = useState("");
+  const [confirmingClose, setConfirmingClose] = useState(false);
   if (!request) return null;
 
   const resolve = (status) => {
@@ -136,25 +140,78 @@ export default function AdminReturnRequestCard({
           <p className="whitespace-pre-wrap">
             {request.returnInstructions || request.adminNote || "Chờ khách gửi sản phẩm về."}
           </p>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={restock}
-              onChange={(event) => setRestock(event.target.checked)}
-              disabled={resolving}
-            />
-            Sản phẩm đủ điều kiện nhập lại kho
-          </label>
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              loading={resolving}
-              onClick={() => onResolve?.("RECEIVED", adminNote.trim(), { restock })}
-            >
-              <CheckCircle2 className="size-4" />
-              Xác nhận đã nhận hàng
-            </Button>
-          </div>
+          <fieldset className="space-y-1.5" disabled={resolving || confirmingReceive}>
+            <legend className="font-medium">Tình trạng hàng nhận về</legend>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name={`return-disposition-${request._id || request.id}`}
+                checked={disposition === "RESTOCK"}
+                onChange={() => setDisposition("RESTOCK")}
+              />
+              Đủ điều kiện, nhập lại kho
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name={`return-disposition-${request._id || request.id}`}
+                checked={disposition === "DAMAGED"}
+                onChange={() => setDisposition("DAMAGED")}
+              />
+              Hư hỏng, không nhập kho
+            </label>
+          </fieldset>
+          {confirmingReceive ? (
+            <div className="space-y-2 rounded-lg border border-warning/40 bg-warning-muted/40 p-3">
+              <p className="font-medium">Kiểm tra lại trước khi xác nhận</p>
+              <ul className="list-disc pl-5">
+                {(request.items || []).map((item) => (
+                  <li key={String(item.book?._id || item.book)}>
+                    {item.title} × {item.quantity}
+                  </li>
+                ))}
+              </ul>
+              <p>
+                {disposition === "RESTOCK"
+                  ? "Số lượng trên sẽ được nhập lại kho."
+                  : "Hàng được ghi nhận hư hỏng, không nhập lại kho."}{" "}
+                Hệ thống sẽ tạo khoản hoàn theo giá trị hàng trả (tối đa phần còn có thể hoàn của đơn) và thu hồi điểm tương ứng.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={resolving}
+                  onClick={() => setConfirmingReceive(false)}
+                >
+                  Quay lại
+                </Button>
+                <Button
+                  type="button"
+                  loading={resolving}
+                  onClick={() =>
+                    onResolve?.("RECEIVED", adminNote.trim(), {
+                      restock: disposition === "RESTOCK",
+                    })
+                  }
+                >
+                  <CheckCircle2 className="size-4" />
+                  Xác nhận đã nhận hàng
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                disabled={!disposition || resolving}
+                onClick={() => setConfirmingReceive(true)}
+              >
+                <CheckCircle2 className="size-4" />
+                Đã nhận hàng trả
+              </Button>
+            </div>
+          )}
         </div>
       ) : !readOnly &&
         request.status === "RECEIVED" &&
@@ -168,26 +225,63 @@ export default function AdminReturnRequestCard({
               Lỗi hoàn tự động gần nhất: {request.refund.lastError}
             </p>
           )}
+          <p>
+            Số tiền cần hoàn:{" "}
+            <strong>{formatVND(request.refund?.amount || request.expectedRefundAmount || 0)}</strong>
+          </p>
           <input
             type="text"
             value={refundTransactionId}
-            onChange={(event) => setRefundTransactionId(event.target.value)}
+            onChange={(event) => {
+              setRefundTransactionId(event.target.value);
+              setConfirmingClose(false);
+            }}
             maxLength={250}
             placeholder="Mã giao dịch hoàn tiền"
+            aria-label="Mã giao dịch hoàn tiền"
             className="h-10 w-full rounded-lg border border-border px-3"
           />
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              disabled={resolving || refundTransactionId.trim().length < 3}
-              loading={resolving}
-              onClick={() => onResolve?.("CLOSED", adminNote.trim(), {
-                refundTransactionId: refundTransactionId.trim(),
-              })}
-            >
-              Hoàn tất yêu cầu
-            </Button>
-          </div>
+          {confirmingClose ? (
+            <div className="space-y-2 rounded-lg border border-warning/40 bg-warning-muted/40 p-3">
+              <p>
+                Xác nhận đã chuyển{" "}
+                {formatVND(request.refund?.amount || request.expectedRefundAmount || 0)} cho khách
+                với mã giao dịch <span className="font-mono">{refundTransactionId.trim()}</span>?
+                Yêu cầu sẽ được đóng và không thể hoàn tác.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={resolving}
+                  onClick={() => setConfirmingClose(false)}
+                >
+                  Quay lại
+                </Button>
+                <Button
+                  type="button"
+                  loading={resolving}
+                  onClick={() =>
+                    onResolve?.("CLOSED", adminNote.trim(), {
+                      refundTransactionId: refundTransactionId.trim(),
+                    })
+                  }
+                >
+                  Xác nhận đã hoàn tiền
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                disabled={resolving || refundTransactionId.trim().length < 3}
+                onClick={() => setConfirmingClose(true)}
+              >
+                Hoàn tất yêu cầu
+              </Button>
+            </div>
+          )}
         </div>
       ) : readOnly && !request.resolvedAt ? (
         <div className="mt-4 rounded-lg bg-card p-3 text-sm text-muted-foreground">
