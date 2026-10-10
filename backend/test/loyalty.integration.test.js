@@ -571,6 +571,41 @@ test("a partial return claws back a proportional share", async () => {
   assert.equal(user.loyalty.pointsBalance, 40);
 });
 
+test("returning everything over several requests claws back every point", async () => {
+  const ReturnRequest = require("../src/models/ReturnRequest");
+  const order = new Order(orderFixture());
+  await runInTransaction((session) => loyaltyService.earnForOrder(order, session));
+  assert.equal(order.pointsEarned, 50);
+
+  // Three equal thirds: rounding each down alone would revoke 16+16+16 = 48.
+  const thirds = [166_667, 166_667, 166_666];
+  for (const [index, amount] of thirds.entries()) {
+    const returnId = new mongoose.Types.ObjectId();
+    // As in receiveReturnRequest, the request is already RECEIVED when its
+    // points are revoked.
+    await ReturnRequest.collection.insertOne({
+      _id: returnId,
+      order: order._id,
+      user: customerId,
+      items: [],
+      status: "RECEIVED",
+      refund: { amount },
+    });
+    await runInTransaction((session) =>
+      loyaltyService.revokeOrderPointsPartial(
+        order,
+        { refundedGoodsAmount: amount, returnId, returnCode: `TR-THIRD-${index}` },
+        session
+      )
+    );
+  }
+
+  const user = await User.findById(customerId).lean();
+  assert.equal(user.loyalty.pointsBalance, 0, "all 50 earned points are revoked");
+  const revoked = await LoyaltyLedger.find({ type: "REVOKE" }).lean();
+  assert.deepEqual(revoked.map((entry) => entry.points).sort(), [-16, -17, -17].sort());
+});
+
 // ──────────────────────────────────────────────────────────────
 // Tier evaluation
 // ──────────────────────────────────────────────────────────────

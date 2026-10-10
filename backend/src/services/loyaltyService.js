@@ -510,11 +510,13 @@ async function refundOrderPointsPartial(
   const subtotal = Number(order.subtotal) || 0;
   if (redeemed <= 0 || subtotal <= 0) return null;
 
-  const ratio = Math.min(
-    1,
-    Math.max(0, Number(returnedGrossAmount) || 0) / subtotal
+  const prior = await priorPartialAmounts(order, returnId, session);
+  const points = cumulativeShare(
+    redeemed,
+    prior.returnedGross,
+    Number(returnedGrossAmount) || 0,
+    subtotal
   );
-  const points = Math.floor(redeemed * ratio);
   if (points <= 0) return null;
 
   const { ledger } = await applyPointsMovement(
@@ -606,6 +608,54 @@ async function revokeOrderPoints(order, session, { reason = "" } = {}) {
  * Uses its own uniqueKey namespace keyed by the return, because one order can
  * accumulate several returns over time.
  */
+// Amounts already settled by this order's earlier partial returns and support
+// item refunds. `returnId` identifies the movement being priced now (a return
+// id, or `support-<ticketId>`), which may already be visible in the session.
+async function priorPartialAmounts(order, returnId, session) {
+  const current = String(returnId || "");
+  // Sequential on purpose: parallel operations on one session cannot start a
+  // transaction.
+  const returns = await ReturnRequest.find({
+    order: order._id,
+    status: { $in: [ReturnRequest.STATUS.RECEIVED, ReturnRequest.STATUS.CLOSED] },
+  })
+    .select("items refund.amount")
+    .session(session)
+    .lean();
+  const tickets = await SupportTicket.find({
+    order: order._id,
+    "resolution.type": "PARTIAL_REFUND",
+    "resolution.status": "REFUND_COMPLETED",
+  })
+    .select("resolution.amount")
+    .session(session)
+    .lean();
+  const priorReturns = returns.filter((request) => String(request._id) !== current);
+  const priorTickets = tickets.filter((ticket) => `support-${ticket._id}` !== current);
+  return {
+    refundedGoods:
+      priorReturns.reduce((sum, request) => sum + (Number(request.refund?.amount) || 0), 0) +
+      priorTickets.reduce((sum, ticket) => sum + (Number(ticket.resolution?.amount) || 0), 0),
+    returnedGross: priorReturns.reduce(
+      (sum, request) =>
+        sum +
+        (request.items || []).reduce(
+          (lineSum, item) => lineSum + Number(item.unitPrice) * Number(item.quantity),
+          0
+        ),
+      0
+    ),
+  };
+}
+
+// Points for one partial movement, priced on the cumulative share: rounding each
+// piece down on its own would lose up to n-1 points over n pieces, whereas the
+// differences of cumulative floors always add up to the full amount.
+function cumulativeShare(total, prior, current, basis) {
+  const share = (amount) => Math.floor(total * Math.min(1, Math.max(0, amount) / basis));
+  return Math.max(0, share(prior + current) - share(prior));
+}
+
 async function revokeOrderPointsPartial(
   order,
   { refundedGoodsAmount, returnId, returnCode = "" },
@@ -617,12 +667,14 @@ async function revokeOrderPointsPartial(
   const eligibleAmount = eligibleAmountForOrder(order);
   if (eligibleAmount <= 0) return null;
 
-  const ratio = Math.min(
-    1,
-    Math.max(0, Number(refundedGoodsAmount) || 0) / eligibleAmount
+  // Round down: never claw back more than the returns so far justify.
+  const prior = await priorPartialAmounts(order, returnId, session);
+  const target = cumulativeShare(
+    earned,
+    prior.refundedGoods,
+    Number(refundedGoodsAmount) || 0,
+    eligibleAmount
   );
-  // Round down: never claw back more than the return actually justifies.
-  const target = Math.floor(earned * ratio);
   if (target <= 0) return null;
 
   const customer = await User.findById(order.user)

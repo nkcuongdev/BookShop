@@ -295,13 +295,16 @@ async function releaseRefundReservation(orderId, amount, session = null) {
 // lockOrderEntitlements) so two concurrent compensations - or a compensation
 // and a ReturnRequest - cannot both pass this check on the same snapshot.
 async function assertLineEntitlements(order, ticketId, items, session = null) {
-  const [returns, tickets] = await Promise.all([
-    ReturnRequest.find({
-      order: order._id,
-      status: { $ne: ReturnRequest.STATUS.REJECTED },
-    }).select("items.book items.quantity").session(session).lean(),
-    findSupportLineCompensations(order._id, { excludeTicketId: ticketId, session }),
-  ]);
+  // Sequential: parallel operations on one session are not allowed to start
+  // or share a transaction.
+  const returns = await ReturnRequest.find({
+    order: order._id,
+    status: { $ne: ReturnRequest.STATUS.REJECTED },
+  }).select("items.book items.quantity").session(session).lean();
+  const tickets = await findSupportLineCompensations(order._id, {
+    excludeTicketId: ticketId,
+    session,
+  });
   const consumed = new Map();
   const add = (entry) => {
     const key = String(entry.book?._id || entry.book || "");
