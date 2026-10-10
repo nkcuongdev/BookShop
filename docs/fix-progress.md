@@ -73,3 +73,11 @@ Test frontend (vitest) đã viết cho F29, F30, F32 nhưng **chưa chạy** vì
 - `backend/src/services/orderService.js` `executeDuplicatePaymentRefund` (có sẵn): `findOneAndUpdate({ _id }, ..., { arrayFilters })` luôn trả về document kể cả khi không phần tử nào khớp (mất lock), nên nhánh `if (!updated)` "Order changed while recording duplicate payment refund" không bao giờ chạy. Tương tự, mọi `updateOne` trên Order chỉ lọc `_id` + `arrayFilters` có `modifiedCount` = 1 do timestamps thêm `updatedAt`.
 
 - `backend/src/services/returnRequestService.js` (có sẵn trên `main`, 6 dòng): chuỗi tiếng Việt bị lỗi mã hoá kép (mojibake), ví dụ `returnInstructions` mặc định "Vui lÃ²ng Ä‘Ã³ng gÃ³i…" trong `resolveReturnRequest`. Khách sẽ thấy chữ lỗi trong hướng dẫn trả hàng.
+
+## Chỉnh giao diện sau khi xem trực tiếp (commit c9f3dec)
+
+Đã chạy app trên database riêng `bookshop_ui_preview` (seed + 28 đơn mẫu đủ trạng thái; database `bookshop` không bị đụng tới) và đo ở viewport 1280×800:
+
+- Toolbar trước đó vỡ thành 3 dòng lộn xộn → tách 2 hàng (tìm kiếm + nút thao tác / bộ lọc), khoảng ngày đặt nằm cùng một cụm.
+- Bảng rộng 1185px trong khung 966px, mã đơn/số sản phẩm/badge xuống 3 dòng, nút "Xem" bị che → ô không xuống dòng, đệm ô gọn hơn, cột trạng thái/thanh toán/đổi trả đứng trước cột sản phẩm, cột "Xem" dính mép phải. Ở 1280px chỉ cột "Sản phẩm" phải cuộn ngang; từ 1366px hoặc khi thu sidebar thì vừa hết.
+- Drawer cao 2.715px, nút hành động nằm cuối → thứ tự mới: timeline → hành động → banner huỷ → hồ sơ đổi trả cần xử lý → sản phẩm → thanh toán → vận chuyển → khách hàng → lịch sử (4 mốc gần nhất, có "Xem tất cả"); hồ sơ đổi trả đã kết thúc thu gọn. Nút hành động giờ nằm trong màn hình đầu tiên.
