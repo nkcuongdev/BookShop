@@ -210,7 +210,14 @@ export default function OrdersList() {
       header: "Đổi trả",
       cell: ({ row }) =>
         row.original.returnRequest ? (
-          <ReturnRequestStatusBadge status={row.original.returnRequest.status} />
+          <div className="flex flex-col items-start gap-0.5">
+            <ReturnRequestStatusBadge status={row.original.returnRequest.status} />
+            {row.original.returnRequestCount > 1 && (
+              <span className="text-[11px] text-muted-foreground">
+                {row.original.returnRequestCount} hồ sơ
+              </span>
+            )}
+          </div>
         ) : (
           <span className="text-muted-foreground/70">—</span>
         ),

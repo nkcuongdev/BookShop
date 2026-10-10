@@ -245,11 +245,26 @@ router.get("/orders", requirePermission("order.read"), async (req, res) => {
     const returnRequests = await ReturnRequest.find({
       order: { $in: orders.map((order) => order._id) },
     }).lean();
+    // With a return filter active, badge the newest request that matched it,
+    // otherwise an order matched through an older PENDING request would show
+    // its newest (e.g. REJECTED) request instead.
+    const filterStatus = String(req.query.returnStatus || "").trim().toUpperCase();
+    const matchingStatuses =
+      filterStatus === ReturnRequest.STATUS.APPROVED
+        ? [ReturnRequest.STATUS.APPROVED, ReturnRequest.STATUS.RETURNING]
+        : filterStatus && filterStatus !== "ALL"
+          ? [filterStatus]
+          : null;
     const returnByOrder = new Map();
+    const returnCountByOrder = new Map();
     for (const request of returnRequests.sort((left, right) =>
       new Date(left.createdAt) - new Date(right.createdAt)
     )) {
-      returnByOrder.set(String(request.order), request);
+      const key = String(request.order);
+      returnCountByOrder.set(key, (returnCountByOrder.get(key) || 0) + 1);
+      if (!matchingStatuses || matchingStatuses.includes(request.status)) {
+        returnByOrder.set(key, request);
+      }
     }
     const returnStatusCounts = Object.fromEntries(
       returnStatusRows.map((row) => [row._id, row.count])
@@ -262,6 +277,7 @@ router.get("/orders", requirePermission("order.read"), async (req, res) => {
           ...o.toObject(),
           id: o._id,
           returnRequest: serializeReturnRequest(returnByOrder.get(String(o._id))),
+          returnRequestCount: returnCountByOrder.get(String(o._id)) || 0,
         })),
         statusCounts: { all: matchingTotal, ...statusCounts },
         returnStatusCounts,

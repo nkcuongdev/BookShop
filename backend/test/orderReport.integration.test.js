@@ -167,6 +167,31 @@ test("approved return filter also finds requests approved into RETURNING", async
   );
 });
 
+test("the list badges the return request that matched the filter", async () => {
+  const { agent } = await adminSession();
+  const customer = await User.create({
+    name: "Badge Customer",
+    email: "badge-customer@example.com",
+    password: "secure-password",
+  });
+  const order = await createOrder(customer._id, { status: Order.STATUS.DELIVERED });
+  const older = await createReturnRequest(order, ReturnRequest.STATUS.PENDING);
+  await ReturnRequest.updateOne(
+    { _id: older._id },
+    { $set: { createdAt: new Date(Date.now() - 60_000) } }
+  );
+  await createReturnRequest(order, ReturnRequest.STATUS.REJECTED);
+
+  const pending = await agent.get("/api/admin/orders?returnStatus=PENDING");
+  assert.equal(pending.status, 200, JSON.stringify(pending.body));
+  assert.equal(pending.body.data.orders.length, 1);
+  assert.equal(pending.body.data.orders[0].returnRequest.status, "PENDING");
+  assert.equal(pending.body.data.orders[0].returnRequestCount, 2);
+
+  const unfiltered = await agent.get("/api/admin/orders");
+  assert.equal(unfiltered.body.data.orders[0].returnRequest.status, "REJECTED");
+});
+
 test("CSV export streams every matching order and protects spreadsheet cells", async () => {
   const { agent } = await adminSession();
   const customer = await User.create({
