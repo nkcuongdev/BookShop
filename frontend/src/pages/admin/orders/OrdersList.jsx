@@ -355,6 +355,11 @@ export default function OrdersList() {
             Xóa bộ lọc
           </Button>
         )}
+        {ordersQ.dataUpdatedAt > 0 && (
+          <span className="text-xs text-muted-foreground">
+            Cập nhật lúc {new Date(ordersQ.dataUpdatedAt).toLocaleTimeString("vi-VN")}
+          </span>
+        )}
         <Button variant="outline" size="sm" onClick={() => ordersQ.refetch()}>
           <RotateCw className="size-4" />
           Tải lại

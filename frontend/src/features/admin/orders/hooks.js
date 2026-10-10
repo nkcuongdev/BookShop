@@ -15,6 +15,9 @@ export function useOrders(params = {}) {
         returnStatusCounts: r.data?.returnStatusCounts || {},
       })),
     placeholderData: (previous) => previous,
+    // Callbacks, workers and other staff change orders behind this screen; a
+    // light poll keeps tabs and counts from going stale (paused when hidden).
+    refetchInterval: 30_000,
   });
 }
 
