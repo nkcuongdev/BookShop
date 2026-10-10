@@ -79,6 +79,10 @@ export default function OrdersList() {
   const orderDetailQ = useOrder(id);
 
   const orders = ordersQ.data?.orders || [];
+  // Bảng đang hiện kết quả của bộ lọc trước (placeholderData) hoặc ô tìm kiếm
+  // chưa qua debounce: báo rõ thay vì để người dùng tin vào số liệu cũ.
+  const filtersPending =
+    search !== debouncedSearch || Boolean(ordersQ.isPlaceholderData && ordersQ.isFetching);
   const counts = ordersQ.data?.statusCounts || { all: 0 };
   const returnCounts = ordersQ.data?.returnStatusCounts || {};
   const hasFilters = Boolean(
@@ -356,7 +360,12 @@ export default function OrdersList() {
           Tải lại
         </Button>
         {can(user, "order.export") && (
-          <Button size="sm" onClick={exportCsv} disabled={exporting}>
+          <Button
+            size="sm"
+            onClick={exportCsv}
+            // Chỉ xuất khi bảng đã phản ánh đúng bộ lọc đang nhập.
+            disabled={exporting || filtersPending}
+          >
             <Download className="size-4" />
             {exporting ? "Đang xuất..." : "Xuất CSV"}
           </Button>
@@ -403,6 +412,12 @@ export default function OrdersList() {
           ))}
         </TabsList>
       </Tabs>
+
+      {filtersPending && (
+        <p role="status" className="-mt-3 text-xs text-muted-foreground">
+          Đang cập nhật kết quả theo bộ lọc mới…
+        </p>
+      )}
 
       {/* Lỗi hiển thị trong bảng để toolbar vẫn còn: lỗi thường do chính bộ lọc
           (ví dụ từ ngày sau đến ngày), người dùng cần sửa/xoá lọc tại chỗ. */}
