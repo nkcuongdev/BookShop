@@ -89,7 +89,7 @@ async function serializeOrderWithReturn(order) {
   const serializedRequests = returnRequests.map(serializeReturnRequest);
   const consumed = [
     ...returnRequests,
-    ...(await findSupportLineCompensations(order._id)),
+    ...(await findSupportLineCompensations(order._id, { forReturns: true })),
   ];
   return {
     ...serializeCustomerOrder(order),
@@ -432,7 +432,7 @@ router.post("/:id([0-9a-fA-F]{24})/return-request", auth, async (req, res) => {
         returnRequest: serializeReturnRequest(request),
         returnEligibility: getReturnEligibility(order, [
           ...returnRequests,
-          ...(await findSupportLineCompensations(order._id)),
+          ...(await findSupportLineCompensations(order._id, { forReturns: true })),
         ]),
       },
     });

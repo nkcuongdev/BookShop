@@ -937,3 +937,101 @@ test("partial lost refunds give back redeemed points without double counting", a
   assert.equal(balance, 20, "closing the order returns only the remaining points");
   assert.equal((await Order.findById(order._id)).status, Order.STATUS.REFUNDED);
 });
+
+/** A shipped two-line order (A and B), for multi-line lost-parcel scenarios. */
+async function twoLineShippedOrder(customer, payment = { method: "COD", status: "UNPAID" }) {
+  const books = await Book.create([
+    { title: "Line A", author: "A", price: 100000, category: "technology", stock: 5, status: "active" },
+    { title: "Line B", author: "B", price: 100000, category: "technology", stock: 5, status: "active" },
+  ]);
+  const order = await Order.create({
+    user: customer._id,
+    items: books.map((book) => ({
+      book: book._id,
+      title: book.title,
+      category: "technology",
+      price: 100000,
+      quantity: 1,
+      subtotal: 100000,
+    })),
+    subtotal: 200000,
+    totalAmount: 200000,
+    status: Order.STATUS.SHIPPED,
+    shippedAt: new Date(),
+    placedAt: new Date(),
+    payment: { ...payment, transactionId: "tx-two-line", providerOrderId: "provider-two-line" },
+    shippingAddress: { fullName: customer.name, phone: "0900000000", address: "1 Test Street" },
+  });
+  return { order, books };
+}
+
+test("R-A1: a delivered lost-parcel replacement keeps the customer's return rights", async (t) => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  // Prepaid, so the replacement parcel collects no COD.
+  const { order, books } = await twoLineShippedOrder(customer, { method: "VNPAY", status: "PAID" });
+  const { ticketId } = await ticketFor(customer, order);
+  await supportResolutionService.createResolution({
+    ticketId,
+    adminId: admin._id,
+    payload: {
+      type: "LOST_IN_TRANSIT_RESHIP",
+      note: "Giao lại",
+      items: books.map((book) => ({ bookId: String(book._id), quantity: 1 })),
+    },
+  });
+  t.mock.method(shippingService, "createSupportShipment", async () => ({
+    provider: "ghn",
+    environment: "sandbox",
+    carrier: "GHN Express",
+    clientOrderCode: "support-ra1",
+    trackingNumber: "GHN-RA1",
+    providerStatus: "ready_to_pick",
+  }));
+  await supportResolutionService.updateReship({ ticketId, adminId: admin._id, payload: { status: "SHIPPED", provider: "ghn" } });
+  await supportResolutionService.updateReship({ ticketId, adminId: admin._id, payload: { status: "DELIVERED" } });
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.DELIVERED);
+
+  const customerSession = await sessionFor(customer);
+  const detail = await customerSession.agent.get(`/api/orders/${order._id}`);
+  assert.equal(detail.status, 200);
+  assert.deepEqual(
+    detail.body.data.order.returnEligibility.remainingItems.map((item) => item.quantity),
+    [1, 1],
+    "the replacement is the first delivery, so nothing has been used up"
+  );
+  const created = await customerSession.agent
+    .post(`/api/orders/${order._id}/return-request`)
+    .set("x-csrf-token", customerSession.csrf)
+    .send({
+      items: books.map((book) => ({ bookId: String(book._id), quantity: 1 })),
+      reason: "DAMAGED",
+      details: "Sách giao lại bị rách bìa khi nhận hàng.",
+    });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+});
+
+test("R-A1: two lost-parcel compensations for the same line are still refused", async (t) => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const { order, books } = await twoLineShippedOrder(customer, { method: "VNPAY", status: "PAID" });
+  t.mock.method(paymentGateway, "requestRefund", async ({ idempotencyKey }) => ({
+    ok: true,
+    completed: true,
+    refundTransactionId: `refund-${idempotencyKey.slice(-12)}`,
+  }));
+  const first = await ticketFor(customer, order);
+  const second = await ticketFor(customer, order, "OTHER");
+  const refundA = (ticketId) =>
+    supportResolutionService.createResolution({
+      ticketId,
+      adminId: admin._id,
+      payload: {
+        type: "LOST_IN_TRANSIT_REFUND",
+        note: "Thất lạc",
+        items: [{ bookId: String(books[0]._id), quantity: 1 }],
+      },
+    });
+  await refundA(first.ticketId);
+  await assert.rejects(refundA(second.ticketId), (error) => error.code === "ITEM_COMPENSATION_LIMIT_EXCEEDED");
+});

@@ -140,15 +140,26 @@ const LINE_COMPENSATION_TYPES = Object.freeze([
   "LOST_IN_TRANSIT_REFUND",
   "LOST_IN_TRANSIT_RESHIP",
 ]);
+// For the customer's return entitlement a lost-parcel reship is the first real
+// delivery of those lines, not a compensation for goods already received, so
+// it must not use up their right to return them. A RESHIP (replacement for a
+// defective delivered item) does: the customer was already made whole for it.
+// The support side keeps every type, so two lost-parcel compensations for the
+// same line are still refused.
+const RETURN_CONSUMING_TYPES = Object.freeze(
+  LINE_COMPENSATION_TYPES.filter((type) => type !== "LOST_IN_TRANSIT_RESHIP")
+);
 
 async function findSupportLineCompensations(
   orderId,
-  { excludeTicketId = null, session = null } = {}
+  { excludeTicketId = null, session = null, forReturns = false } = {}
 ) {
   const tickets = await SupportTicket.find({
     ...(excludeTicketId ? { _id: { $ne: excludeTicketId } } : {}),
     order: orderId,
-    "resolution.type": { $in: LINE_COMPENSATION_TYPES },
+    "resolution.type": {
+      $in: forReturns ? RETURN_CONSUMING_TYPES : LINE_COMPENSATION_TYPES,
+    },
     "resolution.status": { $nin: ["FAILED", "REFUND_FAILED", "CANCELLED"] },
   })
     .select("resolution.items.book resolution.items.quantity")
@@ -250,7 +261,7 @@ async function createReturnRequest({
     (normalized.reason === ReturnRequest.REASON.OTHER ? "customer" : "shop");
   const existing = [
     ...(await ReturnRequest.find({ order: order._id }).lean()),
-    ...(await findSupportLineCompensations(order._id)),
+    ...(await findSupportLineCompensations(order._id, { forReturns: true })),
   ];
   const eligibility = getReturnEligibility(order, existing, {
     now,
@@ -299,7 +310,7 @@ async function createReturnRequest({
       );
       const currentRequests = [
         ...(await ReturnRequest.find({ order: order._id }).session(session).lean()),
-        ...(await findSupportLineCompensations(order._id, { session })),
+        ...(await findSupportLineCompensations(order._id, { session, forReturns: true })),
       ];
       const currentEligibility = getReturnEligibility(lockedOrder, currentRequests, {
         now,

@@ -95,3 +95,32 @@ Xem trên app với tài khoản khách mẫu (database `bookshop_ui_preview`) r
 7. Danh sách sắp theo `placedAt` (ngày đang hiển thị).
 
 Test: orderApi.integration — cập nhật assert DTO danh sách (nay có đúng 2 trường payment) và thêm "customer order list groups refund statuses, counts tabs and sorts by order date" — đã chạy, 5/5 pass. Giao diện kiểm tra trên app chạy thật (đếm tab, lọc Hoàn tiền/Thất bại, nút Thanh toán ngay, trạng thái lỗi khi tắt backend và Thử lại); không chạy test frontend.
+
+## Đợt sửa theo review (R-xx)
+
+Chế độ test: chạy test backend liên quan; mỗi mục có test FAIL trên code cũ rồi PASS sau khi sửa (mục chỉ có thay đổi frontend: test vitest viết nhưng **không chạy**). Lựa chọn của chủ dự án: R-C1 phương án (c); R-C2–C5 theo gợi ý trong danh sách review; R-C6 phương án (a).
+
+| Mục | Trạng thái | Commit | Test | Ghi chú |
+| --- | --- | --- | --- | --- |
+| R-A1 | ĐÃ SỬA | (commit R-A1) | supportLostInTransit "R-A1: a delivered lost-parcel replacement keeps the customer's return rights" (FAIL trước khi sửa: remainingItems = [0, 0]; PASS sau) và "R-A1: two lost-parcel compensations for the same line are still refused" (PASS cả trước và sau — chốt hành vi phía support). Chạy: supportLostInTransit 22/22, returnRequest 12/12, supportTicket 13/13 | `findSupportLineCompensations` thêm tuỳ chọn `forReturns`: phía ReturnRequest (tạo hồ sơ — cả kiểm tra ngoài và trong transaction, eligibility ở chi tiết đơn và sau khi tạo, cổng upload ảnh) không tính LOST_IN_TRANSIT_RESHIP; phía support (`assertLineEntitlements`, F13/F14) vẫn tính mọi loại. **RESHIP (giao bù hàng lỗi) vẫn tính là đã dùng quyền đổi trả**: khách đã được bù cho dòng đó; nếu hàng giao bù lại lỗi thì mở ticket mới. Cổng upload ảnh nay cộng cả bồi hoàn support như lúc tạo hồ sơ (trước đây chỉ đếm ReturnRequest). |
+| R-A2 | CHƯA LÀM | | | |
+| R-A3 | CHƯA LÀM | | | |
+| R-A4 | CHƯA LÀM | | | |
+| R-B1 | CHƯA LÀM | | | |
+| R-B2 | CHƯA LÀM | | | |
+| R-B3 | CHƯA LÀM | | | |
+| R-B4 | CHƯA LÀM | | | |
+| R-B5 | CHƯA LÀM | | | |
+| R-B6 | CHƯA LÀM | | | |
+| R-B7 | CHƯA LÀM | | | |
+| R-B8 | CHƯA LÀM | | | |
+| R-B9 | CHƯA LÀM | | | |
+| R-B10 | CHƯA LÀM | | | |
+| R-B11 | CHƯA LÀM | | | |
+| R-B12 | CHƯA LÀM | | | |
+| R-C1 | CHƯA LÀM | | | |
+| R-C2 | CHƯA LÀM | | | |
+| R-C3 | CHƯA LÀM | | | |
+| R-C4 | CHƯA LÀM | | | |
+| R-C5 | CHƯA LÀM | | | |
+| R-C6 | CHƯA LÀM | | | |

@@ -6,7 +6,10 @@ const Order = require("../models/Order");
 const ReturnRequest = require("../models/ReturnRequest");
 const { storeImage, deleteImage } = require("../services/imageStorage");
 const { registerUploadedAsset } = require("../services/assetLifecycleService");
-const { getReturnEligibility } = require("../services/returnRequestService");
+const {
+  findSupportLineCompensations,
+  getReturnEligibility,
+} = require("../services/returnRequestService");
 const { createRateLimiter } = require("../utils/security");
 
 const reviewUploadRouter = express.Router();
@@ -137,9 +140,11 @@ reviewUploadRouter.post(
       if (!order) {
         return res.status(404).json({ success: false, message: "Không tìm thấy đơn hàng" });
       }
-      const existingRequests = await ReturnRequest.find({ order: order._id })
-        .select("status items")
-        .lean();
+      // Same entitlement accounting as creating the request itself.
+      const existingRequests = [
+        ...(await ReturnRequest.find({ order: order._id }).select("status items").lean()),
+        ...(await findSupportLineCompensations(order._id, { forReturns: true })),
+      ];
       // The reason (and so the window) is chosen after uploading evidence; gate
       // on the longest window and let the request itself enforce the right one.
       const eligibility = getReturnEligibility(order, existingRequests, {
