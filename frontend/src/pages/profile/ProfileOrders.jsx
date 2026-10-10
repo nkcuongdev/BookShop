@@ -116,16 +116,6 @@ export default function ProfileOrders() {
     };
   }, [page, filter, debouncedQuery]);
 
-  if (loading) {
-    return (
-      <div className="space-y-3">
-        {[...Array(4)].map((_, i) => (
-          <Skeleton key={i} className="h-28 rounded-2xl" />
-        ))}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <Card className="p-5">
@@ -167,7 +157,13 @@ export default function ProfileOrders() {
         </Tabs>
       </Card>
 
-      {orders.length === 0 ? (
+      {loading ? (
+        <div className="space-y-3">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-28 rounded-2xl" />
+          ))}
+        </div>
+      ) : orders.length === 0 ? (
         <Card className="p-6">
           <EmptyState
             icon={Package}
