@@ -186,3 +186,47 @@ test("customer order DTOs hide gateway audit data and bound list payloads", asyn
   assert.match(auditJson, /private-payment-signature/);
   assert.match(auditJson, /private-attempt-signature/);
 });
+
+test("manual ship and deliver are refused while a GHN shipment is active", async () => {
+  const [customer, admin] = await User.create([
+    { name: "GHN Customer", email: "ghn-manual-customer@example.com", password: "secure-password" },
+    { name: "GHN Admin", email: "ghn-manual-admin@example.com", password: "secure-password", role: "admin" },
+  ]);
+  const order = await Order.create({
+    user: customer._id,
+    items: orderItems(1),
+    subtotal: 10_000,
+    totalAmount: 10_000,
+    status: Order.STATUS.PROCESSING,
+    shippingAddress: { fullName: "GHN Customer", phone: "0900000000", address: "1 Test Street" },
+    payment: { method: Order.PAYMENT_METHOD.COD, status: Order.PAYMENT_STATUS.UNPAID },
+    shipment: {
+      provider: "ghn",
+      environment: "sandbox",
+      providerOrderCode: "GHN-ACTIVE-1",
+      providerStatus: "ready_to_pick",
+    },
+  });
+  const { agent, csrf } = await loginWithCsrf(admin);
+  const tracking = { carrier: "Tự giao", trackingNumber: "MANUAL-001" };
+
+  const ship = await agent
+    .post(`/api/admin/orders/${order._id}/ship`)
+    .set("x-csrf-token", csrf)
+    .send(tracking);
+  assert.equal(ship.status, 409, JSON.stringify(ship.body));
+  assert.equal(ship.body.code, "GHN_SHIPMENT_ACTIVE");
+
+  const viaStatus = await agent
+    .patch(`/api/admin/orders/${order._id}/status`)
+    .set("x-csrf-token", csrf)
+    .send({ status: "SHIPPED", ...tracking });
+  assert.equal(viaStatus.status, 409, JSON.stringify(viaStatus.body));
+
+  const deliver = await agent
+    .post(`/api/admin/orders/${order._id}/deliver`)
+    .set("x-csrf-token", csrf);
+  assert.equal(deliver.status, 409, JSON.stringify(deliver.body));
+
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.PROCESSING);
+});

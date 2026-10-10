@@ -684,8 +684,30 @@ function parseShippingPayload(body = {}) {
   return { carrier, trackingNumber, estimatedDelivery };
 }
 
+// GHN orders are moved by the carrier (webhook or the sandbox simulation). A
+// manual ship/deliver would bypass it and leave the live parcel out of step
+// with the order; cancel the GHN shipment first to fall back to manual hand-off.
+async function assertNoActiveGhnShipment(orderId) {
+  const order = await Order.findById(orderId)
+    .select("shipment.provider shipment.providerOrderCode shipment.cancelledAt")
+    .lean();
+  if (
+    order?.shipment?.provider === "ghn" &&
+    order.shipment.providerOrderCode &&
+    !order.shipment.cancelledAt
+  ) {
+    const error = new Error(
+      "Đơn đang có vận đơn GHN hoạt động; trạng thái giao do GHN cập nhật. Huỷ vận đơn trước nếu muốn bàn giao thủ công."
+    );
+    error.statusCode = 409;
+    error.code = "GHN_SHIPMENT_ACTIVE";
+    throw error;
+  }
+}
+
 router.post("/orders/:id/ship", requirePermission("order.fulfill"), async (req, res) => {
   try {
+    await assertNoActiveGhnShipment(req.params.id);
     const previousStatus = await currentOrderStatus(req.params.id);
     const order = await orderService.adminMarkShipped(
       req.params.id,
@@ -699,13 +721,16 @@ router.post("/orders/:id/ship", requirePermission("order.fulfill"), async (req, 
       data: { order: { ...order.toObject(), id: order._id } },
     });
   } catch (error) {
-    res.status(error.statusCode || 400).json({ success: false, message: error.message });
+    res
+      .status(error.statusCode || 400)
+      .json({ success: false, message: error.message, code: error.code });
   }
 });
 
 // POST /api/admin/orders/:id/deliver - SHIPPED → DELIVERED
 router.post("/orders/:id/deliver", requirePermission("order.fulfill"), async (req, res) => {
   try {
+    await assertNoActiveGhnShipment(req.params.id);
     const previousStatus = await currentOrderStatus(req.params.id);
     const order = await orderService.adminMarkDelivered(
       req.params.id,
@@ -718,7 +743,9 @@ router.post("/orders/:id/deliver", requirePermission("order.fulfill"), async (re
       data: { order: { ...order.toObject(), id: order._id } },
     });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    res
+      .status(error.statusCode || 400)
+      .json({ success: false, message: error.message, code: error.code });
   }
 });
 
@@ -763,6 +790,9 @@ router.patch("/orders/:id/status", requireAnyPermission("order.support", "order.
         success: false,
         message: "Bạn không có quyền thực hiện thao tác này",
       });
+    }
+    if (["SHIPPED", "DELIVERED"].includes(status)) {
+      await assertNoActiveGhnShipment(req.params.id);
     }
     const previousStatus = await currentOrderStatus(req.params.id);
     const order = await transition.run(req.params.id, req.user._id, req.body);
