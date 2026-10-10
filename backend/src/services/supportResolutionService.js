@@ -170,6 +170,9 @@ async function createReturnResolution(ticket, order, adminId, items, note) {
     if (request.status === ReturnRequest.STATUS.PENDING) {
       request = await resolveReturnRequest({
         orderId: order._id,
+        // Approve the request this ticket just created, not whichever PENDING
+        // request on the order happens to be newest.
+        returnRequestId: request._id,
         adminId,
         status: ReturnRequest.STATUS.APPROVED,
         adminNote: note || "BookShop đã tiếp nhận đổi trả từ yêu cầu hỗ trợ. Vui lòng đóng gói sản phẩm để hoàn trả.",

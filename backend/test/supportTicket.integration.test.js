@@ -471,3 +471,45 @@ test("online item refund completes through the idempotent payment gateway", asyn
     paymentGateway.requestRefund = originalRequestRefund;
   }
 });
+
+test("a support return approves the request it created, not the newest pending one", async () => {
+  const customer = await User.create({ name: "M12 Customer", email: "m12-customer@example.com", password: "secure-password" });
+  const admin = await User.create({ name: "M12 Admin", email: "m12-admin@example.com", password: "secure-password", role: "admin" });
+  const book = await Book.create({ title: "M12 Book", author: "Author", category: "fiction", price: 120000, stock: 5 });
+  const order = await createDeliveredOrder(customer, book);
+  // The customer's own request sorts as the newest PENDING one (e.g. created a
+  // moment later by another request, or a clock skew between app instances).
+  const customerRequest = await ReturnRequest.create({
+    order: order._id,
+    user: customer._id,
+    items: [{ book: book._id, title: book.title, unitPrice: 120000, orderedQuantity: 2, quantity: 1 }],
+    reason: "OTHER",
+    details: "Tôi muốn đổi ý trả lại một cuốn sách.",
+    createdAt: new Date(Date.now() + 60_000),
+  });
+  const customerSession = await sessionFor(customer);
+  const adminSession = await sessionFor(admin);
+  const createdTicket = await customerSession.agent
+    .post("/api/support-tickets")
+    .set("x-csrf-token", customerSession.csrf)
+    .send({
+      orderId: String(order._id),
+      category: "ITEM_FAULT",
+      itemIssue: "QUALITY_ISSUE",
+      description: "Sách bị lỗi in, tôi muốn gửi trả sản phẩm này.",
+      requestedItems: [{ bookId: String(book._id), quantity: 1 }],
+    });
+  assert.equal(createdTicket.status, 201, JSON.stringify(createdTicket.body));
+
+  const response = await adminSession.agent
+    .post(`/api/admin/support-tickets/${createdTicket.body.data.ticket._id}/resolution`)
+    .set("x-csrf-token", adminSession.csrf)
+    .send({ type: "RETURN_REFUND", items: [{ bookId: String(book._id), quantity: 1 }], note: "Vui lòng gửi trả sách lỗi." });
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+
+  const linked = response.body.data.ticket.resolution.returnRequest;
+  const linkedId = String(linked?._id || linked?.id || linked);
+  assert.notEqual(linkedId, String(customerRequest._id));
+  assert.equal((await ReturnRequest.findById(linkedId)).status, ReturnRequest.STATUS.RETURNING);
+  assert.equal((await ReturnRequest.findById(customerRequest._id)).status, ReturnRequest.STATUS.PENDING);
+});

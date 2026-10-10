@@ -39,7 +39,7 @@ TRANSITIONS trong `backend/src/models/Order.js`: **chưa thay đổi**.
 | F15 | ĐÃ SỬA | (commit F15) | returnRequest.integration "admin actions target the return request they were sent for" — đã chạy; returnRequest + supportTicket 20/20 pass | Route `PATCH /admin/orders/:id/return-request` nhận `returnRequestId` (tuỳ chọn, kiểm tra ObjectId → 422) và truyền xuống `advanceReturnRequest` → `resolveReturnRequest`/`receiveReturnRequest`/`closeManualReturn` lọc thêm theo `_id`. Không gửi id thì giữ hành vi cũ (tương thích). Drawer admin hiện mọi hồ sơ (`order.returnRequests`) và gửi id của hồ sơ đang thao tác. Bản ghi "trước" cho audit lấy đúng hồ sơ đó. Chưa có kiểm tra version/trạng thái kỳ vọng ngoài điều kiện trạng thái sẵn có của từng bước. |
 | F11 | CHƯA LÀM | | | |
 | M11 | CHƯA LÀM | | | |
-| M12 | CHƯA LÀM | | | |
+| M12 | ĐÃ SỬA | (commit M12) | supportTicket.integration "a support return approves the request it created, not the newest pending one" — đã chạy, 10/10 pass (lần đầu fail do test đọc sai id của trường được populate, đã sửa test) | `createReturnResolution` truyền `returnRequestId` của hồ sơ vừa tạo vào `resolveReturnRequest` (tham số thêm ở F15). Phần audit ghi sai trạng thái "trước": đã sửa ở F15 khi client gửi `returnRequestId` (drawer luôn gửi). |
 | F16 | CHƯA LÀM | | | |
 | F09 | CHƯA LÀM | | | |
 | F19 | CHƯA LÀM | | | |
