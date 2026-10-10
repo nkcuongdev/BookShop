@@ -700,3 +700,49 @@ test("two support compensations cannot both claim the same line concurrently", a
   // Only one replacement copy was held back from stock.
   assert.equal((await Book.findById(book._id)).stock, 9);
 });
+
+test("a lost-parcel reship must cover every line not already refunded", async () => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const books = await Book.create([
+    { title: "Lost A", author: "A", price: 100000, category: "technology", stock: 5, status: "active" },
+    { title: "Lost B", author: "B", price: 100000, category: "technology", stock: 5, status: "active" },
+  ]);
+  const order = await Order.create({
+    user: customer._id,
+    items: books.map((book) => ({
+      book: book._id,
+      title: book.title,
+      category: "technology",
+      price: 100000,
+      quantity: 1,
+      subtotal: 100000,
+    })),
+    subtotal: 200000,
+    totalAmount: 200000,
+    status: Order.STATUS.SHIPPED,
+    shippedAt: new Date(),
+    placedAt: new Date(),
+    payment: { method: "COD", status: "UNPAID" },
+    shippingAddress: { fullName: customer.name, phone: "0900000000", address: "1 Test Street" },
+  });
+  const { ticketId } = await ticketFor(customer, order);
+  const reship = (items) =>
+    supportResolutionService.createResolution({
+      ticketId,
+      adminId: admin._id,
+      payload: { type: "LOST_IN_TRANSIT_RESHIP", note: "Giao lại", items },
+    });
+
+  await assert.rejects(
+    reship([{ bookId: String(books[0]._id), quantity: 1 }]),
+    (error) => error.code === "LOST_RESHIP_MUST_BE_COMPLETE"
+  );
+  assert.equal((await Book.findById(books[0]._id)).stock, 5);
+
+  const result = await reship(
+    books.map((book) => ({ bookId: String(book._id), quantity: 1 }))
+  );
+  assert.equal(result.ticket.resolution.status, "PREPARING");
+  assert.equal(result.ticket.resolution.items.length, 2);
+});

@@ -532,6 +532,36 @@ async function createLostRefundResolution(ticket, order, adminId, items, note) {
   return { ticket: await SupportTicket.findById(ticket._id), message };
 }
 
+// Delivering the replacement parcel marks the whole order DELIVERED (sold,
+// points, COD), so a lost-parcel reship must cover every line that has not
+// already been refunded through another lost-in-transit resolution.
+async function assertCompleteLostReship(order, ticketId, items, session) {
+  const others = await findSupportLineCompensations(order._id, {
+    excludeTicketId: ticketId,
+    session,
+  });
+  const consumed = new Map();
+  for (const entry of others.flatMap((other) => other.items)) {
+    const key = String(entry.book?._id || entry.book || "");
+    consumed.set(key, (consumed.get(key) || 0) + (Number(entry.quantity) || 0));
+  }
+  const submitted = new Map(
+    items.map((item) => [String(item.book), Number(item.quantity) || 0])
+  );
+  const incomplete = order.items.some((item) => {
+    const key = String(item.book?._id || item.book);
+    const outstanding = (Number(item.quantity) || 0) - (consumed.get(key) || 0);
+    return outstanding > 0 && (submitted.get(key) || 0) !== outstanding;
+  });
+  if (incomplete) {
+    throw serviceError(
+      422,
+      "Giao lại đơn thất lạc phải gồm đủ mọi sản phẩm chưa được hoàn tiền",
+      "LOST_RESHIP_MUST_BE_COMPLETE"
+    );
+  }
+}
+
 async function createLostReshipResolution(ticket, order, adminId, items, note) {
   assertLostInTransitAllowed(order);
   const codAmount = shippingService.calculateSupportShipmentCodAmount(
@@ -540,6 +570,7 @@ async function createLostReshipResolution(ticket, order, adminId, items, note) {
   );
   const updatedTicket = await runInTransaction(async (session) => {
     await lockOrderEntitlements(order, ticket._id, items, session);
+    await assertCompleteLostReship(order, ticket._id, items, session);
     for (const item of items) {
       const reserved = await decrementStock(item.book, item.quantity, session, {
         orderId: order._id,

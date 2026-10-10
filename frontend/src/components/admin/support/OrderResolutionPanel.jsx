@@ -94,7 +94,8 @@ const TYPES = [
     value: "LOST_IN_TRANSIT_RESHIP",
     label: "Thất lạc — giao lại",
     icon: PackagePlus,
-    description: "Xác nhận đơn thất lạc trên đường và giữ tồn kho để giao lại cho khách.",
+    description:
+      "Xác nhận đơn thất lạc trên đường và giữ tồn kho để giao lại cho khách. Phải chọn đủ mọi sản phẩm chưa được hoàn tiền.",
     available: (order) => order.status === "SHIPPED",
   },
 ];
