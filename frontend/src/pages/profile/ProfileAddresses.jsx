@@ -28,6 +28,7 @@ export default function ProfileAddresses() {
   const [addresses, setAddresses] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [errors, setErrors] = useState({});
   const [form, setForm] = useState({
     label: "Nhà",
     fullName: user?.name || "",
@@ -67,12 +68,14 @@ export default function ProfileAddresses() {
     });
 
   const openCreate = () => {
+    setErrors({});
     setEditing(null);
     resetForm();
     setOpen(true);
   };
 
   const openEdit = (addr) => {
+    setErrors({});
     setEditing(addr._id);
     setForm({
       ...addr,
@@ -86,6 +89,17 @@ export default function ProfileAddresses() {
   const submit = async () => {
     if (!form.fullName || !form.phone || !form.address) {
       toast.error("Vui lòng nhập đầy đủ thông tin");
+      return;
+    }
+
+    // Shipping quotes need province/district/ward, so saved addresses must be complete.
+    const administrativeErrors = {};
+    if (!form.city?.trim()) administrativeErrors.city = "Vui lòng chọn tỉnh/thành phố";
+    if (!form.district?.trim()) administrativeErrors.district = "Vui lòng chọn quận/huyện";
+    if (!form.ward?.trim()) administrativeErrors.ward = "Vui lòng chọn phường/xã";
+    setErrors(administrativeErrors);
+    if (Object.keys(administrativeErrors).length > 0) {
+      toast.error("Vui lòng chọn đủ tỉnh/thành, quận/huyện và phường/xã");
       return;
     }
 
@@ -206,7 +220,9 @@ export default function ProfileAddresses() {
                 key={editing || "new-address"}
                 value={form}
                 onChange={setForm}
+                errors={errors}
                 idPrefix="profile-administrative"
+                requireLegacy
               />
               <div>
                 <Label htmlFor="address">Địa chỉ chi tiết</Label>
