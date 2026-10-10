@@ -827,3 +827,67 @@ test("a refund the gateway rejects outright goes back to the retry queue", async
     paymentGateway.queryRefundStatus = originalQuery;
   }
 });
+
+test("a received return with nothing left to refund closes instead of hanging", async () => {
+  const [customer, admin] = await User.create([
+    { name: "Zero Refund", email: "zero-refund@example.com", password: "secure-password" },
+    { name: "Zero Admin", email: "zero-refund-admin@example.com", password: "secure-password", role: "admin" },
+  ]);
+  const book = await Book.create({
+    title: "Zero Book",
+    author: "Author",
+    category: "Test",
+    price: 150_000,
+    stock: 1,
+    sold: 2,
+  });
+  const order = await Order.create(orderPayload(customer._id, {
+    items: [{
+      book: book._id,
+      title: book.title,
+      author: book.author,
+      price: 150_000,
+      quantity: 1,
+      subtotal: 150_000,
+    }],
+    subtotal: 150_000,
+    discountAmount: 0,
+    shippingFee: 0,
+    totalAmount: 150_000,
+    // The whole order was already paid back through support.
+    supportCompensation: { refundedAmount: 150_000, reservedRefundAmount: 0 },
+  }));
+  await ReturnRequest.create({
+    order: order._id,
+    user: customer._id,
+    items: [{
+      book: book._id,
+      title: book.title,
+      author: book.author,
+      unitPrice: 150_000,
+      orderedQuantity: 1,
+      quantity: 1,
+    }],
+    reason: "QUALITY_ISSUE",
+    details: "Hang loi, khach gui tra lai san pham.",
+  });
+  const { agent, csrf } = await sessionFor(admin);
+  const approved = await agent
+    .patch(`/api/admin/orders/${order._id}/return-request`)
+    .set("x-csrf-token", csrf)
+    .send({ status: "APPROVED", adminNote: "Gui hang ve kho." });
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+
+  const received = await agent
+    .patch(`/api/admin/orders/${order._id}/return-request`)
+    .set("x-csrf-token", csrf)
+    .send({ status: "RECEIVED", restock: true });
+  assert.equal(received.status, 200, JSON.stringify(received.body));
+
+  const request = await ReturnRequest.findOne({ order: order._id });
+  assert.equal(request.status, "CLOSED");
+  assert.ok(request.closedAt);
+  assert.equal(request.refund.status, "NONE");
+  assert.equal(request.refund.amount, 0);
+  assert.equal((await Book.findById(book._id)).stock, 2, "the goods still come back into stock");
+});

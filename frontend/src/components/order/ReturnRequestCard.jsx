@@ -125,10 +125,16 @@ function ExistingReturnRequest({ request }) {
       {request.status === "CLOSED" && (
         <div className="mt-4 rounded-xl border border-success/30 bg-success-muted p-3 text-sm text-success-strong">
           <p className="font-medium">Yêu cầu đổi trả đã hoàn tất.</p>
-          <p className="mt-1">
-            Đã hoàn {formatVND(request.refund?.amount || request.expectedRefundAmount || 0)}
-            {request.refund?.transactionId ? ` · Mã giao dịch ${request.refund.transactionId}` : ""}.
-          </p>
+          {request.refund?.status === "NONE" ? (
+            <p className="mt-1">
+              Không phát sinh hoàn tiền vì giá trị đơn đã được hoàn đủ trước đó.
+            </p>
+          ) : (
+            <p className="mt-1">
+              Đã hoàn {formatVND(request.refund?.amount || request.expectedRefundAmount || 0)}
+              {request.refund?.transactionId ? ` · Mã giao dịch ${request.refund.transactionId}` : ""}.
+            </p>
+          )}
         </div>
       )}
       {request.status === "REJECTED" && (

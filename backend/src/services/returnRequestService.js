@@ -574,6 +574,13 @@ async function receiveReturnRequest({ orderId, adminId, restock = true }) {
     request.refund.idempotencyKey = `return-refund:${request._id}`;
     request.refund.requestedAt = now;
     request.refund.nextRetryAt = canAutoRefund ? now : null;
+    if (refundAmount <= 0) {
+      // Nothing is owed (the order was already paid back through another
+      // channel), so no worker or manual close would ever pick this up. The
+      // goods are in; finish the request here.
+      request.status = ReturnRequest.STATUS.CLOSED;
+      request.closedAt = now;
+    }
     await request.save({ session });
 
     // Goods coming back take their loyalty points with them, in proportion to
@@ -606,7 +613,14 @@ async function receiveReturnRequest({ orderId, adminId, restock = true }) {
   });
 
   if (result.autoRefund) await executeReturnRefund(result.requestId);
-  return ReturnRequest.findById(result.requestId).populate("order", "orderCode user");
+  const received = await ReturnRequest.findById(result.requestId).populate(
+    "order",
+    "orderCode user"
+  );
+  if (received?.status === ReturnRequest.STATUS.CLOSED) {
+    await syncLinkedTicket(received, adminId);
+  }
+  return received;
 }
 
 // After this many failed gateway submissions (roughly half a day of backoff)

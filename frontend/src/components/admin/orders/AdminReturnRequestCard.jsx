@@ -204,6 +204,11 @@ export default function AdminReturnRequestCard({
           {request.refund?.status === "PENDING" && (
             <p className="mt-2 text-violet-700">Cổng thanh toán đang xử lý hoàn tiền.</p>
           )}
+          {request.status === "CLOSED" && request.refund?.status === "NONE" && (
+            <p className="mt-2 text-muted-foreground">
+              Không phát sinh hoàn tiền: hạn mức hoàn của đơn đã dùng hết qua kênh khác.
+            </p>
+          )}
           {!readOnly &&
             ["PENDING", "PROCESSING"].includes(request.refund?.status) &&
             request.refund?.lastError && (
