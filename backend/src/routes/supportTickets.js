@@ -582,8 +582,26 @@ async function resolutionResponse(req, res, result, message, auditAction) {
   return res.json({ success: true, data: { ticket: serializeTicket(ticket), message: result.message } });
 }
 
+// Warehouse steps keep the gate of their direct order routes (order.fulfill)
+// whichever screen starts them, so a ticket is not a way around it.
+async function denyWithoutFulfill(req, res) {
+  if (await roleRegistry.roleHasPermission(req.user.role, "order.fulfill")) return false;
+  res.status(403).json({
+    success: false,
+    message: "Thao tác vận chuyển/kho cần quyền xử lý giao vận (order.fulfill)",
+    code: "FULFILL_PERMISSION_REQUIRED",
+  });
+  return true;
+}
+
 adminRouter.post("/:id/resolution", requirePermission("ticket.resolve"), async (req, res, next) => {
   try {
+    if (
+      String(req.body?.type || "").toUpperCase() === "CREATE_SHIPMENT" &&
+      (await denyWithoutFulfill(req, res))
+    ) {
+      return undefined;
+    }
     const result = await createResolution({
       ticketId: req.params.id,
       adminId: req.user._id,
@@ -628,6 +646,12 @@ adminRouter.patch("/:id/resolution/refund", requirePermission("ticket.resolve"),
 
 adminRouter.patch("/:id/resolution/reship", requirePermission("ticket.resolve"), async (req, res, next) => {
   try {
+    if (
+      ["SHIPPED", "DELIVERED"].includes(String(req.body?.status || "").toUpperCase()) &&
+      (await denyWithoutFulfill(req, res))
+    ) {
+      return undefined;
+    }
     const result = await updateReship({
       ticketId: req.params.id,
       adminId: req.user._id,

@@ -27,6 +27,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/hooks/useConfirm";
+import { useAuth } from "@/context/AuthContext.jsx";
+import { can } from "@/lib/rbac";
 import { supportTicketsAPI } from "@/services/api";
 
 const TYPES = [
@@ -138,6 +140,11 @@ const bookIdOf = (item) => String(item.book?._id || item.book || "");
 
 export default function OrderResolutionPanel({ ticket, onChanged }) {
   const confirm = useConfirm();
+  const { user } = useAuth();
+  // Tạo vận đơn và bàn giao/xác nhận giao bù là việc của kho: backend đòi
+  // order.fulfill giống route đơn hàng trực tiếp.
+  const canFulfill = can(user, "order.fulfill");
+  const fulfillHint = "Cần quyền xử lý giao vận (kho) để thực hiện bước này.";
   const resolution = ticket.resolution;
   const recoverable = ["FAILED", "REFUND_FAILED", "CANCELLED"].includes(
     resolution?.status
@@ -316,8 +323,9 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
               type="button"
               disabled={
                 item.value === "CREATE_SHIPMENT" &&
-                selectedProvider?.enabled !== true
+                (selectedProvider?.enabled !== true || !canFulfill)
               }
+              title={item.value === "CREATE_SHIPMENT" && !canFulfill ? fulfillHint : undefined}
               onClick={() => setType(item.value)}
               className={`rounded-xl border p-4 text-left transition-colors ${
                 type === item.value
@@ -542,8 +550,10 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
               }
               disabled={
                 !selectedProvider?.enabled ||
+                !canFulfill ||
                 shippingMutation.isPending
               }
+              title={canFulfill ? undefined : fulfillHint}
               loading={shippingMutation.isPending}
             >
               Tạo vận đơn và bàn giao
@@ -581,10 +591,15 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
           <Button
             className="mt-3"
             size="sm"
+            disabled={!canFulfill}
+            title={canFulfill ? undefined : fulfillHint}
             onClick={() => shippingMutation.mutate({ status: "DELIVERED" })}
           >
             Xác nhận đã giao
           </Button>
+          {!canFulfill && (
+            <p className="mt-2 text-xs text-muted-foreground">{fulfillHint}</p>
+          )}
         </div>
       )}
 

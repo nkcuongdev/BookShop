@@ -582,3 +582,33 @@ test("support resolutions and manual refund confirmations are audited", async ()
   assert.match(entries[0].reason, /PARTIAL_REFUND/);
   assert.match(entries[1].reason, /BANK-AUDIT-001/);
 });
+
+test("ticket warehouse steps require the same order.fulfill permission", async () => {
+  const customer = await User.create({ name: "F05 Customer", email: "f05-customer@example.com", password: "secure-password" });
+  const agent = await User.create({ name: "F05 Support", email: "f05-support@example.com", password: "secure-password", role: "support" });
+  const book = await Book.create({ title: "F05 Book", author: "Author", category: "fiction", price: 120000, stock: 5 });
+  const order = await createDeliveredOrder(customer, book, { status: Order.STATUS.PROCESSING, deliveredAt: null });
+  const customerSession = await sessionFor(customer);
+  const supportSession = await sessionFor(agent);
+  const ticket = await createTicketThroughApi(customerSession, order, "OTHER");
+
+  const shipment = await supportSession.agent
+    .post(`/api/admin/support-tickets/${ticket._id}/resolution`)
+    .set("x-csrf-token", supportSession.csrf)
+    .send({ type: "CREATE_SHIPMENT" });
+  assert.equal(shipment.status, 403, JSON.stringify(shipment.body));
+  assert.equal(shipment.body.code, "FULFILL_PERMISSION_REQUIRED");
+
+  const reship = await supportSession.agent
+    .patch(`/api/admin/support-tickets/${ticket._id}/resolution/reship`)
+    .set("x-csrf-token", supportSession.csrf)
+    .send({ status: "SHIPPED", provider: "ghn" });
+  assert.equal(reship.status, 403, JSON.stringify(reship.body));
+
+  // Support keeps its own decisions, e.g. guidance, through the same route.
+  const guidance = await supportSession.agent
+    .post(`/api/admin/support-tickets/${ticket._id}/resolution`)
+    .set("x-csrf-token", supportSession.csrf)
+    .send({ type: "GUIDANCE", note: "Đơn đang được chuẩn bị, vui lòng chờ." });
+  assert.equal(guidance.status, 200, JSON.stringify(guidance.body));
+});
