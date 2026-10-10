@@ -268,7 +268,8 @@ export default function OrdersList() {
           }}
           className="h-9 rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
         >
-          <option value="all">Tất cả đổi trả</option>
+          {/* Số trong ngoặc là số hồ sơ toàn hệ thống, không theo bộ lọc khác. */}
+          <option value="all">Tất cả đổi trả (số hồ sơ toàn hệ thống)</option>
           <option value="PENDING">Chờ duyệt ({returnCounts.PENDING || 0})</option>
           {/* Hồ sơ duyệt mới lưu RETURNING; APPROVED chỉ còn ở dữ liệu cũ. Backend
               lọc APPROVED theo cả hai giá trị nên số đếm cũng cộng cả hai. */}
@@ -361,7 +362,9 @@ export default function OrdersList() {
     <div className="space-y-6">
       <PageHeader
         title="Quản lý đơn hàng"
-        description={`${counts.all || 0} đơn hàng phù hợp · ${returnCounts.PENDING || 0} yêu cầu đổi trả chờ duyệt`}
+        // Hai số khác phạm vi: số đơn theo bộ lọc hiện tại (mọi tab trạng thái),
+        // và số hồ sơ đổi trả chờ duyệt của toàn hệ thống (không theo bộ lọc).
+        description={`${counts.all || 0} đơn khớp bộ lọc (mọi trạng thái) · ${returnCounts.PENDING || 0} hồ sơ đổi trả chờ duyệt (toàn hệ thống)`}
       />
 
       <Tabs
