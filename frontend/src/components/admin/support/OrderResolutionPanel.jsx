@@ -118,7 +118,9 @@ const STATUS_LABELS = {
   RETURNING: "Chờ khách trả hàng",
   RETURN_COMPLETED: "Đổi trả hoàn tất",
   REFUND_PENDING: "Đang hoàn tiền",
-  REFUND_MANUAL_REQUIRED: "Chờ ghi nhận hoàn COD",
+  REFUND_PROCESSING: "Cổng đang xử lý hoàn tiền",
+  // COD, hoặc khoản online cổng đã hoàn nhưng không trả mã giao dịch.
+  REFUND_MANUAL_REQUIRED: "Chờ ghi nhận hoàn tiền thủ công",
   REFUND_COMPLETED: "Đã hoàn tiền",
   REFUND_FAILED: "Hoàn tiền thất bại",
   PREPARING: "Đang chuẩn bị giao bù",
@@ -487,7 +489,7 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
       {resolution.status === "REFUND_MANUAL_REQUIRED" && (
         <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-end">
           <div className="flex-1">
-            <Label htmlFor="manual-refund">Mã giao dịch hoàn COD</Label>
+            <Label htmlFor="manual-refund">Mã giao dịch hoàn tiền</Label>
             <Input
               id="manual-refund"
               className="mt-1"

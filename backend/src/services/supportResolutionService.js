@@ -43,6 +43,10 @@ const OPERATION_TYPES = Object.freeze([
 ]);
 const RESOLUTION_TYPES = Object.freeze([...OPERATION_TYPES, ...COMPENSATION_TYPES]);
 
+// executeOnlineRefund waits at most ~35s for the gateway; a REFUND_PENDING
+// ticket older than this is no longer in flight.
+const STALE_REFUND_PENDING_MS = 15 * 60 * 1000;
+
 function serviceError(statusCode, message, code) {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -785,10 +789,11 @@ async function settleProcessingRefund(ticket, refundTransactionId) {
   const amount = Number(ticket.resolution?.amount) || 0;
   const reference = String(refundTransactionId || "").trim();
   const refund = ticket.resolution?.refund;
+  // A ticket that timed out at the gateway has no stored reference yet; the
+  // reference then comes from a refund query for this ticket's idempotency key.
   if (
     !reference ||
-    !refund?.transactionId ||
-    String(refund.transactionId) !== reference
+    (refund?.transactionId && String(refund.transactionId) !== reference)
   ) {
     throw serviceError(
       409,
@@ -902,75 +907,149 @@ async function settleProcessingRefund(ticket, refundTransactionId) {
  * and just as conservative: a lookup that errors leaves the ticket waiting,
  * because a failed question is not a failed refund.
  */
+async function recoverStaleRefundPending(now = new Date()) {
+  // A process that died between reserving the refund and recording the gateway
+  // answer leaves the ticket in REFUND_PENDING, which nothing else revisits.
+  // Once it is clearly no longer in flight, hand it to the query loop below.
+  await SupportTicket.updateMany(
+    {
+      "resolution.status": "REFUND_PENDING",
+      "resolution.createdAt": {
+        $lte: new Date(now.getTime() - STALE_REFUND_PENDING_MS),
+      },
+    },
+    {
+      $set: { "resolution.status": "REFUND_PROCESSING" },
+      $push: {
+        "resolution.events": {
+          type: "REFUND_PENDING",
+          by: null,
+          note: "Yêu cầu hoàn tiền bị gián đoạn, chuyển sang đối soát với cổng thanh toán",
+        },
+      },
+    }
+  );
+}
+
+async function moveToManualRefund(ticket, reason) {
+  await SupportTicket.updateOne(
+    { _id: ticket._id, "resolution.status": "REFUND_PROCESSING" },
+    {
+      $set: {
+        "resolution.status": "REFUND_MANUAL_REQUIRED",
+        "resolution.refund.lastError": reason.slice(0, 500),
+      },
+      $push: {
+        "resolution.events": { type: "REFUND_MANUAL_REQUIRED", by: null, note: reason.slice(0, 500) },
+      },
+    }
+  );
+}
+
 async function reconcileProcessingRefunds({ limit = 20 } = {}) {
+  await recoverStaleRefundPending();
+  // Oldest-touched first: a ticket that errors records lastError (bumping
+  // updatedAt), so it cannot hold the head of the queue on every pass.
   const tickets = await SupportTicket.find({
     "resolution.status": "REFUND_PROCESSING",
   })
     .select("+resolution.refund.idempotencyKey")
+    .sort({ updatedAt: 1, _id: 1 })
     .limit(limit);
 
   let settled = 0;
   let stillPending = 0;
   let failed = 0;
+  let manual = 0;
+  let errors = 0;
 
   for (const ticket of tickets) {
-    const order = await Order.findById(ticket.order);
-    if (!order) continue;
-    let result;
     try {
-      result = await paymentGateway.queryRefundStatus({
-        method: order.payment?.method,
-        providerOrderId:
-          order.payment?.providerOrderId || order.payment?.transactionId,
-        transactionId: order.payment?.transactionId,
-        providerCreatedAt: order.payment?.providerCreatedAt || order.placedAt,
-        idempotencyKey: ticket.resolution?.refund?.idempotencyKey,
-        amount: ticket.resolution?.amount,
-        originalAmount: order.totalAmount,
-        reason: `Support ticket ${ticket.ticketCode}`,
-      });
-    } catch {
-      stillPending += 1;
-      continue;
-    }
-
-    if (!result.ok || (!result.completed && !result.failed)) {
-      stillPending += 1;
-      continue;
-    }
-
-    if (result.failed) {
-      failed += 1;
-      // Release the held headroom: this refund is not happening, so the money
-      // must not stay blocked against the order's cap.
-      await releaseRefundReservation(order._id, ticket.resolution.amount);
+      const outcome = await reconcileProcessingRefund(ticket);
+      if (outcome === "settled") settled += 1;
+      else if (outcome === "failed") failed += 1;
+      else if (outcome === "manual") manual += 1;
+      else if (outcome === "pending") stillPending += 1;
+    } catch (error) {
+      // One broken ticket must not stop the rest of the queue.
+      errors += 1;
       await SupportTicket.updateOne(
-        { _id: ticket._id, "resolution.status": "REFUND_PROCESSING" },
+        { _id: ticket._id },
         {
           $set: {
-            "resolution.status": "REFUND_FAILED",
-            "resolution.refund.lastError": String(
-              result.error || `Gateway reported refund status ${result.status}`
-            ).slice(0, 500),
-          },
-          $push: {
-            "resolution.events": {
-              type: "REFUND_FAILED",
-              by: null,
-              note: String(result.status || "").slice(0, 500),
-            },
+            "resolution.refund.lastError": String(error.message || error).slice(0, 500),
           },
         }
-      );
-      continue;
-    }
-
-    if (await settleProcessingRefund(ticket, result.refundTransactionId)) {
-      settled += 1;
+      ).catch(() => null);
     }
   }
 
-  return { processed: tickets.length, settled, stillPending, failed };
+  return { processed: tickets.length, settled, stillPending, failed, manual, errors };
+}
+
+async function reconcileProcessingRefund(ticket) {
+  const order = await Order.findById(ticket.order);
+  if (!order) return "skipped";
+  let result;
+  try {
+    result = await paymentGateway.queryRefundStatus({
+      method: order.payment?.method,
+      providerOrderId:
+        order.payment?.providerOrderId || order.payment?.transactionId,
+      transactionId: order.payment?.transactionId,
+      providerCreatedAt: order.payment?.providerCreatedAt || order.placedAt,
+      idempotencyKey: ticket.resolution?.refund?.idempotencyKey,
+      amount: ticket.resolution?.amount,
+      originalAmount: order.totalAmount,
+      reason: `Support ticket ${ticket.ticketCode}`,
+    });
+  } catch {
+    return "pending";
+  }
+
+  if (!result.ok || (!result.completed && !result.failed)) return "pending";
+
+  if (result.failed) {
+    // Release the held headroom: this refund is not happening, so the money
+    // must not stay blocked against the order's cap.
+    await releaseRefundReservation(order._id, ticket.resolution.amount);
+    await SupportTicket.updateOne(
+      { _id: ticket._id, "resolution.status": "REFUND_PROCESSING" },
+      {
+        $set: {
+          "resolution.status": "REFUND_FAILED",
+          "resolution.refund.lastError": String(
+            result.error || `Gateway reported refund status ${result.status}`
+          ).slice(0, 500),
+        },
+        $push: {
+          "resolution.events": {
+            type: "REFUND_FAILED",
+            by: null,
+            note: String(result.status || "").slice(0, 500),
+          },
+        },
+      }
+    );
+    return "failed";
+  }
+
+  // Prefer the reference registered when the gateway accepted the refund; the
+  // query only supplies one when the original request timed out without it.
+  const reference = String(
+    ticket.resolution?.refund?.transactionId || result.refundTransactionId || ""
+  ).trim();
+  if (!reference) {
+    // Settled at the gateway but with no transaction id to register (the MoMo
+    // query cannot return one). Let an agent record it from the merchant
+    // portal instead of retrying a settlement that can never succeed.
+    await moveToManualRefund(
+      ticket,
+      "Cổng thanh toán báo đã hoàn nhưng không trả mã giao dịch; cần đối chiếu trên cổng và nhập mã hoàn tiền"
+    );
+    return "manual";
+  }
+  return (await settleProcessingRefund(ticket, reference)) ? "settled" : "skipped";
 }
 
 async function updateReship({ ticketId, adminId, payload }) {

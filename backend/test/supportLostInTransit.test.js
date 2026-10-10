@@ -540,3 +540,139 @@ test("a lost parcel cannot be both refunded and reshipped", async (t) => {
   const otherCustomerTicket = await SupportTicket.findOne({ _id: ticketId }).lean();
   assert.equal(otherCustomerTicket.resolution.type, "LOST_IN_TRANSIT_REFUND");
 });
+
+/** A lost-parcel refund whose gateway call timed out: REFUND_PROCESSING, no id. */
+async function timedOutLostRefund(t) {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const { order, book } = await shippedOrder(customer);
+  const { ticketId } = await ticketFor(customer, order);
+  const adminSession = await sessionFor(admin);
+  const requestMock = t.mock.method(paymentGateway, "requestRefund", async () => {
+    throw new Error("gateway timeout");
+  });
+  const resolved = await adminSession.agent
+    .post(`/api/admin/support-tickets/${ticketId}/resolution`)
+    .set("x-csrf-token", adminSession.csrf)
+    .send({
+      type: "LOST_IN_TRANSIT_REFUND",
+      note: "Thất lạc",
+      items: [{ bookId: String(book._id), quantity: 1 }],
+    });
+  requestMock.mock.restore();
+  assert.equal(resolved.status, 200, JSON.stringify(resolved.body));
+  assert.equal(resolved.body.data.ticket.resolution.status, "REFUND_PROCESSING");
+  assert.equal(resolved.body.data.ticket.resolution.refund.transactionId || "", "");
+  return { order, ticketId, admin };
+}
+
+test("a timed-out support refund is settled from the gateway query reference", async (t) => {
+  const { order, ticketId } = await timedOutLostRefund(t);
+  t.mock.method(paymentGateway, "queryRefundStatus", async () => ({
+    ok: true,
+    completed: true,
+    failed: false,
+    refundTransactionId: "refund-found-by-query",
+  }));
+
+  const result = await supportResolutionService.reconcileProcessingRefunds();
+
+  assert.equal(result.settled, 1);
+  assert.equal(result.errors, 0);
+  const ticket = await SupportTicket.findById(ticketId).lean();
+  assert.equal(ticket.resolution.status, "REFUND_COMPLETED");
+  assert.equal(ticket.resolution.refund.transactionId, "refund-found-by-query");
+  const stored = await Order.findById(order._id)
+    .select("+supportCompensation.reservedRefundAmount")
+    .lean();
+  assert.equal(stored.supportCompensation.refundedAmount, 200000);
+  assert.equal(stored.supportCompensation.reservedRefundAmount, 0);
+});
+
+test("a settled refund without any transaction id is handed to an agent, not retried forever", async (t) => {
+  const { order, ticketId, admin } = await timedOutLostRefund(t);
+  // The MoMo refund query reports completion without a transaction id.
+  t.mock.method(paymentGateway, "queryRefundStatus", async () => ({
+    ok: true,
+    completed: true,
+    failed: false,
+    status: "COMPLETED",
+  }));
+
+  const result = await supportResolutionService.reconcileProcessingRefunds();
+
+  assert.equal(result.manual, 1);
+  assert.equal(result.errors, 0);
+  let ticket = await SupportTicket.findById(ticketId).lean();
+  assert.equal(ticket.resolution.status, "REFUND_MANUAL_REQUIRED");
+  assert.match(ticket.resolution.refund.lastError, /không trả mã giao dịch/);
+
+  await supportResolutionService.completeManualRefund({
+    ticketId,
+    adminId: admin._id,
+    transactionId: "MOMO-PORTAL-123",
+  });
+  ticket = await SupportTicket.findById(ticketId).lean();
+  assert.equal(ticket.resolution.status, "REFUND_COMPLETED");
+  const stored = await Order.findById(order._id)
+    .select("+supportCompensation.reservedRefundAmount")
+    .lean();
+  assert.equal(stored.supportCompensation.refundedAmount, 200000);
+  assert.equal(stored.supportCompensation.reservedRefundAmount, 0);
+});
+
+test("one broken support refund does not block the rest of the reconciliation queue", async (t) => {
+  const broken = await timedOutLostRefund(t);
+  const healthy = await timedOutLostRefund(t);
+  // The broken ticket's reservation has gone missing, so settling it throws.
+  await Order.updateOne(
+    { _id: broken.order._id },
+    { $set: { "supportCompensation.reservedRefundAmount": 0 } }
+  );
+  t.mock.method(paymentGateway, "queryRefundStatus", async ({ idempotencyKey }) => ({
+    ok: true,
+    completed: true,
+    failed: false,
+    refundTransactionId: `query-${idempotencyKey.slice(-12)}`,
+  }));
+
+  const result = await supportResolutionService.reconcileProcessingRefunds();
+
+  assert.equal(result.errors, 1);
+  assert.equal(result.settled, 1);
+  const brokenTicket = await SupportTicket.findById(broken.ticketId).lean();
+  const healthyTicket = await SupportTicket.findById(healthy.ticketId).lean();
+  assert.equal(brokenTicket.resolution.status, "REFUND_PROCESSING");
+  assert.match(brokenTicket.resolution.refund.lastError, /hạn mức/);
+  assert.equal(healthyTicket.resolution.status, "REFUND_COMPLETED");
+});
+
+test("a support refund left in REFUND_PENDING by a crash is recovered once stale", async (t) => {
+  const { ticketId } = await timedOutLostRefund(t);
+  // Simulate a process that died right after reserving the refund.
+  await SupportTicket.updateOne(
+    { _id: ticketId },
+    { $set: { "resolution.status": "REFUND_PENDING" } }
+  );
+  t.mock.method(paymentGateway, "queryRefundStatus", async () => ({
+    ok: true,
+    completed: true,
+    failed: false,
+    refundTransactionId: "refund-after-crash",
+  }));
+
+  // Still possibly in flight: left alone.
+  let result = await supportResolutionService.reconcileProcessingRefunds();
+  assert.equal(result.processed, 0);
+  assert.equal((await SupportTicket.findById(ticketId).lean()).resolution.status, "REFUND_PENDING");
+
+  await SupportTicket.updateOne(
+    { _id: ticketId },
+    { $set: { "resolution.createdAt": new Date(Date.now() - 60 * 60 * 1000) } }
+  );
+  result = await supportResolutionService.reconcileProcessingRefunds();
+  assert.equal(result.settled, 1);
+  const ticket = await SupportTicket.findById(ticketId).lean();
+  assert.equal(ticket.resolution.status, "REFUND_COMPLETED");
+  assert.equal(ticket.resolution.refund.transactionId, "refund-after-crash");
+});

@@ -628,7 +628,16 @@ const mockQueryAttempts = new Map();
 function mockRefundQuery(idempotencyKey) {
   const key = String(idempotencyKey || "");
   if (!mockRefundPendingEnabled()) {
-    return { ok: true, completed: true, failed: false, status: "00", mock: true };
+    // Same id the mock refund request returns, so a refund whose request timed
+    // out can still be registered from the query, as with VNPay.
+    return {
+      ok: true,
+      completed: true,
+      failed: false,
+      status: "00",
+      refundTransactionId: deterministicRefundId(key),
+      mock: true,
+    };
   }
   const seen = (mockQueryAttempts.get(key) || 0) + 1;
   mockQueryAttempts.set(key, seen);
