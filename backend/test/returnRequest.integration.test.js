@@ -18,6 +18,7 @@ const UploadedAsset = require("../src/models/UploadedAsset");
 const User = require("../src/models/User");
 const paymentGateway = require("../src/services/paymentGateway");
 const {
+  completeReturnRefund,
   executeReturnRefund,
   reconcileProcessingRefunds,
 } = require("../src/services/returnRequestService");
@@ -890,4 +891,75 @@ test("a received return with nothing left to refund closes instead of hanging", 
   assert.equal(request.refund.status, "NONE");
   assert.equal(request.refund.amount, 0);
   assert.equal((await Book.findById(book._id)).stock, 2, "the goods still come back into stock");
+});
+
+test("closing a return and settling its refund headroom commit together", async (t) => {
+  const customer = await User.create({
+    name: "Atomic Close",
+    email: "atomic-close@example.com",
+    password: "secure-password",
+  });
+  const order = await Order.create(orderPayload(customer._id, {
+    payment: {
+      method: Order.PAYMENT_METHOD.VNPAY,
+      status: Order.PAYMENT_STATUS.PAID,
+      transactionId: "VNPAY-ATOMIC",
+      providerOrderId: "ORDER-ATOMIC",
+    },
+    supportCompensation: { refundedAmount: 0, reservedRefundAmount: 90_000 },
+  }));
+  const requestId = new mongoose.Types.ObjectId();
+  await ReturnRequest.create({
+    _id: requestId,
+    order: order._id,
+    user: customer._id,
+    items: [{
+      book: order.items[0].book,
+      title: order.items[0].title,
+      unitPrice: 90_000,
+      orderedQuantity: 2,
+      quantity: 1,
+    }],
+    reason: "DAMAGED",
+    details: "Sách bị rách nhiều trang khi mở kiện hàng.",
+    status: "RECEIVED",
+    expectedRefundAmount: 90_000,
+    refund: {
+      status: "PROCESSING",
+      amount: 90_000,
+      transactionId: "RF-ATOMIC-1",
+      businessType: "RETURN",
+      sourceId: String(requestId),
+      paymentMethod: "VNPAY",
+      originalPaymentTransactionId: "VNPAY-ATOMIC",
+      originalProviderOrderId: "ORDER-ATOMIC",
+    },
+  });
+
+  // A failure after the request is marked CLOSED must undo that too.
+  const syncMock = t.mock.method(SupportTicket, "findOneAndUpdate", () => {
+    throw new Error("simulated crash while closing");
+  });
+  await assert.rejects(
+    completeReturnRefund({ orderId: order._id, refundTransactionId: "RF-ATOMIC-1" }),
+    /simulated crash/
+  );
+  syncMock.mock.restore();
+  let request = await ReturnRequest.findById(requestId);
+  let stored = await Order.findById(order._id).select("+supportCompensation.reservedRefundAmount");
+  assert.equal(request.status, "RECEIVED");
+  assert.equal(request.refund.status, "PROCESSING");
+  assert.equal(stored.supportCompensation.reservedRefundAmount, 90_000);
+  assert.equal(stored.supportCompensation.refundedAmount, 0);
+
+  const retried = await completeReturnRefund({
+    orderId: order._id,
+    refundTransactionId: "RF-ATOMIC-1",
+  });
+  assert.equal(retried.changed, true);
+  request = await ReturnRequest.findById(requestId);
+  stored = await Order.findById(order._id).select("+supportCompensation.reservedRefundAmount");
+  assert.equal(request.status, "CLOSED");
+  assert.equal(stored.supportCompensation.reservedRefundAmount, 0);
+  assert.equal(stored.supportCompensation.refundedAmount, 90_000);
 });

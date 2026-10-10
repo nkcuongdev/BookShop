@@ -744,29 +744,35 @@ async function executeReturnRefund(requestId) {
         "refund.completedAt": null,
       };
 
-  const request = await ReturnRequest.findOneAndUpdate(
-    { _id: claimed._id, status: ReturnRequest.STATUS.RECEIVED, "refund.lockToken": lockToken },
-    {
-      $set: {
-        ...update,
-        "refund.transactionId": String(gatewayResult.refundTransactionId || ""),
-        "refund.lastError": "",
-        "refund.nextRetryAt": null,
-        "refund.lockUntil": null,
-        "refund.lockToken": "",
+  // Closing the request and consuming its reserved headroom commit together,
+  // so a crash cannot leave a CLOSED request with the money still "reserved".
+  const request = await runInTransaction(async (session) => {
+    const updated = await ReturnRequest.findOneAndUpdate(
+      { _id: claimed._id, status: ReturnRequest.STATUS.RECEIVED, "refund.lockToken": lockToken },
+      {
+        $set: {
+          ...update,
+          "refund.transactionId": String(gatewayResult.refundTransactionId || ""),
+          "refund.lastError": "",
+          "refund.nextRetryAt": null,
+          "refund.lockUntil": null,
+          "refund.lockToken": "",
+        },
       },
-    },
-    { returnDocument: "after" }
-  ).populate("order", "orderCode user");
-  if (request && settled) {
-    await settleReturnRefundReservation(
-      request.order?._id || request.order,
-      claimed.refund.amount
-    );
-    // Reached from both the admin API and the retry job, so the linked ticket
-    // closes on whichever attempt actually succeeds.
-    await syncLinkedTicket(request);
-  }
+      { returnDocument: "after", session }
+    ).populate("order", "orderCode user");
+    if (updated && settled) {
+      await settleReturnRefundReservation(
+        updated.order?._id || updated.order,
+        claimed.refund.amount,
+        session
+      );
+      // Reached from both the admin API and the retry job, so the linked ticket
+      // closes on whichever attempt actually succeeds.
+      await syncLinkedTicket(updated, null, session);
+    }
+    return updated;
+  });
   return {
     attempted: true,
     accepted: Boolean(request),
@@ -781,35 +787,42 @@ async function closeManualReturn({ orderId, transactionId }) {
     throw serviceError(422, "Vui lÃ²ng nháº­p mÃ£ giao dá»‹ch hoÃ n tiá»n", "REFUND_REFERENCE_REQUIRED");
   }
   const now = new Date();
-  const request = await ReturnRequest.findOneAndUpdate(
-    {
-      order: orderId,
-      status: ReturnRequest.STATUS.RECEIVED,
-      "refund.status": ReturnRequest.REFUND_STATUS.MANUAL_REQUIRED,
-    },
-    {
-      $set: {
-        status: ReturnRequest.STATUS.CLOSED,
-        closedAt: now,
-        "refund.status": ReturnRequest.REFUND_STATUS.COMPLETED,
-        "refund.transactionId": reference,
-        "refund.completedAt": now,
+  const request = await runInTransaction(async (session) => {
+    const closed = await ReturnRequest.findOneAndUpdate(
+      {
+        order: orderId,
+        status: ReturnRequest.STATUS.RECEIVED,
+        "refund.status": ReturnRequest.REFUND_STATUS.MANUAL_REQUIRED,
       },
-    },
-    {
-      returnDocument: "after",
-      runValidators: true,
-      sort: { createdAt: -1, _id: -1 },
+      {
+        $set: {
+          status: ReturnRequest.STATUS.CLOSED,
+          closedAt: now,
+          "refund.status": ReturnRequest.REFUND_STATUS.COMPLETED,
+          "refund.transactionId": reference,
+          "refund.completedAt": now,
+        },
+      },
+      {
+        returnDocument: "after",
+        runValidators: true,
+        sort: { createdAt: -1, _id: -1 },
+        session,
+      }
+    ).populate("order", "orderCode user");
+    if (closed) {
+      await settleReturnRefundReservation(
+        closed.order?._id || closed.order,
+        closed.refund?.amount,
+        session
+      );
+      await syncLinkedTicket(closed, null, session);
     }
-  ).populate("order", "orderCode user");
+    return closed;
+  });
   if (!request) {
     throw serviceError(409, "YÃªu cáº§u khÃ´ng thá»ƒ Ä‘Ã³ng á»Ÿ tráº¡ng thÃ¡i hiá»‡n táº¡i", "INVALID_RETURN_TRANSITION");
   }
-  await settleReturnRefundReservation(
-    request.order?._id || request.order,
-    request.refund?.amount
-  );
-  await syncLinkedTicket(request);
   return request;
 }
 
@@ -879,31 +892,42 @@ async function completeReturnRefund({ orderId, refundTransactionId, now = new Da
   ) {
     return { request: existing, changed: false };
   }
-  const request = await ReturnRequest.findOneAndUpdate(
-    {
-      _id: existing._id,
-      status: ReturnRequest.STATUS.RECEIVED,
-      "refund.status": ReturnRequest.REFUND_STATUS.PROCESSING,
-      "refund.transactionId": reference,
-      "refund.businessType": "RETURN",
-      "refund.sourceId": String(existing._id),
-      "refund.amount": Number(existing.expectedRefundAmount),
-    },
-    {
-      $set: {
-        status: ReturnRequest.STATUS.CLOSED,
-        closedAt: now,
-        "refund.status": ReturnRequest.REFUND_STATUS.COMPLETED,
+  const request = await runInTransaction(async (session) => {
+    const closed = await ReturnRequest.findOneAndUpdate(
+      {
+        _id: existing._id,
+        status: ReturnRequest.STATUS.RECEIVED,
+        "refund.status": ReturnRequest.REFUND_STATUS.PROCESSING,
         "refund.transactionId": reference,
-        "refund.completedAt": now,
-        "refund.lastError": "",
-        "refund.nextRetryAt": null,
-        "refund.lockUntil": null,
-        "refund.lockToken": "",
+        "refund.businessType": "RETURN",
+        "refund.sourceId": String(existing._id),
+        "refund.amount": Number(existing.expectedRefundAmount),
       },
-    },
-    { returnDocument: "after" }
-  ).populate("order", "orderCode user");
+      {
+        $set: {
+          status: ReturnRequest.STATUS.CLOSED,
+          closedAt: now,
+          "refund.status": ReturnRequest.REFUND_STATUS.COMPLETED,
+          "refund.transactionId": reference,
+          "refund.completedAt": now,
+          "refund.lastError": "",
+          "refund.nextRetryAt": null,
+          "refund.lockUntil": null,
+          "refund.lockToken": "",
+        },
+      },
+      { returnDocument: "after", session }
+    ).populate("order", "orderCode user");
+    if (closed) {
+      await settleReturnRefundReservation(
+        closed.order?._id || closed.order,
+        closed.refund?.amount,
+        session
+      );
+      await syncLinkedTicket(closed, null, session);
+    }
+    return closed;
+  });
   if (!request) {
     throw serviceError(
       409,
@@ -911,11 +935,6 @@ async function completeReturnRefund({ orderId, refundTransactionId, now = new Da
       "INVALID_RETURN_TRANSITION"
     );
   }
-  await settleReturnRefundReservation(
-    request.order?._id || request.order,
-    request.refund?.amount
-  );
-  await syncLinkedTicket(request);
   return { request, changed: true };
 }
 
@@ -930,7 +949,7 @@ async function completeReturnRefund({ orderId, refundTransactionId, now = new Da
  * Idempotent: each branch matches on the statuses it is allowed to move from,
  * so replaying it neither double-posts an event nor reopens a closed ticket.
  */
-async function syncLinkedTicket(request, actorId = null) {
+async function syncLinkedTicket(request, actorId = null, session = null) {
   if (!request) return null;
   const requestId = request._id || request;
 
@@ -957,7 +976,7 @@ async function syncLinkedTicket(request, actorId = null) {
           },
         },
       },
-      { returnDocument: "after" }
+      { returnDocument: "after", session }
     );
   }
 
