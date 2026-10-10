@@ -40,8 +40,15 @@ export function DataTable({
   onPaginationChange,
   pageCount,
   totalRows,
+  // Server-side sorting: pass `sorting`/`onSortingChange` with manualSorting so
+  // a sort reorders the whole result set, not just the loaded page.
+  sorting: controlledSorting,
+  onSortingChange,
+  manualSorting = false,
 }) {
-  const [sorting, setSorting] = useState([]);
+  const [internalSorting, setInternalSorting] = useState([]);
+  const sorting = controlledSorting ?? internalSorting;
+  const setSorting = onSortingChange ?? setInternalSorting;
   const [rowSelection, setRowSelection] = useState({});
   const [columnFilters, setColumnFilters] = useState([]);
 
@@ -60,7 +67,8 @@ export function DataTable({
     onRowSelectionChange: setRowSelection,
     onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: enableSorting ? getSortedRowModel() : undefined,
+    getSortedRowModel: enableSorting && !manualSorting ? getSortedRowModel() : undefined,
+    manualSorting,
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: pagination ? undefined : getPaginationRowModel(),
     onPaginationChange,

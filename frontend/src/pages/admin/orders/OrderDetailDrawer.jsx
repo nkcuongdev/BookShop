@@ -250,7 +250,7 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
           </div>
 
           <SheetDescription>
-            Đặt ngày {formatDateVN(order.createdAt)} ·{" "}
+            Đặt ngày {formatDateVN(order.placedAt || order.createdAt)} ·{" "}
             {order.items?.length || 0} sản phẩm
           </SheetDescription>
         </SheetHeader>

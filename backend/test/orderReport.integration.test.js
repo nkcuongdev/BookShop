@@ -192,6 +192,42 @@ test("the list badges the return request that matched the filter", async () => {
   assert.equal(unfiltered.body.data.orders[0].returnRequest.status, "REJECTED");
 });
 
+test("sorting applies to the whole result set before pagination", async () => {
+  const { agent } = await adminSession();
+  const customer = await User.create({
+    name: "Sort Customer",
+    email: "sort-customer@example.com",
+    password: "secure-password",
+  });
+  const oldest = await createOrder(customer._id, {
+    placedAt: new Date("2026-01-01T00:00:00.000Z"),
+    totalAmount: 50_000,
+  });
+  await createOrder(customer._id, {
+    placedAt: new Date("2026-02-01T00:00:00.000Z"),
+    totalAmount: 900_000,
+  });
+  await createOrder(customer._id, {
+    placedAt: new Date("2026-03-01T00:00:00.000Z"),
+    totalAmount: 120_000,
+  });
+
+  const oldestFirst = await agent.get("/api/admin/orders?sort=placedAt&order=asc&limit=1");
+  assert.equal(oldestFirst.status, 200, JSON.stringify(oldestFirst.body));
+  assert.equal(String(oldestFirst.body.data.orders[0]._id), String(oldest._id));
+
+  const biggest = await agent.get("/api/admin/orders?sort=totalAmount&order=desc&limit=1");
+  assert.equal(biggest.body.data.orders[0].totalAmount, 900_000);
+
+  const csv = await agent.get("/api/admin/orders/export.csv?sort=placedAt&order=asc");
+  assert.equal(csv.status, 200);
+  const firstRow = csv.text.split(/\r?\n/)[1];
+  assert.match(firstRow, new RegExp(oldest.orderCode));
+
+  const invalid = await agent.get("/api/admin/orders?sort=password");
+  assert.equal(invalid.status, 400);
+});
+
 test("CSV export streams every matching order and protects spreadsheet cells", async () => {
   const { agent } = await adminSession();
   const customer = await User.create({

@@ -221,11 +221,11 @@ router.get("/orders", requirePermission("order.read"), async (req, res) => {
     const limitNumber = parsePositiveInt(req.query.limit, 20, 100);
     const skip = (pageNumber - 1) * limitNumber;
 
-    const { baseFilter, filter } = await buildAdminOrderFilters(req.query);
+    const { baseFilter, filter, sort } = await buildAdminOrderFilters(req.query);
 
     const query = Order.find(filter)
       .populate("user", "name email")
-      .sort({ placedAt: -1, _id: -1 });
+      .sort(sort);
 
     const [orders, total, statusRows, returnStatusRows] = await Promise.all([
       query.skip(skip).limit(limitNumber),
@@ -301,8 +301,8 @@ router.get("/orders", requirePermission("order.read"), async (req, res) => {
 // GET /api/admin/orders/export.csv - Stream every order matching the current filters.
 router.get("/orders/export.csv", requirePermission("order.export"), async (req, res) => {
   try {
-    const { filter } = await buildAdminOrderFilters(req.query);
-    await writeOrdersCsv(res, filter);
+    const { filter, sort } = await buildAdminOrderFilters(req.query);
+    await writeOrdersCsv(res, filter, sort);
   } catch (error) {
     if (res.headersSent) return res.end();
     return res.status(error.statusCode || 500).json({

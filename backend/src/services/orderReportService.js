@@ -110,7 +110,26 @@ async function buildAdminOrderFilters(query = {}) {
   return {
     baseFilter,
     filter: { ...baseFilter, ...(status ? { status } : {}) },
+    sort: buildAdminOrderSort(query),
   };
+}
+
+// Sorting is applied by the server before pagination (and to the CSV), so
+// "oldest first" really means the oldest matching orders, not the oldest of
+// the page already loaded.
+const ADMIN_ORDER_SORT_FIELDS = Object.freeze(["placedAt", "totalAmount"]);
+
+function buildAdminOrderSort(query = {}) {
+  const field = String(query.sort || "placedAt").trim();
+  if (!ADMIN_ORDER_SORT_FIELDS.includes(field)) {
+    throw reportError("Trường sắp xếp không hợp lệ");
+  }
+  const order = String(query.order || "desc").trim().toLowerCase();
+  if (!["asc", "desc"].includes(order)) {
+    throw reportError("Chiều sắp xếp không hợp lệ");
+  }
+  const direction = order === "asc" ? 1 : -1;
+  return { [field]: direction, _id: direction };
 }
 
 function csvCell(value) {
@@ -214,7 +233,7 @@ const CSV_HEADERS = [
   "Địa chỉ giao hàng",
 ];
 
-async function writeOrdersCsv(res, filter) {
+async function writeOrdersCsv(res, filter, sort = { placedAt: -1, _id: -1 }) {
   const filename = `bookshop-orders-${new Date().toISOString().slice(0, 10)}.csv`;
   res.status(200);
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -224,7 +243,7 @@ async function writeOrdersCsv(res, filter) {
 
   const cursor = Order.find(filter)
     .populate("user", "email")
-    .sort({ placedAt: -1, _id: -1 })
+    .sort(sort)
     .cursor();
   for await (const order of cursor) {
     if (!res.write(orderCsvRow(order))) await once(res, "drain");

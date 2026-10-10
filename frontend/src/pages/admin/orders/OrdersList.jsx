@@ -33,6 +33,9 @@ import { formatDateVN, formatOrderCode, formatVND } from "@/utils/format";
 import { adminAPI } from "@/services/api";
 import { toast } from "@/components/ui/sonner";
 
+// Cột bảng → trường sắp xếp server chấp nhận (orderReportService).
+const SORT_FIELDS = { date: "placedAt", total: "totalAmount" };
+
 export default function OrdersList() {
   const { user } = useAuth();
   const { id } = useParams();
@@ -46,6 +49,8 @@ export default function OrdersList() {
   const [search, setSearch] = useState("");
   const [exporting, setExporting] = useState(false);
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 20 });
+  // Sắp xếp chạy ở server trên toàn bộ kết quả lọc (và CSV dùng cùng thứ tự).
+  const [sorting, setSorting] = useState([{ id: "date", desc: true }]);
   const debouncedSearch = useDebounce(search, 250);
 
   const reportFilters = useMemo(
@@ -57,8 +62,10 @@ export default function OrdersList() {
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
       search: debouncedSearch || undefined,
+      sort: SORT_FIELDS[sorting[0]?.id] || "placedAt",
+      order: sorting[0] && !sorting[0].desc ? "asc" : "desc",
     }),
-    [status, returnStatus, paymentStatus, paymentMethod, dateFrom, dateTo, debouncedSearch]
+    [status, returnStatus, paymentStatus, paymentMethod, dateFrom, dateTo, debouncedSearch, sorting]
   );
   const orderParams = useMemo(
     () => ({
@@ -159,7 +166,7 @@ export default function OrdersList() {
     {
       id: "date",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Ngày đặt" />,
-      accessorFn: (r) => r.createdAt,
+      accessorFn: (r) => r.placedAt || r.createdAt,
       cell: ({ row }) => (
         <span className="text-muted-foreground">
           {formatDateVN(row.original.placedAt || row.original.createdAt)}
@@ -409,6 +416,14 @@ export default function OrdersList() {
         totalLabel="đơn"
         pagination={pagination}
         onPaginationChange={setPagination}
+        manualSorting
+        sorting={sorting}
+        onSortingChange={(updater) => {
+          setSorting((current) =>
+            typeof updater === "function" ? updater(current) : updater
+          );
+          resetPage();
+        }}
         pageCount={ordersQ.data?.pagination?.totalPages || 1}
         totalRows={ordersQ.data?.pagination?.total || 0}
         getRowId={(r) => r._id || r.id}
