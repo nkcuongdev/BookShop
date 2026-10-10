@@ -97,7 +97,20 @@ export function DataTable({
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id} className="hover:bg-transparent">
                 {hg.headers.map((h) => (
-                  <TableHead key={h.id} style={{ width: h.getSize?.() || undefined }}>
+                  <TableHead
+                    key={h.id}
+                    style={{ width: h.getSize?.() || undefined }}
+                    // Screen readers learn the sort order, not just the arrow icon.
+                    aria-sort={
+                      h.column.getCanSort?.()
+                        ? h.column.getIsSorted() === "asc"
+                          ? "ascending"
+                          : h.column.getIsSorted() === "desc"
+                            ? "descending"
+                            : "none"
+                        : undefined
+                    }
+                  >
                     {h.isPlaceholder
                       ? null
                       : flexRender(h.column.columnDef.header, h.getContext())}

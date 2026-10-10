@@ -257,6 +257,7 @@ export default function OrdersList() {
           <Button
             variant="ghost"
             size="sm"
+            aria-label={`Xem đơn ${formatOrderCode(row.original)}`}
             onClick={(event) => {
               // Hàng cũng mở chi tiết khi click; chặn nổi bọt để không navigate hai lần.
               event.stopPropagation();
@@ -277,6 +278,7 @@ export default function OrdersList() {
         <div className="relative w-full sm:max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
           <Input
+            aria-label="Tìm đơn theo mã, tên khách hoặc số điện thoại"
             placeholder="Tìm theo mã, tên, SĐT..."
             value={search}
             onChange={(e) => {

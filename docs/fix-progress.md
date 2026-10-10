@@ -56,7 +56,7 @@ TRANSITIONS trong `backend/src/models/Order.js`: **chưa thay đổi**.
 | F35 | CHƯA LÀM | | | |
 | F36 | ĐÃ SỬA | (commit F36) | orderReport.integration: kiểm tra header trong "CSV export streams…" và test mới "CSV rows carry the latest return status and refund totals" — đã chạy, 7/7 pass | Thêm 5 cột vào **cuối** CSV (giữ vị trí cột cũ): Giảm bằng điểm, Hoàn cả đơn (chỉ khi REFUNDING/REFUNDED), Đã hoàn hậu mãi, Đổi trả (hồ sơ mới nhất), Số hồ sơ đổi trả. Vẫn một dòng/đơn; hồ sơ đổi trả tra theo lô 200 đơn. Giữ gate `order.export` và mọi bộ lọc/sort (F26). |
 | F37 | ĐÃ SỬA | (commit F37) | — (frontend; chưa có test: DataTable bị mock trong OrdersList.test nên khó dựng trạng thái "đang ở trang 2") | OrdersList: khi dữ liệu thật (không phải placeholder) cho thấy trang hiện tại vượt số trang, đưa về trang cuối hợp lệ. Làm ngay khi render thay vì `useEffect` (lần đầu dùng effect bị lint `react-hooks/set-state-in-effect` cảnh báo, đã đổi). Không reset vô điều kiện khi poll; giữ bộ lọc. |
-| F38 | CHƯA LÀM | | | |
+| F38 | ĐÃ SỬA | (commit F38) | — (frontend) | Ô tìm kiếm có `aria-label`; nút "Xem" có tên truy cập "Xem đơn <mã>"; `DataTable` dùng chung đặt `aria-sort` (ascending/descending/none) cho cột sắp xếp được; ô mã giao dịch hoàn COD có `aria-label` (đã làm ở F32). Chưa kiểm tra bằng screen reader/bàn phím thật (không chạy app). |
 | F39 | CHƯA LÀM | | | |
 | F40 | CHƯA LÀM | | | |
 | F02 | BỎ QUA | — | — | Mục 7.3. |
