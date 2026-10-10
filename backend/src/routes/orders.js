@@ -87,15 +87,22 @@ async function serializeOrderWithReturn(order) {
   const returnRequests = await ReturnRequest.find({ order: order._id })
     .sort({ createdAt: -1, _id: -1 });
   const serializedRequests = returnRequests.map(serializeReturnRequest);
+  const consumed = [
+    ...returnRequests,
+    ...(await findSupportLineCompensations(order._id)),
+  ];
   return {
     ...serializeCustomerOrder(order),
     // Compatibility alias for existing clients; new clients render the full history.
     returnRequest: serializedRequests[0] || null,
     returnRequests: serializedRequests,
-    returnEligibility: getReturnEligibility(order, [
-      ...returnRequests,
-      ...(await findSupportLineCompensations(order._id)),
-    ]),
+    // Change-of-mind window (default). The shop-fault window is longer and is
+    // what createReturnRequest applies to every reason except OTHER, so the
+    // client needs both to offer the right reasons after day 7.
+    returnEligibility: getReturnEligibility(order, consumed),
+    shopFaultReturnEligibility: getReturnEligibility(order, consumed, {
+      faultParty: "shop",
+    }),
   };
 }
 

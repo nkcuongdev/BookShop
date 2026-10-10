@@ -140,7 +140,11 @@ reviewUploadRouter.post(
       const existingRequests = await ReturnRequest.find({ order: order._id })
         .select("status items")
         .lean();
-      const eligibility = getReturnEligibility(order, existingRequests);
+      // The reason (and so the window) is chosen after uploading evidence; gate
+      // on the longest window and let the request itself enforce the right one.
+      const eligibility = getReturnEligibility(order, existingRequests, {
+        faultParty: "shop",
+      });
       if (!eligibility.eligible) {
         return res.status(eligibility.code === "ALREADY_REQUESTED" ? 409 : 422).json({
           success: false,

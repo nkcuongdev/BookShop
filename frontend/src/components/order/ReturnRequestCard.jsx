@@ -178,9 +178,20 @@ export default function ReturnRequestCard({ order, onChanged }) {
     return requestHistory.length ? <div className="space-y-4">{requestHistory}</div> : null;
   }
 
-  const eligibility = order.returnEligibility;
-  const canRequest = eligibility?.eligible === true;
+  // Backend: lý do OTHER (đổi ý) dùng hạn 7 ngày, các lý do lỗi sản phẩm/giao
+  // hàng dùng hạn lỗi shop (30 ngày). Cho tạo yêu cầu khi còn một trong hai hạn
+  // và chỉ đưa ra những lý do còn trong hạn.
+  const customerEligibility = order.returnEligibility;
+  const shopFaultEligibility = order.shopFaultReturnEligibility;
+  const changeOfMindOpen = customerEligibility?.eligible === true;
+  const shopFaultOpen = shopFaultEligibility?.eligible === true;
+  const eligibility =
+    !changeOfMindOpen && shopFaultOpen ? shopFaultEligibility : customerEligibility;
+  const canRequest = changeOfMindOpen || shopFaultOpen;
   const deadline = eligibility?.deadline;
+  const reasonOptions = changeOfMindOpen
+    ? RETURN_REASON_OPTIONS
+    : RETURN_REASON_OPTIONS.filter((option) => option.value !== "OTHER");
   const remainingByBook = new Map(
     (eligibility?.remainingItems || []).map((item) => [String(item.bookId), Number(item.quantity) || 0])
   );
@@ -256,7 +267,11 @@ export default function ReturnRequestCard({ order, onChanged }) {
           {deadline && (
             <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
               <CalendarClock className="size-4" />
-              Thời hạn gửi yêu cầu: {formatDateVN(deadline)}
+              {changeOfMindOpen && shopFaultEligibility?.deadline
+                ? `Đổi ý: đến ${formatDateVN(deadline)} · Lỗi sản phẩm/giao hàng: đến ${formatDateVN(shopFaultEligibility.deadline)}`
+                : !changeOfMindOpen && shopFaultOpen
+                  ? `Chỉ nhận đổi trả do lỗi sản phẩm/giao hàng, đến ${formatDateVN(deadline)}`
+                  : `Thời hạn gửi yêu cầu: ${formatDateVN(deadline)}`}
             </p>
           )}
           {!canRequest && (
@@ -345,7 +360,7 @@ export default function ReturnRequestCard({ order, onChanged }) {
                 required
               >
                 <option value="">Chọn lý do đổi trả</option>
-                {RETURN_REASON_OPTIONS.map((option) => (
+                {reasonOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>

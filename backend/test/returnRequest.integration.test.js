@@ -1009,3 +1009,34 @@ test("admin actions target the return request they were sent for", async () => {
   assert.equal((await ReturnRequest.findById(older._id)).status, "RETURNING");
   assert.equal((await ReturnRequest.findById(newer._id)).status, "PENDING");
 });
+
+test("after day 7 the order detail still offers shop-fault returns", async () => {
+  const customer = await User.create({
+    name: "Late Return",
+    email: "late-return@example.com",
+    password: "secure-password",
+  });
+  const order = await Order.create(orderPayload(customer._id, {
+    deliveredAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+  }));
+  const { agent, csrf } = await sessionFor(customer);
+
+  const detail = await agent.get(`/api/orders/${order._id}`);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.data.order.returnEligibility.eligible, false);
+  assert.equal(detail.body.data.order.returnEligibility.code, "RETURN_WINDOW_EXPIRED");
+  assert.equal(detail.body.data.order.shopFaultReturnEligibility.eligible, true);
+  assert.equal(detail.body.data.order.shopFaultReturnEligibility.windowDays, 30);
+
+  const changeOfMind = await agent
+    .post(`/api/orders/${order._id}/return-request`)
+    .set("x-csrf-token", csrf)
+    .send(requestPayload(order, { reason: "OTHER", details: "Tôi không còn nhu cầu đọc cuốn này." }));
+  assert.equal(changeOfMind.status, 422, JSON.stringify(changeOfMind.body));
+
+  const damaged = await agent
+    .post(`/api/orders/${order._id}/return-request`)
+    .set("x-csrf-token", csrf)
+    .send(requestPayload(order));
+  assert.equal(damaged.status, 201, JSON.stringify(damaged.body));
+});
