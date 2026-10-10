@@ -852,3 +852,28 @@ test("lost-parcel refunds split across tickets refund the fee and close the orde
   assert.equal(stored.supportCompensation.refundedAmount, 230000);
   assert.equal(stored.status, Order.STATUS.REFUNDED);
 });
+
+test("a lost refund still settles when staff moved the order on meanwhile", async (t) => {
+  const { order, ticketId } = await timedOutLostRefund(t);
+  // Staff mark the parcel delivered while the refund is still in flight.
+  await orderService.adminMarkDelivered(order._id, new mongoose.Types.ObjectId());
+  t.mock.method(paymentGateway, "queryRefundStatus", async () => ({
+    ok: true,
+    completed: true,
+    failed: false,
+    refundTransactionId: "refund-after-delivery",
+  }));
+
+  const result = await supportResolutionService.reconcileProcessingRefunds();
+
+  assert.equal(result.errors, 0);
+  assert.equal(result.settled, 1);
+  const ticket = await SupportTicket.findById(ticketId).lean();
+  assert.equal(ticket.resolution.status, "REFUND_COMPLETED");
+  const stored = await Order.findById(order._id)
+    .select("+supportCompensation.reservedRefundAmount")
+    .lean();
+  assert.equal(stored.status, Order.STATUS.DELIVERED);
+  assert.equal(stored.supportCompensation.refundedAmount, 200000);
+  assert.equal(stored.supportCompensation.reservedRefundAmount, 0);
+});

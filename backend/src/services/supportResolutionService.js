@@ -355,11 +355,22 @@ async function closeLostOrderWhenFullyRefunded(ticket, order, session) {
   // Judge by everything refunded so far, not this ticket alone: a lost parcel
   // refunded over several tickets must close the order once fully paid back.
   const current = await Order.findById(order._id)
-    .select("totalAmount supportCompensation.refundedAmount")
+    .select("status totalAmount supportCompensation.refundedAmount")
     .session(session);
   if (
     (Number(current?.supportCompensation?.refundedAmount) || 0) <
     Number(current?.totalAmount)
+  ) {
+    return null;
+  }
+  // The money has already left by the time this runs. If staff moved the
+  // order on meanwhile (e.g. marked it delivered), closing the lifecycle would
+  // throw and roll back the settlement, stranding the ticket; record the
+  // refund and leave the order status to them.
+  if (
+    ![Order.STATUS.SHIPPED, Order.STATUS.REFUNDING, Order.STATUS.REFUNDED].includes(
+      current.status
+    )
   ) {
     return null;
   }
