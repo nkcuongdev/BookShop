@@ -39,6 +39,15 @@ import { useAuth } from "@/context/AuthContext.jsx";
 import { can } from "@/lib/rbac";
 import OrderReceiptPrintButton from "@/components/order/OrderReceipt";
 import AdminReturnRequestCard from "@/components/admin/orders/AdminReturnRequestCard";
+import CancelOrderDialog from "@/components/order/CancelOrderDialog";
+
+const ADMIN_CANCEL_REASONS = [
+  "Khách yêu cầu huỷ",
+  "Hết hàng / không đủ hàng",
+  "Không liên hệ được khách",
+  "Thông tin giao hàng không hợp lệ",
+  "Nghi ngờ đơn ảo",
+];
 import { buildOrderTimeline } from "@/features/admin/orders/timeline";
 
 function StatusTimeline({ order, current }) {
@@ -101,6 +110,7 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
   const orderAction = useOrderAction();
   const returnRequestAction = useReturnRequestAction();
   const confirm = useConfirm();
+  const [cancelOpen, setCancelOpen] = useState(false);
   const { user } = useAuth();
   // Sau khi huỷ vận đơn GHN, mã cũ đã chết: không điền sẵn vào form bàn giao
   // thủ công để tránh bàn giao bằng mã vận đơn không còn hiệu lực.
@@ -182,38 +192,28 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
       (!action.permission || can(user, action.permission))
   );
 
+  // Đơn PENDING được huỷ ngay. Đơn PAID/PROCESSING chuyển sang CANCELLING,
+  // hệ thống huỷ vận đơn (nếu có) rồi hoàn tiền qua cổng thanh toán. Mô tả
+  // đúng quá trình này để CSKH không nghĩ đã xong khi bấm xong.
+  const isPrepaid = payment.method !== "COD" && payment.status === "PAID";
+  const cancelSteps = [
+    `Đơn ${code} · ${formatVND(order.totalAmount || 0)}.`,
+    normalizedStatus === "PENDING"
+      ? "Đơn chưa được duyệt nên sẽ được huỷ ngay. Tồn kho, lượt voucher và điểm đã dùng cho đơn này sẽ được hoàn lại."
+      : "Tồn kho, lượt voucher và điểm đã dùng cho đơn này sẽ được hoàn lại.",
+  ];
+  if (hasGhnShipment && !ghnShipmentCancelled) {
+    cancelSteps.push("Vận đơn đã tạo sẽ được yêu cầu huỷ với đơn vị vận chuyển trước.");
+  }
+  if (isPrepaid) {
+    cancelSteps.push(
+      `Đơn đã thanh toán nên sẽ chuyển sang trạng thái đang huỷ và hoàn ${formatVND(order.totalAmount || 0)} qua cổng thanh toán; thời gian tiền về tài khoản khách phụ thuộc cổng/ngân hàng.`
+    );
+  }
+
   const runAction = async (action) => {
     if (action === "cancel") {
-      // Đơn PENDING được huỷ ngay. Đơn PAID/PROCESSING chuyển sang CANCELLING,
-      // hệ thống huỷ vận đơn (nếu có) rồi hoàn tiền qua cổng thanh toán. Mô tả
-      // đúng quá trình này để CSKH không nghĩ đã xong khi bấm xong.
-      const isPrepaid = payment.method !== "COD" && payment.status === "PAID";
-      const steps = [
-        normalizedStatus === "PENDING"
-          ? "Đơn chưa được duyệt nên sẽ được huỷ ngay. Tồn kho, lượt voucher và điểm đã dùng cho đơn này sẽ được hoàn lại."
-          : "Tồn kho, lượt voucher và điểm đã dùng cho đơn này sẽ được hoàn lại.",
-      ];
-      if (hasGhnShipment && !ghnShipmentCancelled) {
-        steps.push("Vận đơn đã tạo sẽ được yêu cầu huỷ với đơn vị vận chuyển.");
-      }
-      if (isPrepaid) {
-        steps.push(
-          "Đơn đã thanh toán nên sẽ chuyển sang trạng thái đang huỷ, tiền được hoàn tự động qua cổng thanh toán và có thể mất vài phút để hoàn tất."
-        );
-      }
-      const accepted = await confirm({
-        title: "Huỷ đơn hàng?",
-        description: steps.join(" "),
-        confirmText: isPrepaid ? "Huỷ đơn và hoàn tiền" : "Huỷ đơn",
-        variant: "destructive",
-      });
-      if (accepted) {
-        orderAction.mutate({
-          id,
-          action,
-          payload: { reason: "Cancelled by admin" },
-        });
-      }
+      setCancelOpen(true);
       return;
     }
     if (action === "ship") {
@@ -698,6 +698,21 @@ export function OrderDetailDrawer({ order, open, onOpenChange }) {
           )}
         </div>
       </SheetContent>
+      <CancelOrderDialog
+        open={cancelOpen}
+        onOpenChange={setCancelOpen}
+        loading={orderAction.isPending}
+        title="Huỷ đơn hàng?"
+        description={cancelSteps.join(" ")}
+        presets={ADMIN_CANCEL_REASONS}
+        requireReason
+        confirmText={isPrepaid ? "Huỷ đơn và hoàn tiền" : "Huỷ đơn"}
+        onConfirm={(reason) =>
+          orderAction.mutateAsync({ id, action: "cancel", payload: { reason } })
+            .then(() => setCancelOpen(false))
+            .catch(() => null)
+        }
+      />
     </Sheet>
   );
 }

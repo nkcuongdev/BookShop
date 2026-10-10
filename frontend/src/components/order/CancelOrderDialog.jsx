@@ -25,6 +25,10 @@ export default function CancelOrderDialog({
   loading = false,
   title = "Huỷ đơn hàng",
   description = "Bạn có chắc muốn huỷ đơn hàng này? Hành động không thể hoàn tác.",
+  presets = PRESET_REASONS,
+  // Admin cancellations must say why; the customer may leave it empty.
+  requireReason = false,
+  confirmText = "Xác nhận huỷ",
 }) {
   const [reason, setReason] = useState("");
 
@@ -42,9 +46,11 @@ export default function CancelOrderDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <Label htmlFor="cancel-reason">Lý do (không bắt buộc)</Label>
+          <Label htmlFor="cancel-reason">
+            {requireReason ? "Lý do huỷ (bắt buộc)" : "Lý do (không bắt buộc)"}
+          </Label>
           <div className="flex flex-wrap gap-2">
-            {PRESET_REASONS.map((r) => (
+            {presets.map((r) => (
               <button
                 key={r}
                 type="button"
@@ -75,9 +81,9 @@ export default function CancelOrderDialog({
           <Button
             variant="destructive"
             onClick={handleConfirm}
-            disabled={loading}
+            disabled={loading || (requireReason && reason.trim().length < 3)}
           >
-            {loading ? "Đang xử lý..." : "Xác nhận huỷ"}
+            {loading ? "Đang xử lý..." : confirmText}
           </Button>
         </DialogFooter>
       </DialogContent>
