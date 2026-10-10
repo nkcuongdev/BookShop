@@ -79,6 +79,22 @@ export default function OrdersList() {
   const orderDetailQ = useOrder(id);
 
   const orders = ordersQ.data?.orders || [];
+  // Khi kết quả giảm (xử lý hết đơn của trang cuối, poll thấy ít đơn hơn),
+  // trang hiện tại có thể vượt số trang: đưa về trang cuối hợp lệ. Chỉ xét dữ
+  // liệu thật của query hiện tại, không xét placeholder của bộ lọc trước.
+  // Điều chỉnh ngay khi render (thay vì useEffect) để không render thêm một
+  // vòng với trang rỗng; điều kiện bảo đảm chỉ set một lần cho mỗi lần vượt.
+  const lastPageIndex = Math.max(
+    0,
+    (Number(ordersQ.data?.pagination?.totalPages) || 0) - 1
+  );
+  if (
+    ordersQ.data &&
+    !ordersQ.isPlaceholderData &&
+    pagination.pageIndex > lastPageIndex
+  ) {
+    setPagination((current) => ({ ...current, pageIndex: lastPageIndex }));
+  }
   // Bảng đang hiện kết quả của bộ lọc trước (placeholderData) hoặc ô tìm kiếm
   // chưa qua debounce: báo rõ thay vì để người dùng tin vào số liệu cũ.
   const filtersPending =

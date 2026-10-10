@@ -55,7 +55,7 @@ TRANSITIONS trong `backend/src/models/Order.js`: **chưa thay đổi**.
 | F34 | CHƯA LÀM | | | |
 | F35 | CHƯA LÀM | | | |
 | F36 | CHƯA LÀM | | | |
-| F37 | CHƯA LÀM | | | |
+| F37 | ĐÃ SỬA | (commit F37) | — (frontend; chưa có test: DataTable bị mock trong OrdersList.test nên khó dựng trạng thái "đang ở trang 2") | OrdersList: khi dữ liệu thật (không phải placeholder) cho thấy trang hiện tại vượt số trang, đưa về trang cuối hợp lệ. Làm ngay khi render thay vì `useEffect` (lần đầu dùng effect bị lint `react-hooks/set-state-in-effect` cảnh báo, đã đổi). Không reset vô điều kiện khi poll; giữ bộ lọc. |
 | F38 | CHƯA LÀM | | | |
 | F39 | CHƯA LÀM | | | |
 | F40 | CHƯA LÀM | | | |
