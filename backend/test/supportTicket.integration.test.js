@@ -513,3 +513,39 @@ test("a support return approves the request it created, not the newest pending o
   assert.equal((await ReturnRequest.findById(linkedId)).status, ReturnRequest.STATUS.RETURNING);
   assert.equal((await ReturnRequest.findById(customerRequest._id)).status, ReturnRequest.STATUS.PENDING);
 });
+
+test("the same COD refund cannot be confirmed twice concurrently", async () => {
+  const supportResolutionService = require("../src/services/supportResolutionService");
+  const customer = await User.create({ name: "F11 Customer", email: "f11-customer@example.com", password: "secure-password" });
+  const admin = await User.create({ name: "F11 Admin", email: "f11-admin@example.com", password: "secure-password", role: "admin" });
+  const book = await Book.create({ title: "F11 Book", author: "Author", category: "fiction", price: 120000, stock: 5 });
+  const order = await createDeliveredOrder(customer, book);
+  const customerSession = await sessionFor(customer);
+  const adminSession = await sessionFor(admin);
+  // Two COD item refunds on the order, so the cap still has a reservation left
+  // after the first confirmation.
+  const tickets = [
+    await createTicketThroughApi(customerSession, order, "ITEM_FAULT", { itemIssue: "DAMAGED" }),
+    await createTicketThroughApi(customerSession, order, "OTHER"),
+  ];
+  for (const ticket of tickets) {
+    const created = await adminSession.agent
+      .post(`/api/admin/support-tickets/${ticket._id}/resolution`)
+      .set("x-csrf-token", adminSession.csrf)
+      .send({ type: "PARTIAL_REFUND", items: [{ bookId: String(book._id), quantity: 1 }] });
+    assert.equal(created.status, 200, JSON.stringify(created.body));
+  }
+
+  const confirm = () =>
+    supportResolutionService.completeManualRefund({
+      ticketId: tickets[0]._id,
+      adminId: admin._id,
+      transactionId: "BANK-DOUBLE-1",
+    });
+  const attempts = await Promise.allSettled([confirm(), confirm()]);
+
+  assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+  const stored = await Order.findById(order._id).select("+supportCompensation.reservedRefundAmount");
+  assert.equal(stored.supportCompensation.refundedAmount, 120000);
+  assert.equal(stored.supportCompensation.reservedRefundAmount, 120000, "the other ticket keeps its reservation");
+});

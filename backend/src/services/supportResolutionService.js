@@ -283,10 +283,11 @@ async function reserveRefundAndResolution(
   });
 }
 
-async function releaseRefundReservation(orderId, amount) {
+async function releaseRefundReservation(orderId, amount, session = null) {
   await Order.updateOne(
     { _id: orderId, "supportCompensation.reservedRefundAmount": { $gte: amount } },
-    { $inc: { "supportCompensation.reservedRefundAmount": -amount } }
+    { $inc: { "supportCompensation.reservedRefundAmount": -amount } },
+    session ? { session } : undefined
   );
 }
 
@@ -829,15 +830,9 @@ async function completeManualRefund({ ticketId, adminId, transactionId }) {
   if (!ticket) throw serviceError(409, "Khoản hoàn không ở trạng thái chờ ghi nhận", "INVALID_REFUND_STATE");
   const completedAt = new Date();
   await runInTransaction(async (session) => {
-    const refundedOrder = await Order.findOneAndUpdate(
-      { _id: ticket.order, "supportCompensation.reservedRefundAmount": { $gte: ticket.resolution.amount } },
-      { $inc: { "supportCompensation.reservedRefundAmount": -ticket.resolution.amount, "supportCompensation.refundedAmount": ticket.resolution.amount } },
-      { returnDocument: "after", session }
-    );
-    if (!refundedOrder) throw serviceError(409, "Không tìm thấy hạn mức hoàn tiền đang giữ", "REFUND_RESERVATION_MISSING");
-    await revokeSupportRefundPoints(ticket, refundedOrder, session);
-    await closeLostOrderWhenFullyRefunded(ticket, refundedOrder, session);
-    await SupportTicket.updateOne(
+    // Claim the ticket before touching the order's refund cap: a second agent
+    // confirming the same transfer concurrently must not settle it twice.
+    const claimed = await SupportTicket.updateOne(
       { _id: ticket._id, "resolution.status": "REFUND_MANUAL_REQUIRED" },
       {
         $set: {
@@ -852,6 +847,15 @@ async function completeManualRefund({ ticketId, adminId, transactionId }) {
       },
       { session }
     );
+    if (claimed.modifiedCount !== 1) throw serviceError(409, "Khoản hoàn không ở trạng thái chờ ghi nhận", "INVALID_REFUND_STATE");
+    const refundedOrder = await Order.findOneAndUpdate(
+      { _id: ticket.order, "supportCompensation.reservedRefundAmount": { $gte: ticket.resolution.amount } },
+      { $inc: { "supportCompensation.reservedRefundAmount": -ticket.resolution.amount, "supportCompensation.refundedAmount": ticket.resolution.amount } },
+      { returnDocument: "after", session }
+    );
+    if (!refundedOrder) throw serviceError(409, "Không tìm thấy hạn mức hoàn tiền đang giữ", "REFUND_RESERVATION_MISSING");
+    await revokeSupportRefundPoints(ticket, refundedOrder, session);
+    await closeLostOrderWhenFullyRefunded(ticket, refundedOrder, session);
   });
   const message = await addCustomerVisibleMessage(ticket._id, adminId, `BookShop đã hoàn ${ticket.resolution.amount.toLocaleString("vi-VN")}đ. Mã giao dịch: ${reference}.`);
   return { ticket: await SupportTicket.findById(ticket._id), message };
@@ -1091,26 +1095,32 @@ async function reconcileProcessingRefund(ticket) {
 
   if (result.failed) {
     // Release the held headroom: this refund is not happening, so the money
-    // must not stay blocked against the order's cap.
-    await releaseRefundReservation(order._id, ticket.resolution.amount);
-    await SupportTicket.updateOne(
-      { _id: ticket._id, "resolution.status": "REFUND_PROCESSING" },
-      {
-        $set: {
-          "resolution.status": "REFUND_FAILED",
-          "resolution.refund.lastError": String(
-            result.error || `Gateway reported refund status ${result.status}`
-          ).slice(0, 500),
-        },
-        $push: {
-          "resolution.events": {
-            type: "REFUND_FAILED",
-            by: null,
-            note: String(result.status || "").slice(0, 500),
+    // must not stay blocked against the order's cap. The ticket is claimed
+    // first so two passes cannot both release the same reservation.
+    await runInTransaction(async (session) => {
+      const claimed = await SupportTicket.updateOne(
+        { _id: ticket._id, "resolution.status": "REFUND_PROCESSING" },
+        {
+          $set: {
+            "resolution.status": "REFUND_FAILED",
+            "resolution.refund.lastError": String(
+              result.error || `Gateway reported refund status ${result.status}`
+            ).slice(0, 500),
+          },
+          $push: {
+            "resolution.events": {
+              type: "REFUND_FAILED",
+              by: null,
+              note: String(result.status || "").slice(0, 500),
+            },
           },
         },
+        { session }
+      );
+      if (claimed.modifiedCount === 1) {
+        await releaseRefundReservation(order._id, ticket.resolution.amount, session);
       }
-    );
+    });
     return "failed";
   }
 
