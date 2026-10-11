@@ -1162,7 +1162,9 @@ async function reconcileProcessingRefund(ticket) {
     // portal instead of retrying a settlement that can never succeed.
     await moveToManualRefund(
       ticket,
-      "Cổng thanh toán báo đã hoàn nhưng không trả mã giao dịch; cần đối chiếu trên cổng và nhập mã hoàn tiền"
+      // Neutral on purpose: the MoMo refund query is a stub that always says
+      // "completed", so this is not a gateway confirmation (R-B6).
+      "Chưa xác định được mã giao dịch hoàn tiền từ cổng thanh toán; cần kiểm tra trên cổng xem khoản hoàn đã được thực hiện chưa trước khi hoàn tay và nhập mã"
     );
     return "manual";
   }

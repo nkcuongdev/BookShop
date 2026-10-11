@@ -606,7 +606,10 @@ test("a settled refund without any transaction id is handed to an agent, not ret
   assert.equal(result.errors, 0);
   let ticket = await SupportTicket.findById(ticketId).lean();
   assert.equal(ticket.resolution.status, "REFUND_MANUAL_REQUIRED");
-  assert.match(ticket.resolution.refund.lastError, /không trả mã giao dịch/);
+  // R-B6: the MoMo query is a stub, so the system cannot claim the gateway
+  // confirmed the refund; the note must send staff to check first.
+  assert.doesNotMatch(ticket.resolution.refund.lastError, /báo đã hoàn/);
+  assert.match(ticket.resolution.refund.lastError, /kiểm tra trên cổng/);
 
   await supportResolutionService.completeManualRefund({
     ticketId,

@@ -498,23 +498,44 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
       )}
 
       {resolution.status === "REFUND_MANUAL_REQUIRED" && (
-        <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-end">
-          <div className="flex-1">
-            <Label htmlFor="manual-refund">Mã giao dịch hoàn tiền</Label>
-            <Input
-              id="manual-refund"
-              className="mt-1"
-              value={transactionId}
-              onChange={(event) => setTransactionId(event.target.value)}
-              placeholder="Nhập mã giao dịch/chuyển khoản"
-            />
+        <div className="space-y-3 border-t pt-4">
+          {/* Trước khi chi tiền tay, cho thấy khoản này thanh toán qua đâu và vì
+              sao hệ thống dừng: với đơn online, cổng có thể đã hoàn rồi. */}
+          <div className="rounded-lg bg-muted p-3 text-sm">
+            <p>
+              Phương thức thanh toán:{" "}
+              <strong>{resolution.refund?.paymentMethod || order.payment?.method || "—"}</strong>
+            </p>
+            {(resolution.refund?.paymentMethod || order.payment?.method) !== "COD" && (
+              <p className="mt-1 text-warning-strong">
+                Đơn thanh toán online: kiểm tra trên cổng thanh toán xem khoản hoàn đã được thực hiện chưa
+                trước khi chuyển khoản tay, để không hoàn hai lần.
+              </p>
+            )}
+            {resolution.refund?.lastError && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Lý do chuyển xử lý tay: {resolution.refund.lastError}
+              </p>
+            )}
           </div>
-          <Button
-            onClick={() => manualMutation.mutate()}
-            disabled={transactionId.trim().length < 3 || manualMutation.isPending}
-          >
-            <CheckCircle2 className="size-4" /> Xác nhận đã hoàn
-          </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <Label htmlFor="manual-refund">Mã giao dịch hoàn tiền</Label>
+              <Input
+                id="manual-refund"
+                className="mt-1"
+                value={transactionId}
+                onChange={(event) => setTransactionId(event.target.value)}
+                placeholder="Nhập mã giao dịch/chuyển khoản"
+              />
+            </div>
+            <Button
+              onClick={() => manualMutation.mutate()}
+              disabled={transactionId.trim().length < 3 || manualMutation.isPending}
+            >
+              <CheckCircle2 className="size-4" /> Xác nhận đã hoàn
+            </Button>
+          </div>
         </div>
       )}
 
