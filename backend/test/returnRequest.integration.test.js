@@ -1155,3 +1155,85 @@ test("R-B4: a zero-refund receive and its ticket sync commit together", async (t
   assert.equal(request.status, "RETURNING", "nothing half-committed");
   assert.equal((await Book.findById(book._id)).stock, 1, "stock not restocked");
 });
+
+function manualReturnDoc(order, customerId, { unitPrice = 90_000, createdAt = new Date() } = {}) {
+  const requestId = new mongoose.Types.ObjectId();
+  return ReturnRequest.create({
+    _id: requestId,
+    order: order._id,
+    user: customerId,
+    items: [{ book: order.items[0].book, title: order.items[0].title, unitPrice, orderedQuantity: 2, quantity: 1 }],
+    reason: "DAMAGED",
+    details: "Sách bị rách nhiều trang khi mở kiện hàng.",
+    status: "RECEIVED",
+    expectedRefundAmount: unitPrice,
+    refund: { status: "MANUAL_REQUIRED", amount: unitPrice, businessType: "RETURN", sourceId: String(requestId), paymentMethod: "COD" },
+    createdAt,
+  });
+}
+
+test("R-B12 F12: executeReturnRefund does not close a request whose settlement failed", async (t) => {
+  const { order, requestId } = await pendingOnlineReturn("rb12-exec@example.com");
+  t.mock.method(paymentGateway, "requestRefund", async () => ({ ok: true, completed: true, refundTransactionId: "RF-RB12-EXEC" }));
+  const originalUpdate = Order.updateOne.bind(Order);
+  t.mock.method(Order, "updateOne", (filter, update, ...rest) => {
+    if (update?.$inc?.["supportCompensation.refundedAmount"]) throw new Error("settlement failed");
+    return originalUpdate(filter, update, ...rest);
+  });
+  await assert.rejects(executeReturnRefund(requestId), /settlement failed/);
+  const request = await ReturnRequest.findById(requestId);
+  assert.notEqual(request.status, "CLOSED", "close and settlement commit together");
+  const stored = await Order.findById(order._id).select("+supportCompensation.reservedRefundAmount");
+  assert.equal(stored.supportCompensation.reservedRefundAmount, 90_000);
+});
+
+test("R-B12 F12: closeManualReturn rolls back when the ticket sync fails", async (t) => {
+  const customer = await User.create({ name: "RB12 Manual", email: "rb12-manual@example.com", password: "secure-password" });
+  const order = await Order.create(orderPayload(customer._id, { supportCompensation: { refundedAmount: 0, reservedRefundAmount: 90_000 } }));
+  const request = await manualReturnDoc(order, customer._id);
+  t.mock.method(SupportTicket, "findOneAndUpdate", () => {
+    throw new Error("ticket store unavailable");
+  });
+  const { advanceReturnRequest } = require("../src/services/returnRequestService");
+  await assert.rejects(
+    advanceReturnRequest({ orderId: order._id, adminId: customer._id, status: "CLOSED", refundTransactionId: "BANK-RB12" }),
+    /ticket store unavailable/
+  );
+  const stored = await ReturnRequest.findById(request._id);
+  assert.equal(stored.status, "RECEIVED");
+  assert.equal(stored.refund.status, "MANUAL_REQUIRED");
+  const settled = await Order.findById(order._id).select("+supportCompensation.reservedRefundAmount");
+  assert.equal(settled.supportCompensation.reservedRefundAmount, 90_000);
+  assert.equal(settled.supportCompensation.refundedAmount, 0);
+});
+
+test("R-B12 F15: receive and close act on the request id sent, never another order's", async () => {
+  const [customer, admin] = await User.create([
+    { name: "RB12 F15", email: "rb12-f15@example.com", password: "secure-password" },
+    { name: "RB12 F15 Admin", email: "rb12-f15-admin@example.com", password: "secure-password", role: "admin" },
+  ]);
+  const order = await Order.create(orderPayload(customer._id, { supportCompensation: { refundedAmount: 0, reservedRefundAmount: 180_000 } }));
+  const otherOrder = await Order.create(orderPayload(customer._id));
+  const line = { book: order.items[0].book, title: order.items[0].title, unitPrice: 90_000, orderedQuantity: 2, quantity: 1 };
+  const olderReturning = await ReturnRequest.create({ order: order._id, user: customer._id, items: [line], reason: "DAMAGED", details: "Sách bị rách nhiều trang khi mở kiện hàng.", status: "RETURNING", createdAt: new Date(Date.now() - 60_000) });
+  const newerReturning = await ReturnRequest.create({ order: order._id, user: customer._id, items: [line], reason: "DAMAGED", details: "Bìa sách bị móp khi nhận hàng từ shipper.", status: "RETURNING" });
+  const olderManual = await manualReturnDoc(order, customer._id, { createdAt: new Date(Date.now() - 120_000) });
+  const newerManual = await manualReturnDoc(order, customer._id);
+  const foreign = await ReturnRequest.create({ order: otherOrder._id, user: customer._id, items: [{ ...line, book: otherOrder.items[0].book }], reason: "DAMAGED", details: "Hồ sơ của một đơn hàng khác hoàn toàn.", status: "RETURNING" });
+  const { agent, csrf } = await sessionFor(admin);
+  const patch = (body) => agent.patch(`/api/admin/orders/${order._id}/return-request`).set("x-csrf-token", csrf).send(body);
+
+  const received = await patch({ status: "RECEIVED", restock: false, returnRequestId: String(olderReturning._id) });
+  assert.equal(received.status, 200, JSON.stringify(received.body));
+  assert.equal((await ReturnRequest.findById(olderReturning._id)).status, "RECEIVED");
+  assert.equal((await ReturnRequest.findById(newerReturning._id)).status, "RETURNING");
+
+  const closed = await patch({ status: "CLOSED", refundTransactionId: "BANK-OLDER", returnRequestId: String(olderManual._id) });
+  assert.equal(closed.status, 200, JSON.stringify(closed.body));
+  assert.equal((await ReturnRequest.findById(olderManual._id)).status, "CLOSED");
+  assert.equal((await ReturnRequest.findById(newerManual._id)).status, "RECEIVED");
+
+  const crossOrder = await patch({ status: "RECEIVED", restock: false, returnRequestId: String(foreign._id) });
+  assert.ok([404, 409].includes(crossOrder.status), JSON.stringify(crossOrder.body));
+  assert.equal((await ReturnRequest.findById(foreign._id)).status, "RETURNING");
+});

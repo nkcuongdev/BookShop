@@ -88,6 +88,14 @@ async function createVoucher(overrides = {}) {
   });
 }
 
+// R-B12: give the test customer a points balance to redeem at checkout.
+async function givePoints(points) {
+  await User.updateOne({ _id: userId }, { $set: { "loyalty.pointsBalance": points } });
+}
+
+const pointsBalance = async () =>
+  (await User.findById(userId).lean()).loyalty?.pointsBalance || 0;
+
 function orderInput(book, overrides = {}) {
   return {
     userId,
@@ -367,9 +375,13 @@ test("GHN Sandbox simulation advances a test shipment through delivery", async (
 
 test("a shipment created while the order is being cancelled is cancelled at GHN", async () => {
   const book = await createBook({ weight: 400 });
+  const raceVoucher = await createVoucher();
+  await givePoints(50);
   const created = await orderService.createOrder(
     orderInput(book, {
       idempotencyKey: "ghn-create-cancel-race",
+      voucherCode: raceVoucher.code,
+      pointsToRedeem: 20,
       authoritativeShipping: {
         method: "standard",
         fee: 32_000,
@@ -456,6 +468,9 @@ test("a shipment created while the order is being cancelled is cancelled at GHN"
   stored = await Order.findById(orderId);
   assert.equal(stored.status, Order.STATUS.CANCELLED);
   assert.equal((await Book.findById(book._id)).stock, 10);
+  // R-B12: the cancelled order also gives back what it consumed.
+  assert.equal(await pointsBalance(), 50);
+  assert.equal((await Voucher.findById(raceVoucher._id)).usedCount, 0);
 });
 
 test("cancelling a GHN shipment pauses the sandbox simulation first", async () => {
@@ -1019,6 +1034,27 @@ test("customer cancels a PENDING COD order directly without an outbox event", as
   assert.equal((await Book.findById(book._id)).stock, 10);
 });
 
+test("R-B12 F01: cancelling a PENDING order gives back its points and voucher", async () => {
+  const book = await createBook();
+  const voucher = await createVoucher();
+  await givePoints(50);
+  const { order } = await orderService.createOrder(
+    orderInput(book, {
+      idempotencyKey: "rb12-f01-points",
+      voucherCode: voucher.code,
+      pointsToRedeem: 20,
+    })
+  );
+  assert.equal(await pointsBalance(), 30);
+  assert.equal((await Voucher.findById(voucher._id)).usedCount, 1);
+
+  await orderCancellationService.requestCustomerCancellation(order._id, userId, "Đổi ý");
+
+  assert.equal(await pointsBalance(), 50, "redeemed points are refunded");
+  assert.equal((await Voucher.findById(voucher._id)).usedCount, 0, "voucher released");
+  assert.equal((await Book.findById(book._id)).stock, 10);
+});
+
 test("concurrent PENDING cancellations restore stock exactly once", async () => {
   const book = await createBook();
   const { order } = await orderService.createOrder(
@@ -1326,10 +1362,14 @@ test("failed refund calls remain durable and are retried from committed intent",
 
 test("an accepted refund that later fails is resubmitted under a new key", async () => {
   const book = await createBook();
+  const refundVoucher = await createVoucher();
+  await givePoints(50);
   const { order } = await orderService.createOrder(
     orderInput(book, {
       idempotencyKey: "accepted-then-failed-refund",
       paymentMethod: "VNPAY",
+      voucherCode: refundVoucher.code,
+      pointsToRedeem: 20,
     })
   );
   await orderService.handlePaymentSuccess({
@@ -1395,6 +1435,9 @@ test("an accepted refund that later fails is resubmitted under a new key", async
     assert.equal(settled.status, "REFUNDED");
     assert.equal(settled.payment.refundTransactionId, "refund-retry-2");
     assert.equal((await Book.findById(book._id)).stock, 10);
+    // R-B12: points and voucher come back once, when the refund completes.
+    assert.equal(await pointsBalance(), 50);
+    assert.equal((await Voucher.findById(refundVoucher._id)).usedCount, 0);
   } finally {
     paymentGateway.requestRefund = originalRequestRefund;
     paymentGateway.queryRefundStatus = originalQuery;
@@ -1729,10 +1772,14 @@ test("a second captured payment attempt is durably refunded without changing the
 
 test("an accepted duplicate-capture refund is queried, not resubmitted", async () => {
   const book = await createBook();
+  const dupVoucher = await createVoucher();
+  await givePoints(50);
   const { order } = await orderService.createOrder(
     orderInput(book, {
       idempotencyKey: "duplicate-capture-query-key",
       paymentMethod: "VNPAY",
+      voucherCode: dupVoucher.code,
+      pointsToRedeem: 20,
     })
   );
   const olderReference = order.payment.providerOrderId;
@@ -1794,6 +1841,10 @@ test("an accepted duplicate-capture refund is queried, not resubmitted", async (
     const settled = await attemptOf();
     assert.equal(settled.duplicateRefund.status, "REFUNDED");
     assert.equal(settled.duplicateRefund.refundTransactionId, "dup-accepted-1");
+    // R-B12: refunding the extra capture leaves the paid order's points and
+    // voucher spent - only the duplicate money goes back.
+    assert.equal(await pointsBalance(), 30);
+    assert.equal((await Voucher.findById(dupVoucher._id)).usedCount, 1);
     assert.equal(await orderService.settleDuplicatePaymentRefund(order._id, "dup-accepted-1"), false);
   } finally {
     paymentGateway.requestRefund = originalRequestRefund;

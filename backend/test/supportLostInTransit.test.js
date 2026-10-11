@@ -1165,3 +1165,69 @@ test("R-B7: manual delivery is refused while a lost-in-transit claim is open", a
   assert.equal(viaStatus.status, 409, JSON.stringify(viaStatus.body));
   assert.equal((await Order.findById(order._id)).status, Order.STATUS.SHIPPED);
 });
+
+async function processingPaidOrder(customer, key) {
+  const book = await Book.create({ title: `GHN ${key}`, author: "A", price: 100000, category: "technology", stock: 5, status: "active" });
+  const { order } = await orderService.createOrder({
+    userId: customer._id,
+    items: [{ bookId: String(book._id), quantity: 1 }],
+    shippingAddress: { fullName: customer.name, phone: "0900000000", address: "1 Test Street" },
+    paymentMethod: "VNPAY",
+    idempotencyKey: `m14-${key}`,
+  });
+  await orderService.handlePaymentSuccess({
+    orderCode: order.orderCode,
+    method: "VNPAY",
+    providerOrderId: order.payment.providerOrderId,
+    transactionId: `capture-${key}`,
+    amount: order.totalAmount,
+    rawPayload: {},
+  });
+  await orderService.adminApproveOrder(order._id, new mongoose.Types.ObjectId());
+  return order;
+}
+
+test("R-B12 M14-GHN: deliver is refused for a SHIPPED order with an active GHN shipment", async () => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const order = await processingPaidOrder(customer, "shipped");
+  await Order.updateOne(
+    { _id: order._id },
+    { $set: { "shipment.provider": "ghn", "shipment.environment": "sandbox", "shipment.providerOrderCode": "GHN-M14-SHIPPED" } }
+  );
+  await orderService.adminMarkShipped(order._id, "carrier:ghn-sandbox", { carrier: "GHN Sandbox", trackingNumber: "GHN-M14-SHIPPED" });
+  const adminSession = await sessionFor(admin);
+
+  const deliver = await adminSession.agent
+    .post(`/api/admin/orders/${order._id}/deliver`)
+    .set("x-csrf-token", adminSession.csrf);
+  assert.equal(deliver.status, 409, JSON.stringify(deliver.body));
+  assert.equal(deliver.body.code, "GHN_SHIPMENT_ACTIVE");
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.SHIPPED);
+});
+
+test("R-B12 M14-GHN: once the GHN shipment is cancelled the order can be shipped by hand", async () => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const order = await processingPaidOrder(customer, "cancelled");
+  await Order.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        "shipment.provider": "ghn",
+        "shipment.environment": "sandbox",
+        "shipment.providerOrderCode": "GHN-M14-CANCELLED",
+        "shipment.providerStatus": "cancel",
+        "shipment.cancelledAt": new Date(),
+      },
+    }
+  );
+  const adminSession = await sessionFor(admin);
+
+  const ship = await adminSession.agent
+    .post(`/api/admin/orders/${order._id}/ship`)
+    .set("x-csrf-token", adminSession.csrf)
+    .send({ carrier: "Tự giao", trackingNumber: "MANUAL-M14" });
+  assert.equal(ship.status, 200, JSON.stringify(ship.body));
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.SHIPPED);
+});
