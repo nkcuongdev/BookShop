@@ -41,6 +41,9 @@ const SYSTEM_ROLES = Object.freeze({
       "supplier.write",
       "order.read",
       "order.fulfill",
+      // To open the support ticket of a reship it has to ship and deliver
+      // (R-C3); the ship/deliver steps themselves are gated on order.fulfill.
+      "ticket.read",
       "upload.admin",
     ],
   },

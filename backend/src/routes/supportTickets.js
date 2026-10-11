@@ -5,7 +5,7 @@ const ReturnRequest = require("../models/ReturnRequest");
 const SupportTicket = require("../models/SupportTicket");
 const SupportTicketMessage = require("../models/SupportTicketMessage");
 const User = require("../models/User");
-const { auth, requirePermission } = require("../middleware/auth");
+const { auth, requireAnyPermission, requirePermission } = require("../middleware/auth");
 const roleRegistry = require("../services/roleRegistry");
 const { syncManagedAssets } = require("../services/assetLifecycleService");
 const notificationService = require("../services/notificationService");
@@ -644,13 +644,24 @@ adminRouter.patch("/:id/resolution/refund", requirePermission("ticket.resolve"),
   }
 });
 
-adminRouter.patch("/:id/resolution/reship", requirePermission("ticket.resolve"), async (req, res, next) => {
+// Shipping and delivering a reship is warehouse work, so order.fulfill alone
+// is enough for those two steps (R-C3); any other change (cancelling the
+// reship, which releases held stock) stays a support decision.
+adminRouter.patch("/:id/resolution/reship", requireAnyPermission("ticket.resolve", "order.fulfill"), async (req, res, next) => {
   try {
+    const fulfilStep = ["SHIPPED", "DELIVERED"].includes(
+      String(req.body?.status || "").toUpperCase()
+    );
+    if (fulfilStep && (await denyWithoutFulfill(req, res))) return undefined;
     if (
-      ["SHIPPED", "DELIVERED"].includes(String(req.body?.status || "").toUpperCase()) &&
-      (await denyWithoutFulfill(req, res))
+      !fulfilStep &&
+      !(await roleRegistry.roleHasPermission(req.user.role, "ticket.resolve"))
     ) {
-      return undefined;
+      return res.status(403).json({
+        success: false,
+        message: "Bạn không có quyền thực hiện thao tác này",
+        code: "FORBIDDEN",
+      });
     }
     const result = await updateReship({
       ticketId: req.params.id,

@@ -1379,3 +1379,56 @@ test("R-C2: the delivery override is refused while a lost reship is still pendin
   assert.equal(response.body.code, "LOST_CLAIM_IN_PROGRESS");
   assert.equal((await Order.findById(order._id)).status, Order.STATUS.SHIPPED);
 });
+
+test("R-C3: the warehouse role can ship and deliver a lost-parcel reship, nothing more", async (t) => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const warehouse = await makeUser("warehouse");
+  const { order, book } = await shippedOrder(customer);
+  const { ticketId } = await ticketFor(customer, order);
+  await supportResolutionService.createResolution({
+    ticketId,
+    adminId: admin._id,
+    payload: {
+      type: "LOST_IN_TRANSIT_RESHIP",
+      note: "Giao lại",
+      items: [{ bookId: String(book._id), quantity: 1 }],
+    },
+  });
+  t.mock.method(shippingService, "createSupportShipment", async () => ({
+    provider: "ghn",
+    environment: "sandbox",
+    carrier: "GHN Express",
+    clientOrderCode: "support-rc3",
+    trackingNumber: "GHN-RC3",
+    providerStatus: "ready_to_pick",
+  }));
+  const { agent, csrf } = await sessionFor(warehouse);
+
+  const detail = await agent.get(`/api/admin/support-tickets/${ticketId}`);
+  assert.equal(detail.status, 200, JSON.stringify(detail.body));
+
+  const cancel = await agent
+    .patch(`/api/admin/support-tickets/${ticketId}/resolution/reship`)
+    .set("x-csrf-token", csrf)
+    .send({ status: "CANCELLED" });
+  assert.equal(cancel.status, 403, "cancelling the reship stays with support");
+  const refund = await agent
+    .post(`/api/admin/support-tickets/${ticketId}/resolution`)
+    .set("x-csrf-token", csrf)
+    .send({ type: "LOST_IN_TRANSIT_REFUND", items: [{ bookId: String(book._id), quantity: 1 }] });
+  assert.equal(refund.status, 403, "the warehouse cannot decide a refund");
+
+  const shipped = await agent
+    .patch(`/api/admin/support-tickets/${ticketId}/resolution/reship`)
+    .set("x-csrf-token", csrf)
+    .send({ status: "SHIPPED", provider: "ghn" });
+  assert.equal(shipped.status, 200, JSON.stringify(shipped.body));
+  const delivered = await agent
+    .patch(`/api/admin/support-tickets/${ticketId}/resolution/reship`)
+    .set("x-csrf-token", csrf)
+    .send({ status: "DELIVERED" });
+  assert.equal(delivered.status, 200, JSON.stringify(delivered.body));
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.DELIVERED);
+  assert.equal((await SupportTicket.findById(ticketId)).resolution.status, "DELIVERED");
+});

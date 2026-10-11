@@ -37,6 +37,7 @@ export default function SupportTicketDetail() {
   const { user } = useAuth();
   const canWrite = can(user, "ticket.write");
   const canResolve = can(user, "ticket.resolve");
+  const canFulfill = can(user, "order.fulfill");
   const { ticketId } = useParams();
   const [text, setText] = useState("");
   const [olderMessages, setOlderMessages] = useState([]);
@@ -409,11 +410,17 @@ export default function SupportTicketDetail() {
             </Button>
           </Card>
 
-          {canResolve && (
+          {/* Kho (order.fulfill) chỉ thấy panel khi có phiếu giao bù cần bàn giao
+              hoặc xác nhận giao (R-C3). */}
+          {(canResolve ||
+            (canFulfill &&
+              ["RESHIP", "LOST_IN_TRANSIT_RESHIP"].includes(ticket.resolution?.type) &&
+              ["PREPARING", "SHIPPED"].includes(ticket.resolution?.status))) && (
             <OrderResolutionPanel
               key={ticket._id}
               ticket={ticket}
               onChanged={refresh}
+              canResolve={canResolve}
             />
           )}
         </aside>

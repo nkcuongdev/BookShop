@@ -138,7 +138,10 @@ const STATUS_LABELS = {
 const formatMoney = (value) => `${Number(value || 0).toLocaleString("vi-VN")}đ`;
 const bookIdOf = (item) => String(item.book?._id || item.book || "");
 
-export default function OrderResolutionPanel({ ticket, onChanged }) {
+// `canResolve` false (R-C3): a warehouse account (order.fulfill, no
+// ticket.resolve) opens the panel only to ship/deliver a reship, so every
+// support decision (new plan, cancelling the reship, manual refund) is hidden.
+export default function OrderResolutionPanel({ ticket, onChanged, canResolve = true }) {
   const confirm = useConfirm();
   const { user } = useAuth();
   // Tạo vận đơn và bàn giao/xác nhận giao bù là việc của kho: backend đòi
@@ -497,7 +500,7 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
         </div>
       )}
 
-      {resolution.status === "REFUND_MANUAL_REQUIRED" && (
+      {canResolve && resolution.status === "REFUND_MANUAL_REQUIRED" && (
         <div className="space-y-3 border-t pt-4">
           {/* Trước khi chi tiền tay, cho thấy khoản này thanh toán qua đâu và vì
               sao hệ thống dừng: với đơn online, cổng có thể đã hoàn rồi. */}
@@ -581,7 +584,7 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
             >
               Tạo vận đơn và bàn giao
             </Button>
-            <Button
+            {canResolve && <Button
               size="sm"
               variant="outline"
               onClick={async () => {
@@ -595,7 +598,7 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
               }}
             >
               Hủy phiếu
-            </Button>
+            </Button>}
           </div>
         </div>
       )}
@@ -626,7 +629,7 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
         </div>
       )}
 
-      {recoverable && (
+      {canResolve && recoverable && (
         <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
           <RefreshCcw className="size-4" /> Chọn phương án khác
         </Button>
@@ -699,7 +702,9 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
             </DialogDescription>
           </DialogHeader>
           <div className="px-6 pb-6 pt-6">
-            {resolution && !editing ? renderResolutionDetails() : renderForm()}
+            {resolution && (!editing || !canResolve)
+              ? renderResolutionDetails()
+              : renderForm()}
           </div>
         </DialogContent>
       </Dialog>
