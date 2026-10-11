@@ -490,7 +490,7 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
               {order.cancellation.lastError && (
                 <p className="mt-1 text-xs">Lỗi gần nhất: {order.cancellation.lastError}</p>
               )}
-              {order.cancellation.status === "FAILED" && can(user, "order.support") && (
+              {order.cancellation.status === "FAILED" && can(user, "order.support") && !error && (
                 <Button
                   className="mt-3"
                   size="sm"
@@ -516,7 +516,8 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
               <AdminReturnRequestCard
                 key={request._id || request.id}
                 request={request}
-                readOnly={!can(user, "order.support")}
+                // Read-only while the drawer may be showing stale data (R-B10).
+                readOnly={!can(user, "order.support") || Boolean(error)}
                 resolving={returnRequestAction.isPending}
                 onResolve={(status, adminNote, options = {}) =>
                   returnRequestAction.mutate({
