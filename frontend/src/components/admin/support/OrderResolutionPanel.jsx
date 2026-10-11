@@ -164,7 +164,8 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
     ) {
       return "APPROVE_ORDER";
     }
-    if (order.status === "PROCESSING") return "CREATE_SHIPMENT";
+    // Only suggest a shipment to someone allowed to create it (order.fulfill).
+    if (order.status === "PROCESSING" && canFulfill) return "CREATE_SHIPMENT";
     // A complaint about an in-transit order is usually a lost parcel.
     if (order.status === "SHIPPED" && ticket.category === "NOT_RECEIVED") {
       return order.payment?.status === "PAID"
@@ -196,7 +197,7 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
     (provider) => provider.id === shippingProvider
   );
   const actionUnavailable =
-    type === "CREATE_SHIPMENT" && selectedProvider?.enabled !== true;
+    type === "CREATE_SHIPMENT" && (selectedProvider?.enabled !== true || !canFulfill);
 
   const selectedItems = useMemo(
     () =>
@@ -327,6 +328,7 @@ export default function OrderResolutionPanel({ ticket, onChanged }) {
               }
               title={item.value === "CREATE_SHIPMENT" && !canFulfill ? fulfillHint : undefined}
               onClick={() => setType(item.value)}
+              aria-pressed={type === item.value}
               className={`rounded-xl border p-4 text-left transition-colors ${
                 type === item.value
                   ? "border-primary bg-primary-50 ring-1 ring-primary/20"
