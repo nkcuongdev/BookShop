@@ -2214,3 +2214,63 @@ test("R-B11: carrier movement on a refunded order is not described as a cancella
   assert.doesNotMatch(alert.message, /huỷ/);
   assert.match(alert.message, /REFUNDING/);
 });
+
+async function parkedCancellation(idempotencyKey) {
+  const book = await createBook();
+  const { order } = await orderService.createOrder(orderInput(book, { idempotencyKey }));
+  await orderService.adminApproveOrder(order._id, new mongoose.Types.ObjectId());
+  await Order.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        "shipment.provider": "ghn",
+        "shipment.environment": "sandbox",
+        "shipment.providerOrderCode": `GHN-${idempotencyKey}`,
+        "shipment.providerStatus": "picking",
+      },
+    }
+  );
+  const requested = await orderCancellationService.requestCustomerCancellation(order._id, userId, "Đổi ý");
+  await OrderOutboxEvent.updateOne(
+    { _id: requested.event._id },
+    { $set: { status: OrderOutboxEvent.STATUS.FAILED, attempts: 8, nextAttemptAt: null, lastError: "GHN từ chối huỷ" } }
+  );
+  return { order, book, eventId: requested.event._id };
+}
+
+test("R-C1: staff can confirm a cancellation done outside the system without calling GHN", async () => {
+  const { order, book, eventId } = await parkedCancellation("rc1-confirm");
+  const adminId = new mongoose.Types.ObjectId();
+  const originalCancel = shippingService.cancelGhnShipmentAtProvider;
+  let ghnCalls = 0;
+  shippingService.cancelGhnShipmentAtProvider = async () => {
+    ghnCalls += 1;
+    return true;
+  };
+  try {
+    await assert.rejects(
+      orderCancellationService.confirmCancelledOutside({ orderId: order._id, adminId, reason: " " }),
+      (error) => error.code === "REASON_REQUIRED"
+    );
+    const cancelled = await orderCancellationService.confirmCancelledOutside({
+      orderId: order._id,
+      adminId,
+      reason: "Đã gọi GHN huỷ qua tổng đài, mã yêu cầu 12345",
+    });
+    assert.equal(cancelled.status, Order.STATUS.CANCELLED);
+  } finally {
+    shippingService.cancelGhnShipmentAtProvider = originalCancel;
+  }
+  assert.equal(ghnCalls, 0, "GHN is not called again");
+  const stored = await Order.findById(order._id);
+  assert.equal(stored.status, Order.STATUS.CANCELLED);
+  assert.ok(stored.shipment.cancelledAt);
+  assert.match(stored.history.at(-1).reason, /tổng đài/);
+  assert.equal(stored.history.at(-1).by, `admin:${adminId}`);
+  assert.equal((await OrderOutboxEvent.findById(eventId)).status, OrderOutboxEvent.STATUS.COMPLETED);
+  assert.equal((await Book.findById(book._id)).stock, 10);
+  await assert.rejects(
+    orderCancellationService.confirmCancelledOutside({ orderId: order._id, adminId, reason: "lần hai" }),
+    (error) => error.code === "NO_PENDING_CANCELLATION"
+  );
+});

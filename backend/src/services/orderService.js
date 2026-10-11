@@ -2094,7 +2094,20 @@ async function adminMarkDelivered(orderId, adminId) {
   return order;
 }
 
-async function finalizeShipmentCancellation({ eventId, lockToken }) {
+// `confirmedBy`/`confirmedReason` (R-C1): staff confirmed the parcel was
+// cancelled with the carrier outside the system; the transition is recorded
+// under their name and reason instead of the original requester's.
+async function finalizeShipmentCancellation({
+  eventId,
+  lockToken,
+  confirmedBy = null,
+  confirmedReason = "",
+}) {
+  const transitionBy = (event) => confirmedBy || event.payload.requestedBy;
+  const transitionReason = (event, fallback) =>
+    confirmedBy
+      ? `Xác nhận đã huỷ vận đơn ngoài hệ thống: ${confirmedReason}`
+      : event.payload.reason || fallback;
   let result = await runInTransaction(async (session) => {
     const event = await OrderOutboxEvent.findOne({
       _id: eventId,
@@ -2126,7 +2139,9 @@ async function finalizeShipmentCancellation({ eventId, lockToken }) {
       if (!order.trackingEvents.some((entry) => entry.status === "CANCELLED")) {
         order.trackingEvents.push({
           status: "CANCELLED",
-          description: "Đã hủy vận đơn GHN Sandbox",
+          description: confirmedBy
+            ? "Nhân viên xác nhận đã hủy vận đơn GHN ngoài hệ thống"
+            : "Đã hủy vận đơn GHN Sandbox",
           at: new Date(),
         });
       }
@@ -2152,8 +2167,8 @@ async function finalizeShipmentCancellation({ eventId, lockToken }) {
         reason: `Hoàn điểm đơn ${order.orderCode} do huỷ vận đơn`,
       });
       order.applyTransition(ORDER_STATUS.CANCELLED, {
-        by: event.payload.requestedBy,
-        reason: event.payload.reason || "Cancellation completed",
+        by: transitionBy(event),
+        reason: transitionReason(event, "Cancellation completed"),
       });
       order.expiresAt = null;
     } else if (
@@ -2165,8 +2180,8 @@ async function finalizeShipmentCancellation({ eventId, lockToken }) {
         reason: event.payload.reason || "Order cancellation requested",
         initiatedBy: event.payload.requestedBy,
         clientIp: event.payload.clientIp,
-        transitionBy: event.payload.requestedBy,
-        transitionReason: event.payload.reason || "Order cancellation requested",
+        transitionBy: transitionBy(event),
+        transitionReason: transitionReason(event, "Order cancellation requested"),
       });
       executeRefund = true;
     } else {

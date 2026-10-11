@@ -523,6 +523,44 @@ router.post("/orders/:id/cancellation/retry", requirePermission("order.support")
   }
 });
 
+// POST /api/admin/orders/:id/cancellation/confirm-outside - staff cancelled
+// the parcel with the carrier another way (hotline, GHN dashboard); finish the
+// cancellation without calling GHN again (R-C1).
+router.post("/orders/:id/cancellation/confirm-outside", requirePermission("order.support"), async (req, res) => {
+  try {
+    const reason = String(req.body?.reason || "").trim();
+    if (reason.length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: "Lý do không được vượt quá 500 ký tự",
+      });
+    }
+    const previousStatus = await currentOrderStatus(req.params.id);
+    const order = await orderCancellationService.confirmCancelledOutside({
+      orderId: req.params.id,
+      adminId: req.user._id,
+      reason,
+    });
+    await recordOrderStatusChange(
+      req,
+      order,
+      previousStatus,
+      `Xác nhận đã huỷ vận đơn ngoài hệ thống: ${reason}`
+    );
+    return res.json({
+      success: true,
+      message: "Đã chốt huỷ đơn theo xác nhận huỷ ngoài hệ thống",
+      data: { status: order.status },
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({
+      success: false,
+      message: error.message,
+      code: error.code,
+    });
+  }
+});
+
 // POST /api/admin/orders/:id/cancel - release reserved stock and voucher
 router.post("/orders/:id/cancel", requirePermission("order.support"), async (req, res) => {
   try {

@@ -244,6 +244,84 @@ async function retryFailedCancellation(orderId) {
   return event;
 }
 
+// R-C1: the carrier kept refusing (or never answered) but staff cancelled the
+// parcel with GHN another way - hotline, GHN dashboard. Finalize the order the
+// way the worker would (stock, voucher, points, refund) without calling GHN
+// again. A cancellation the worker is processing right now is left alone.
+async function confirmCancelledOutside({ orderId, adminId, reason }) {
+  const normalizedReason = String(reason || "").trim().slice(0, 500);
+  if (!normalizedReason) {
+    throw cancellationError(
+      "Vui lòng nhập lý do xác nhận đã huỷ ngoài hệ thống",
+      "REASON_REQUIRED"
+    );
+  }
+  const now = new Date();
+  const lockToken = crypto.randomUUID();
+  const before = await OrderOutboxEvent.findOneAndUpdate(
+    {
+      order: orderId,
+      type: OrderOutboxEvent.TYPE.SHIPMENT_CANCEL_REQUESTED,
+      $or: [
+        { status: OrderOutboxEvent.STATUS.FAILED },
+        { status: OrderOutboxEvent.STATUS.PENDING },
+        { status: OrderOutboxEvent.STATUS.PROCESSING, lockUntil: { $lte: now } },
+      ],
+    },
+    {
+      $set: {
+        status: OrderOutboxEvent.STATUS.PROCESSING,
+        lockToken,
+        lockUntil: new Date(now.getTime() + LOCK_MS),
+      },
+    },
+    { returnDocument: "before" }
+  );
+  if (!before) {
+    throw cancellationError(
+      "Đơn không có yêu cầu huỷ vận đơn đang chờ xử lý",
+      "NO_PENDING_CANCELLATION",
+      409
+    );
+  }
+
+  let order;
+  try {
+    order = await orderService.finalizeShipmentCancellation({
+      eventId: before._id,
+      lockToken,
+      confirmedBy: `admin:${adminId}`,
+      confirmedReason: normalizedReason,
+    });
+  } catch (error) {
+    // Put the event back as it was so the worker or a later retry can pick
+    // it up again.
+    await OrderOutboxEvent.updateOne(
+      { _id: before._id, status: OrderOutboxEvent.STATUS.PROCESSING, lockToken },
+      {
+        $set: {
+          status:
+            before.status === OrderOutboxEvent.STATUS.PROCESSING
+              ? OrderOutboxEvent.STATUS.PENDING
+              : before.status,
+          lockToken: "",
+          lockUntil: null,
+        },
+      }
+    ).catch(() => null);
+    throw error;
+  }
+  if (!order) {
+    // The order had already left CANCELLING; finalize closed the stale event.
+    throw cancellationError(
+      "Đơn không còn ở trạng thái đang huỷ",
+      "NO_PENDING_CANCELLATION",
+      409
+    );
+  }
+  return order;
+}
+
 async function processPending({ limit = 20 } = {}) {
   const boundedLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
   let processed = 0;
@@ -261,6 +339,7 @@ async function processPending({ limit = 20 } = {}) {
 
 module.exports = {
   MAX_ATTEMPTS,
+  confirmCancelledOutside,
   processOne,
   processPending,
   retryFailedCancellation,

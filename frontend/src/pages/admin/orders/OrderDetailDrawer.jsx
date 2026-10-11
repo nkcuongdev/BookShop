@@ -52,6 +52,11 @@ const ADMIN_CANCEL_REASONS = [
   "Nghi ngờ đơn ảo",
 ];
 
+const OUTSIDE_CANCEL_REASONS = [
+  "Đã huỷ qua tổng đài GHN",
+  "Đã huỷ trên trang quản lý GHN",
+];
+
 function StatusTimeline({ order, current }) {
   const steps = buildOrderTimeline(order, current);
   return (
@@ -124,6 +129,7 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
   const returnRequestAction = useReturnRequestAction();
   const confirm = useConfirm();
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [confirmOutsideOpen, setConfirmOutsideOpen] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const { user } = useAuth();
   // Sau khi huỷ vận đơn GHN, mã cũ đã chết: không điền sẵn vào form bàn giao
@@ -501,6 +507,19 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
                   Thử huỷ vận đơn lại
                 </Button>
               )}
+              {/* R-C1: lối ra khi GHN không nhận lệnh huỷ qua API nhưng nhân viên đã
+                  huỷ được bằng cách khác (tổng đài, trang quản lý GHN). */}
+              {can(user, "order.support") && !error && (
+                <Button
+                  className="mt-3 ml-2"
+                  size="sm"
+                  variant="outline"
+                  disabled={orderAction.isPending}
+                  onClick={() => setConfirmOutsideOpen(true)}
+                >
+                  Đã huỷ với GHN ngoài hệ thống
+                </Button>
+              )}
             </div>
           )}
 
@@ -848,6 +867,27 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
             })
             // The global mutation handler already shows the error; returning
             // false keeps the typed reason so the agent can retry.
+            .catch(() => false)
+        }
+      />
+      <CancelOrderDialog
+        key={`${id}-outside`}
+        resetOnClose
+        open={confirmOutsideOpen}
+        onOpenChange={setConfirmOutsideOpen}
+        loading={orderAction.isPending}
+        title="Xác nhận đã huỷ vận đơn ngoài hệ thống?"
+        description="Chỉ dùng khi đã huỷ được vận đơn với GHN bằng cách khác (tổng đài, trang quản lý GHN). Hệ thống sẽ chốt huỷ đơn như khi GHN nhận lệnh huỷ: hoàn kho, voucher, điểm và hoàn tiền nếu đã thanh toán, không gọi GHN nữa. Lý do được ghi vào lịch sử và nhật ký quản trị."
+        presets={OUTSIDE_CANCEL_REASONS}
+        requireReason
+        confirmText="Chốt huỷ đơn"
+        onConfirm={(reason) =>
+          orderAction
+            .mutateAsync({ id, action: "confirmCancelledOutside", payload: { reason } })
+            .then(() => {
+              setConfirmOutsideOpen(false);
+              return true;
+            })
             .catch(() => false)
         }
       />

@@ -39,6 +39,11 @@ export const adminAPI = {
     }),
   retryCancellation: async (id) =>
     request(`/admin/orders/${id}/cancellation/retry`, { method: "POST" }),
+  confirmCancelledOutside: async (id, payload) =>
+    request(`/admin/orders/${id}/cancellation/confirm-outside`, {
+      method: "POST",
+      body: JSON.stringify(payload || {}),
+    }),
   shipOrder: async (id, payload) =>
     request(`/admin/orders/${id}/ship`, {
       method: "POST",
