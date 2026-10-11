@@ -8,6 +8,7 @@ const AnalyticsEvent = require("../models/AnalyticsEvent");
 const Cart = require("../models/Cart");
 const User = require("../models/User");
 const OrderOutboxEvent = require("../models/OrderOutboxEvent");
+const SupportTicket = require("../models/SupportTicket");
 const config = require("../config");
 const paymentGateway = require("./paymentGateway");
 const notificationService = require("./notificationService");
@@ -2026,6 +2027,48 @@ async function adminMarkShipped(orderId, adminId, tracking = {}) {
   return order;
 }
 
+// Lines refunded as lost in transit never reached the customer. A later
+// delivery of the rest (a reship, or staff confirming the parcel arrived) must
+// not count them as sold or earn points on them (R-C5).
+async function lostRefundedLines(orderId, session) {
+  const tickets = await SupportTicket.find({
+    order: orderId,
+    "resolution.type": "LOST_IN_TRANSIT_REFUND",
+    "resolution.status": { $nin: ["FAILED", "REFUND_FAILED", "CANCELLED"] },
+  })
+    .select("resolution.items.book resolution.items.quantity resolution.items.unitPrice")
+    .session(session)
+    .lean();
+  const byBook = new Map();
+  let grossAmount = 0;
+  for (const ticket of tickets) {
+    for (const item of ticket.resolution?.items || []) {
+      const key = String(item.book);
+      const quantity = Number(item.quantity) || 0;
+      byBook.set(key, (byBook.get(key) || 0) + quantity);
+      grossAmount += (Number(item.unitPrice) || 0) * quantity;
+    }
+  }
+  return { byBook, grossAmount };
+}
+
+// Revenue recognition on DELIVERED: sold counters and loyalty points, for the
+// lines that were actually delivered. Runs inside the caller's transaction.
+async function recognizeDelivery(order, session, { performedBy = null } = {}) {
+  const lost = await lostRefundedLines(order._id, session);
+  for (const item of order.items) {
+    const key = String(item.book?._id || item.book);
+    const delivered = Math.max(0, item.quantity - (lost.byBook.get(key) || 0));
+    if (delivered > 0) await incrementSold(item.book, delivered, session);
+  }
+  await loyaltyService.earnForOrder(order, session, {
+    // The carrier simulation marks orders delivered under an actor string
+    // rather than a user id, and the ledger's performedBy is a User ref.
+    performedBy: mongoose.isValidObjectId(performedBy) ? performedBy : null,
+    undeliveredGrossAmount: lost.grossAmount,
+  });
+}
+
 async function adminMarkDelivered(orderId, adminId) {
   const order = await runInTransaction(async (session) => {
     // INTERNAL_ORDER_FIELDS is required, not cosmetic: pointsEarnedAt is
@@ -2039,16 +2082,9 @@ async function adminMarkDelivered(orderId, adminId) {
       by: `admin:${adminId}`,
       reason: "Delivered to customer",
     });
-    for (const item of current.items) {
-      await incrementSold(item.book, item.quantity, session);
-    }
     // Delivery is where revenue is recognised, so it is also where points are
     // earned. This is the only way into DELIVERED for a normal order.
-    await loyaltyService.earnForOrder(current, session, {
-      // The carrier simulation marks orders delivered under an actor string
-      // rather than a user id, and the ledger's performedBy is a User ref.
-      performedBy: mongoose.isValidObjectId(adminId) ? adminId : null,
-    });
+    await recognizeDelivery(current, session, { performedBy: adminId });
     current.trackingEvents.push({
       status: "DELIVERED",
       description: "Đơn hàng đã giao đến khách hàng",
@@ -2815,6 +2851,7 @@ async function reconcileVoucherReleases(limit = 1_000) {
 
 module.exports = {
   createOrder,
+  recognizeDelivery,
   retryPayment,
   handlePaymentSuccess,
   handlePaymentFailed,

@@ -12,7 +12,6 @@ const loyaltyService = require("./loyaltyService");
 const {
   decrementStock,
   dispatchItems,
-  incrementSold,
   restoreItems,
 } = require("./orderInventoryService");
 const {
@@ -1277,12 +1276,9 @@ async function updateReship({ ticketId, adminId, payload }) {
           by: `admin:${adminId}`,
           reason: `Giao lại thành công theo ticket ${currentTicket.ticketCode}`,
         });
-        for (const item of order.items) {
-          await incrementSold(item.book, item.quantity, session);
-        }
-        await loyaltyService.earnForOrder(order, session, {
-          performedBy: mongoose.isValidObjectId(adminId) ? adminId : null,
-        });
+        // Only the lines this parcel delivered: lines refunded as lost on
+        // another ticket are neither sold nor earn points (R-C5).
+        await orderService.recognizeDelivery(order, session, { performedBy: adminId });
         await order.save({ session });
 
         const deliveredAt = new Date();

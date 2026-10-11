@@ -11,6 +11,7 @@ const supertest = require("supertest");
 const app = require("../src/index");
 const Book = require("../src/models/Book");
 const Notification = require("../src/models/Notification");
+const LoyaltyLedger = require("../src/models/LoyaltyLedger");
 const Order = require("../src/models/Order");
 const SupportTicket = require("../src/models/SupportTicket");
 const User = require("../src/models/User");
@@ -1230,4 +1231,55 @@ test("R-B12 M14-GHN: once the GHN shipment is cancelled the order can be shipped
     .send({ carrier: "Tự giao", trackingNumber: "MANUAL-M14" });
   assert.equal(ship.status, 200, JSON.stringify(ship.body));
   assert.equal((await Order.findById(order._id)).status, Order.STATUS.SHIPPED);
+});
+
+test("R-C5: a reship after a partial lost refund only counts the lines it delivered", async (t) => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const { order, books } = await twoLineShippedOrder(customer, { method: "VNPAY", status: "PAID" });
+  t.mock.method(paymentGateway, "requestRefund", async ({ idempotencyKey }) => ({
+    ok: true,
+    completed: true,
+    refundTransactionId: `refund-${idempotencyKey.slice(-12)}`,
+  }));
+  // Line A is refunded as lost, line B is sent again.
+  const refundTicket = await ticketFor(customer, order);
+  await supportResolutionService.createResolution({
+    ticketId: refundTicket.ticketId,
+    adminId: admin._id,
+    payload: {
+      type: "LOST_IN_TRANSIT_REFUND",
+      note: "Thất lạc dòng A",
+      items: [{ bookId: String(books[0]._id), quantity: 1 }],
+    },
+  });
+  const reshipTicket = await ticketFor(customer, order, "OTHER");
+  await supportResolutionService.createResolution({
+    ticketId: reshipTicket.ticketId,
+    adminId: admin._id,
+    payload: {
+      type: "LOST_IN_TRANSIT_RESHIP",
+      note: "Giao lại dòng B",
+      items: [{ bookId: String(books[1]._id), quantity: 1 }],
+    },
+  });
+  t.mock.method(shippingService, "createSupportShipment", async () => ({
+    provider: "ghn",
+    environment: "sandbox",
+    carrier: "GHN Express",
+    clientOrderCode: "support-rc5",
+    trackingNumber: "GHN-RC5",
+    providerStatus: "ready_to_pick",
+  }));
+  const ticketId = reshipTicket.ticketId;
+  await supportResolutionService.updateReship({ ticketId, adminId: admin._id, payload: { status: "SHIPPED", provider: "ghn" } });
+  await supportResolutionService.updateReship({ ticketId, adminId: admin._id, payload: { status: "DELIVERED" } });
+
+  const stored = await Order.findById(order._id).select("+pointsEarnedAt").lean();
+  assert.equal(stored.status, Order.STATUS.DELIVERED);
+  assert.equal((await Book.findById(books[0]._id)).sold || 0, 0, "the refunded line was never delivered");
+  assert.equal((await Book.findById(books[1]._id)).sold, 1);
+  const earn = await LoyaltyLedger.findOne({ refId: order._id, type: "EARN" }).lean();
+  assert.equal(earn.earnBasis.eligibleAmount, 100000, "points only on the delivered line");
+  assert.equal(stored.pointsEarned, earn.points);
 });

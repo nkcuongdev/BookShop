@@ -272,14 +272,27 @@ async function applyPointsMovement(input, session = null) {
  *
  * @returns {Promise<object|null>} the ledger row, or null when nothing was due.
  */
-async function earnForOrder(order, session, { performedBy = null } = {}) {
+// `undeliveredGrossAmount`: goods value (unit price x quantity) of lines that
+// were refunded instead of delivered, e.g. lost in transit. Their share of the
+// eligible amount earns nothing (R-C5).
+async function earnForOrder(
+  order,
+  session,
+  { performedBy = null, undeliveredGrossAmount = 0 } = {}
+) {
   if (order.pointsEarnedAt) return null;
   if (order.status !== ORDER_STATUS.DELIVERED) return null;
 
   const config = await getConfig(session);
   if (!config.enabled) return null;
 
-  const eligibleAmount = eligibleAmountForOrder(order);
+  const fullEligibleAmount = eligibleAmountForOrder(order);
+  const subtotal = Number(order.subtotal) || 0;
+  const undelivered = Math.min(Math.max(Number(undeliveredGrossAmount) || 0, 0), subtotal);
+  const eligibleAmount =
+    undelivered > 0 && subtotal > 0
+      ? Math.floor((fullEligibleAmount * (subtotal - undelivered)) / subtotal)
+      : fullEligibleAmount;
   if (eligibleAmount <= 0) {
     // Nothing to grant, but mark it done so the order is not reconsidered.
     order.pointsEarnedAt = new Date();

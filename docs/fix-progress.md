@@ -124,5 +124,5 @@ Chế độ test: chạy test backend liên quan; mỗi mục có test FAIL trê
 | R-C2 | CHƯA LÀM | | | |
 | R-C3 | CHƯA LÀM | | | |
 | R-C4 | CHƯA LÀM | | | |
-| R-C5 | CHƯA LÀM | | | |
+| R-C5 | ĐÃ SỬA | (commit R-C5) | supportLostInTransit "R-C5: a reship after a partial lost refund only counts the lines it delivered" (FAIL trước: sold của dòng A đã hoàn = 1 thay vì 0) → PASS; assert sold A = 0, sold B = 1, `earnBasis.eligibleAmount` = 100.000 (chỉ dòng B). Chạy: supportLostInTransit 29/29, supportTicket 13/13, orderService 51/51, loyalty.integration 31/31, loyaltyCalculations 24/24, shippingService 4/4 | Theo gợi ý: chỉ tính các dòng thực giao. Thêm `orderService.recognizeDelivery` (dùng chung cho giao lại thành công và `adminMarkDelivered`, không chép logic): đọc các ticket LOST_IN_TRANSIT_REFUND còn hiệu lực của đơn, chỉ tăng sold cho phần số lượng chưa hoàn do thất lạc và gọi `earnForOrder` với `undeliveredGrossAmount` (giá trị hàng đã hoàn). `earnForOrder` nhận tuỳ chọn này và giảm `eligibleAmount` theo tỷ lệ (làm tròn xuống); đơn không có hoàn thất lạc tính như cũ. **Còn thiếu:** khi sau đó khách trả một dòng đã giao, `revokeOrderPointsPartial` vẫn chia theo eligible đầy đủ của đơn nên thu hồi hơi ít hơn tỷ lệ thật (làm tròn có lợi cho khách, không âm điểm). |
 | R-C6 | CHƯA LÀM | | | |
