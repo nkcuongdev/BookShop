@@ -9,6 +9,7 @@ const orderService = require("./orderService");
 const orderCancellationService = require("./orderCancellationService");
 const shippingService = require("./shippingService");
 const loyaltyService = require("./loyaltyService");
+const notificationService = require("./notificationService");
 const {
   decrementStock,
   dispatchItems,
@@ -393,9 +394,30 @@ async function closeLostOrderWhenFullyRefunded(ticket, order, session) {
       current.status
     )
   ) {
-    return null;
+    // Reported to the caller, which alerts admins once committed (R-C4).
+    return { strandedStatus: current.status };
   }
   return orderService.completeLostInTransitRefund(order._id, session);
+}
+
+// R-C4: the whole order was refunded as lost, but it had already been marked
+// delivered (e.g. a delivery racing the claim). The customer may now hold both
+// the goods and the money, plus points earned and redeemed points given back.
+// Whether to claw anything back is a business call, so only tell admins.
+async function alertStrandedLostRefund(ticket, order, closed) {
+  if (!closed?.strandedStatus) return;
+  await notificationService
+    .notifyAdmins({
+      type: "order",
+      title: "Hoàn thất lạc toàn bộ cho đơn đã giao",
+      message:
+        `Đơn ${order.orderCode} đang ở trạng thái ${closed.strandedStatus} (đã giao) nhưng ticket ` +
+        `${ticket.ticketCode || ticket._id} vừa hoàn toàn bộ tiền do thất lạc. Khách có thể giữ cả hàng ` +
+        "và tiền; điểm tích từ đơn và điểm đã dùng được hoàn chưa bị thu hồi. Cần kiểm tra và xử lý thủ công.",
+      link: `/admin/orders/${order._id}`,
+      metadata: { orderId: order._id, orderCode: order.orderCode, ticketId: ticket._id },
+    })
+    .catch(() => null);
 }
 
 async function executeOnlineRefund(ticket, order, adminId) {
@@ -467,7 +489,9 @@ async function executeOnlineRefund(ticket, order, adminId) {
   // back with them.
   const settled = Boolean(result.completed);
   const settledAt = new Date();
+  let lostClosure = null;
   await runInTransaction(async (session) => {
+    lostClosure = null;
     // Claim the ticket first and require exactly one change (R-B5): the crash
     // recovery job may have taken this refund over and settled it while the
     // gateway call was in flight, and must not see it counted a second time.
@@ -508,8 +532,9 @@ async function executeOnlineRefund(ticket, order, adminId) {
     );
     if (orderUpdate.modifiedCount !== 1) throw serviceError(409, "Không thể quyết toán hạn mức hoàn tiền", "REFUND_RESERVATION_MISSING");
     await revokeSupportRefundPoints(ticket, order, session);
-    await closeLostOrderWhenFullyRefunded(ticket, order, session);
+    lostClosure = await closeLostOrderWhenFullyRefunded(ticket, order, session);
   });
+  await alertStrandedLostRefund(ticket, order, lostClosure);
   return addCustomerVisibleMessage(
     ticket._id,
     adminId,
@@ -855,7 +880,10 @@ async function completeManualRefund({ ticketId, adminId, transactionId }) {
   });
   if (!ticket) throw serviceError(409, "Khoản hoàn không ở trạng thái chờ ghi nhận", "INVALID_REFUND_STATE");
   const completedAt = new Date();
+  let lostClosure = null;
+  let refundedOrder = null;
   await runInTransaction(async (session) => {
+    lostClosure = null;
     // Claim the ticket before touching the order's refund cap: a second agent
     // confirming the same transfer concurrently must not settle it twice.
     const claimed = await SupportTicket.updateOne(
@@ -874,15 +902,16 @@ async function completeManualRefund({ ticketId, adminId, transactionId }) {
       { session }
     );
     if (claimed.modifiedCount !== 1) throw serviceError(409, "Khoản hoàn không ở trạng thái chờ ghi nhận", "INVALID_REFUND_STATE");
-    const refundedOrder = await Order.findOneAndUpdate(
+    refundedOrder = await Order.findOneAndUpdate(
       { _id: ticket.order, "supportCompensation.reservedRefundAmount": { $gte: ticket.resolution.amount } },
       { $inc: { "supportCompensation.reservedRefundAmount": -ticket.resolution.amount, "supportCompensation.refundedAmount": ticket.resolution.amount } },
       { returnDocument: "after", session }
     );
     if (!refundedOrder) throw serviceError(409, "Không tìm thấy hạn mức hoàn tiền đang giữ", "REFUND_RESERVATION_MISSING");
     await revokeSupportRefundPoints(ticket, refundedOrder, session);
-    await closeLostOrderWhenFullyRefunded(ticket, refundedOrder, session);
+    lostClosure = await closeLostOrderWhenFullyRefunded(ticket, refundedOrder, session);
   });
+  await alertStrandedLostRefund(ticket, refundedOrder, lostClosure);
   const message = await addCustomerVisibleMessage(ticket._id, adminId, `BookShop đã hoàn ${ticket.resolution.amount.toLocaleString("vi-VN")}đ. Mã giao dịch: ${reference}.`);
   return { ticket: await SupportTicket.findById(ticket._id), message };
 }
@@ -939,7 +968,9 @@ async function settleProcessingRefund(ticket, refundTransactionId) {
   }
   const completedAt = new Date();
   let changed = false;
+  let lostClosure = null;
   await runInTransaction(async (session) => {
+    lostClosure = null;
     const claimed = await SupportTicket.updateOne(
       {
         _id: ticket._id,
@@ -998,8 +1029,9 @@ async function settleProcessingRefund(ticket, refundTransactionId) {
       );
     }
     await revokeSupportRefundPoints(ticket, order, session);
-    await closeLostOrderWhenFullyRefunded(ticket, order, session);
+    lostClosure = await closeLostOrderWhenFullyRefunded(ticket, order, session);
   });
+  await alertStrandedLostRefund(ticket, order, lostClosure);
   if (changed) {
     await addCustomerVisibleMessage(
       ticket._id,

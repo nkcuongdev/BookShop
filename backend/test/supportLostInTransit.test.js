@@ -1432,3 +1432,33 @@ test("R-C3: the warehouse role can ship and deliver a lost-parcel reship, nothin
   assert.equal((await Order.findById(order._id)).status, Order.STATUS.DELIVERED);
   assert.equal((await SupportTicket.findById(ticketId)).resolution.status, "DELIVERED");
 });
+
+test("R-C4: a full lost refund settling on a delivered order alerts admins, without revoking points", async (t) => {
+  const { order, ticketId } = await timedOutLostRefund(t);
+  // Delivered by a path that raced the claim (the guard runs before the
+  // delivery transaction), with the refund still in flight.
+  const delivered = await orderService.adminMarkDelivered(order._id, new mongoose.Types.ObjectId());
+  const earnedBefore = (await Order.findById(order._id).lean()).pointsEarned || 0;
+  assert.equal(delivered.status, Order.STATUS.DELIVERED);
+  t.mock.method(paymentGateway, "queryRefundStatus", async () => ({
+    ok: true,
+    completed: true,
+    failed: false,
+    refundTransactionId: "refund-rc4",
+  }));
+
+  const result = await supportResolutionService.reconcileProcessingRefunds();
+  assert.equal(result.settled, 1);
+
+  const alert = await Notification.findOne({
+    role: "admin",
+    "metadata.orderId": order._id,
+    "metadata.ticketId": new mongoose.Types.ObjectId(ticketId),
+  }).lean();
+  assert.ok(alert, "admins are told the customer kept the goods and got the money back");
+  assert.match(alert.message, /đã giao/);
+  const stored = await Order.findById(order._id).lean();
+  assert.equal(stored.status, Order.STATUS.DELIVERED, "the order status is left to staff");
+  assert.equal(stored.pointsEarned || 0, earnedBefore, "earned points are not revoked automatically");
+  assert.equal(await LoyaltyLedger.countDocuments({ refId: order._id, type: "REVOKE" }), 0);
+});
