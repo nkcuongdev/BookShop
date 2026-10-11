@@ -445,14 +445,21 @@ async function executeOnlineRefund(ticket, order, adminId) {
         `BookShop đã gửi yêu cầu hoàn ${amount.toLocaleString("vi-VN")}đ. Kết quả từ cổng thanh toán chưa xác định và đang được đối soát; hạn mức hoàn vẫn được giữ.`
       );
     }
-    await releaseRefundReservation(order._id, amount);
-    await SupportTicket.updateOne(
-      { _id: ticket._id },
-      {
-        $set: { "resolution.status": "REFUND_FAILED", "resolution.refund.lastError": String(failureMessage).slice(0, 500) },
-        $push: { "resolution.events": { type: "REFUND_FAILED", by: adminId, note: String(failureMessage).slice(0, 500) } },
+    // Claim the ticket before releasing the headroom (R-B5): if recovery has
+    // already taken it over, it owns the reservation and nothing is released.
+    await runInTransaction(async (session) => {
+      const claimed = await SupportTicket.updateOne(
+        { _id: ticket._id, "resolution.status": "REFUND_PENDING" },
+        {
+          $set: { "resolution.status": "REFUND_FAILED", "resolution.refund.lastError": String(failureMessage).slice(0, 500) },
+          $push: { "resolution.events": { type: "REFUND_FAILED", by: adminId, note: String(failureMessage).slice(0, 500) } },
+        },
+        { session }
+      );
+      if (claimed.modifiedCount === 1) {
+        await releaseRefundReservation(order._id, amount, session);
       }
-    );
+    });
     throw serviceError(502, failureMessage, "REFUND_FAILED");
   }
   // `ok` is only the gateway's acknowledgement; `completed` is settlement.
@@ -462,20 +469,13 @@ async function executeOnlineRefund(ticket, order, adminId) {
   const settled = Boolean(result.completed);
   const settledAt = new Date();
   await runInTransaction(async (session) => {
-    if (settled) {
-      const orderUpdate = await Order.updateOne(
-        { _id: order._id, "supportCompensation.reservedRefundAmount": { $gte: amount } },
-        { $inc: { "supportCompensation.reservedRefundAmount": -amount, "supportCompensation.refundedAmount": amount } },
-        { session }
-      );
-      if (orderUpdate.modifiedCount !== 1) throw serviceError(409, "Không thể quyết toán hạn mức hoàn tiền", "REFUND_RESERVATION_MISSING");
-      await revokeSupportRefundPoints(ticket, order, session);
-      await closeLostOrderWhenFullyRefunded(ticket, order, session);
-    }
+    // Claim the ticket first and require exactly one change (R-B5): the crash
+    // recovery job may have taken this refund over and settled it while the
+    // gateway call was in flight, and must not see it counted a second time.
     // While unsettled the reservation stays held: the money is committed to
     // this refund even though it has not landed, so releasing it would let a
     // second refund be approved against the same headroom.
-    await SupportTicket.updateOne(
+    const claimed = await SupportTicket.updateOne(
       { _id: ticket._id, "resolution.status": "REFUND_PENDING" },
       {
         $set: settled
@@ -501,6 +501,15 @@ async function executeOnlineRefund(ticket, order, adminId) {
       },
       { session }
     );
+    if (claimed.modifiedCount !== 1 || !settled) return;
+    const orderUpdate = await Order.updateOne(
+      { _id: order._id, "supportCompensation.reservedRefundAmount": { $gte: amount } },
+      { $inc: { "supportCompensation.reservedRefundAmount": -amount, "supportCompensation.refundedAmount": amount } },
+      { session }
+    );
+    if (orderUpdate.modifiedCount !== 1) throw serviceError(409, "Không thể quyết toán hạn mức hoàn tiền", "REFUND_RESERVATION_MISSING");
+    await revokeSupportRefundPoints(ticket, order, session);
+    await closeLostOrderWhenFullyRefunded(ticket, order, session);
   });
   return addCustomerVisibleMessage(
     ticket._id,

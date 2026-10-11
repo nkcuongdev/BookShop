@@ -1091,3 +1091,48 @@ test("R-A3: system events from settle, failure and crash recovery keep the ticke
   ticket.lastMessagePreview = "kiểm tra validate";
   await ticket.save(); // used to throw: resolution.events.by is required
 });
+
+test("R-B5: a refund settled by recovery while its request is in flight is not counted twice", async (t) => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const { order, books } = await twoLineShippedOrder(customer, { method: "VNPAY", status: "PAID" });
+  const first = await ticketFor(customer, order);
+  const second = await ticketFor(customer, order, "OTHER");
+  const lostRefund = (ticketId, book) =>
+    supportResolutionService.createResolution({
+      ticketId,
+      adminId: admin._id,
+      payload: { type: "LOST_IN_TRANSIT_REFUND", note: "Thất lạc", items: [{ bookId: String(book._id), quantity: 1 }] },
+    });
+
+  // Ticket B is accepted but unsettled, so its 100.000đ stays reserved.
+  const requestMock = t.mock.method(paymentGateway, "requestRefund", async () => ({
+    ok: true,
+    completed: false,
+    refundTransactionId: "refund-B",
+  }));
+  await lostRefund(second.ticketId, books[1]);
+  requestMock.mock.restore();
+
+  // While ticket A's request is in flight, the recovery job treats it as stale
+  // and settles it from a gateway query.
+  t.mock.method(paymentGateway, "queryRefundStatus", async ({ idempotencyKey }) =>
+    idempotencyKey.includes(String(first.ticketId))
+      ? { ok: true, completed: true, failed: false, refundTransactionId: "refund-A" }
+      : { ok: true, completed: false, failed: false, status: "01" }
+  );
+  t.mock.method(paymentGateway, "requestRefund", async () => {
+    await SupportTicket.updateOne(
+      { _id: first.ticketId },
+      { $set: { "resolution.createdAt": new Date(Date.now() - 60 * 60 * 1000) } }
+    );
+    await supportResolutionService.reconcileProcessingRefunds();
+    return { ok: true, completed: true, refundTransactionId: "refund-A" };
+  });
+  await lostRefund(first.ticketId, books[0]);
+
+  const stored = await Order.findById(order._id).select("+supportCompensation.reservedRefundAmount").lean();
+  assert.equal(stored.supportCompensation.refundedAmount, 100000, "ticket A counted once");
+  assert.equal(stored.supportCompensation.reservedRefundAmount, 100000, "ticket B still reserved");
+  assert.equal((await SupportTicket.findById(first.ticketId)).resolution.status, "REFUND_COMPLETED");
+});
