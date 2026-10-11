@@ -596,6 +596,10 @@ async function receiveReturnRequest({ orderId, adminId, restock = true, returnRe
       request.closedAt = now;
     }
     await request.save({ session });
+    if (request.status === ReturnRequest.STATUS.CLOSED) {
+      // Same transaction as the close itself (R-B4).
+      await syncLinkedTicket(request, adminId, session);
+    }
 
     // Goods coming back take their loyalty points with them, in proportion to
     // the value returned: a customer sending back one book of five keeps the
@@ -627,14 +631,7 @@ async function receiveReturnRequest({ orderId, adminId, restock = true, returnRe
   });
 
   if (result.autoRefund) await executeReturnRefund(result.requestId);
-  const received = await ReturnRequest.findById(result.requestId).populate(
-    "order",
-    "orderCode user"
-  );
-  if (received?.status === ReturnRequest.STATUS.CLOSED) {
-    await syncLinkedTicket(received, adminId);
-  }
-  return received;
+  return ReturnRequest.findById(result.requestId).populate("order", "orderCode user");
 }
 
 // After this many failed gateway submissions (roughly half a day of backoff)
@@ -784,12 +781,19 @@ async function executeReturnRefund(requestId) {
         claimed.refund.amount,
         session
       );
-      // Reached from both the admin API and the retry job, so the linked ticket
-      // closes on whichever attempt actually succeeds.
-      await syncLinkedTicket(updated, null, session);
     }
     return updated;
   });
+  // The gateway has already paid, so its result must be kept even if the
+  // ticket cannot be updated right now. syncLinkedTicket is idempotent and the
+  // admin route runs it again, so a failure here is logged, not fatal (R-B4).
+  // Reached from both the admin API and the retry job, so the linked ticket
+  // closes on whichever attempt actually succeeds.
+  if (request && settled) {
+    await syncLinkedTicket(request).catch((error) => {
+      console.error("[returnRefund] linked ticket sync failed", request._id, error.message);
+    });
+  }
   return {
     attempted: true,
     accepted: Boolean(request),
@@ -1083,11 +1087,18 @@ async function processPendingReturnRefunds({ limit = 20 } = {}) {
     ],
   }).select("_id").limit(limit).lean();
   let completed = 0;
+  let errors = 0;
   for (const candidate of candidates) {
-    const result = await executeReturnRefund(candidate._id);
-    if (result.completed) completed += 1;
+    // One broken request must not stop the rest of the batch (R-B4).
+    try {
+      const result = await executeReturnRefund(candidate._id);
+      if (result.completed) completed += 1;
+    } catch (error) {
+      errors += 1;
+      console.error("[returnRefund] failed to process", candidate._id, error.message);
+    }
   }
-  return { processed: candidates.length, completed };
+  return { processed: candidates.length, completed, errors };
 }
 
 /**

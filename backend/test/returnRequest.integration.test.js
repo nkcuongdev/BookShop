@@ -3,6 +3,7 @@ process.env.JWT_SECRET = "test-access-secret-with-sufficient-entropy";
 process.env.JWT_REFRESH_SECRET = "test-refresh-secret-with-sufficient-entropy";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { after, before, beforeEach, test } = require("node:test");
 const mongoose = require("mongoose");
 const { MongoMemoryReplSet } = require("mongodb-memory-server");
@@ -20,6 +21,8 @@ const paymentGateway = require("../src/services/paymentGateway");
 const {
   completeReturnRefund,
   executeReturnRefund,
+  processPendingReturnRefunds,
+  receiveReturnRequest,
   reconcileProcessingRefunds,
 } = require("../src/services/returnRequestService");
 
@@ -1039,4 +1042,116 @@ test("after day 7 the order detail still offers shop-fault returns", async () =>
     .set("x-csrf-token", csrf)
     .send(requestPayload(order));
   assert.equal(damaged.status, 201, JSON.stringify(damaged.body));
+});
+
+async function pendingOnlineReturn(email, { amount = 90_000 } = {}) {
+  const customer = await User.create({ name: "RB4", email, password: "secure-password" });
+  const order = await Order.create(orderPayload(customer._id, {
+    payment: { method: Order.PAYMENT_METHOD.VNPAY, status: Order.PAYMENT_STATUS.PAID, transactionId: `${email}-tx`, providerOrderId: `${email}-ref` },
+    supportCompensation: { refundedAmount: 0, reservedRefundAmount: amount },
+  }));
+  const requestId = new mongoose.Types.ObjectId();
+  await ReturnRequest.create({
+    _id: requestId,
+    order: order._id,
+    user: customer._id,
+    items: [{ book: order.items[0].book, title: order.items[0].title, unitPrice: 90_000, orderedQuantity: 2, quantity: 1 }],
+    reason: "DAMAGED",
+    details: "Sách bị rách nhiều trang khi mở kiện hàng.",
+    status: "RECEIVED",
+    expectedRefundAmount: amount,
+    refund: {
+      status: "PENDING",
+      amount,
+      idempotencyKey: `return-refund:${requestId}`,
+      businessType: "RETURN",
+      sourceId: String(requestId),
+      paymentMethod: "VNPAY",
+      originalPaymentTransactionId: `${email}-tx`,
+      originalProviderOrderId: `${email}-ref`,
+      nextRetryAt: new Date(0),
+    },
+  });
+  return { order, requestId };
+}
+
+test("R-B4: a refund the gateway already paid is recorded even if the ticket sync fails", async (t) => {
+  const { order, requestId } = await pendingOnlineReturn("rb4-paid@example.com");
+  t.mock.method(paymentGateway, "requestRefund", async () => ({
+    ok: true,
+    completed: true,
+    refundTransactionId: "RF-RB4-PAID",
+  }));
+  t.mock.method(SupportTicket, "findOneAndUpdate", () => {
+    throw new Error("ticket store unavailable");
+  });
+
+  await executeReturnRefund(requestId);
+
+  const request = await ReturnRequest.findById(requestId);
+  assert.equal(request.status, "CLOSED");
+  assert.equal(request.refund.transactionId, "RF-RB4-PAID");
+  const stored = await Order.findById(order._id).select("+supportCompensation.reservedRefundAmount");
+  assert.equal(stored.supportCompensation.refundedAmount, 90_000);
+  assert.equal(stored.supportCompensation.reservedRefundAmount, 0);
+});
+
+test("R-B4: one broken return refund does not stop the batch", async (t) => {
+  const broken = await pendingOnlineReturn("rb4-broken@example.com");
+  const healthy = await pendingOnlineReturn("rb4-healthy@example.com");
+  // Claiming the broken request fails (e.g. a database error), so processing
+  // it throws before any gateway call.
+  const originalClaim = ReturnRequest.findOneAndUpdate.bind(ReturnRequest);
+  t.mock.method(ReturnRequest, "findOneAndUpdate", (filter, ...rest) => {
+    if (String(filter?._id) === String(broken.requestId)) {
+      throw new Error("claim failed");
+    }
+    return originalClaim(filter, ...rest);
+  });
+  t.mock.method(paymentGateway, "requestRefund", async () => ({
+    ok: true,
+    completed: true,
+    refundTransactionId: `RF-${crypto.randomUUID().slice(0, 8)}`,
+  }));
+
+  const result = await processPendingReturnRefunds();
+
+  assert.equal(result.processed, 2);
+  assert.equal(result.completed, 1);
+  assert.equal((await ReturnRequest.findById(healthy.requestId)).status, "CLOSED");
+});
+
+test("R-B4: a zero-refund receive and its ticket sync commit together", async (t) => {
+  const [customer, admin] = await User.create([
+    { name: "RB4 Zero", email: "rb4-zero@example.com", password: "secure-password" },
+    { name: "RB4 Admin", email: "rb4-zero-admin@example.com", password: "secure-password", role: "admin" },
+  ]);
+  const book = await Book.create({ title: "RB4 Book", author: "Author", category: "Test", price: 150_000, stock: 1, sold: 2 });
+  const order = await Order.create(orderPayload(customer._id, {
+    items: [{ book: book._id, title: book.title, author: book.author, price: 150_000, quantity: 1, subtotal: 150_000 }],
+    subtotal: 150_000,
+    discountAmount: 0,
+    shippingFee: 0,
+    totalAmount: 150_000,
+    supportCompensation: { refundedAmount: 150_000, reservedRefundAmount: 0 },
+  }));
+  await ReturnRequest.create({
+    order: order._id,
+    user: customer._id,
+    items: [{ book: book._id, title: book.title, author: book.author, unitPrice: 150_000, orderedQuantity: 1, quantity: 1 }],
+    reason: "QUALITY_ISSUE",
+    details: "Hang loi, khach gui tra lai san pham.",
+    status: "RETURNING",
+  });
+  t.mock.method(SupportTicket, "findOneAndUpdate", () => {
+    throw new Error("ticket store unavailable");
+  });
+
+  await assert.rejects(
+    receiveReturnRequest({ orderId: order._id, adminId: admin._id, restock: true }),
+    /ticket store unavailable/
+  );
+  const request = await ReturnRequest.findOne({ order: order._id });
+  assert.equal(request.status, "RETURNING", "nothing half-committed");
+  assert.equal((await Book.findById(book._id)).stock, 1, "stock not restocked");
 });
