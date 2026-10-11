@@ -1035,3 +1035,59 @@ test("R-A1: two lost-parcel compensations for the same line are still refused", 
   await refundA(first.ticketId);
   await assert.rejects(refundA(second.ticketId), (error) => error.code === "ITEM_COMPENSATION_LIMIT_EXCEEDED");
 });
+
+test("R-A3: a ticket with system reconciliation events can still be saved by an agent", async (t) => {
+  const { ticketId, admin } = await timedOutLostRefund(t);
+  // Reconciliation records events with no human actor: first a failed query is
+  // parked for staff (MoMo-style completed-without-reference)...
+  t.mock.method(paymentGateway, "queryRefundStatus", async () => ({
+    ok: true,
+    completed: true,
+    failed: false,
+    status: "COMPLETED",
+  }));
+  await supportResolutionService.reconcileProcessingRefunds();
+  let ticket = await SupportTicket.findById(ticketId).lean();
+  assert.equal(ticket.resolution.status, "REFUND_MANUAL_REQUIRED");
+  assert.ok(ticket.resolution.events.some((event) => event.by == null));
+
+  const adminSession = await sessionFor(admin);
+  const message = await adminSession.agent
+    .post(`/api/admin/support-tickets/${ticketId}/messages`)
+    .set("x-csrf-token", adminSession.csrf)
+    .send({ text: "Chúng tôi đang đối soát khoản hoàn với cổng thanh toán." });
+  assert.equal(message.status, 201, JSON.stringify(message.body));
+
+  const status = await adminSession.agent
+    .patch(`/api/admin/support-tickets/${ticketId}`)
+    .set("x-csrf-token", adminSession.csrf)
+    .send({ status: "WAITING_CUSTOMER" });
+  assert.equal(status.status, 200, JSON.stringify(status.body));
+  ticket = await SupportTicket.findById(ticketId).lean();
+  assert.equal(ticket.status, "WAITING_CUSTOMER");
+});
+
+test("R-A3: system events from settle, failure and crash recovery keep the ticket valid", async (t) => {
+  const { ticketId } = await timedOutLostRefund(t);
+  // Crash recovery (REFUND_PENDING -> REFUND_PROCESSING), then a failed query.
+  await SupportTicket.updateOne(
+    { _id: ticketId },
+    {
+      $set: {
+        "resolution.status": "REFUND_PENDING",
+        "resolution.createdAt": new Date(Date.now() - 60 * 60 * 1000),
+      },
+    }
+  );
+  t.mock.method(paymentGateway, "queryRefundStatus", async () => ({
+    ok: true,
+    completed: false,
+    failed: true,
+    status: "02",
+  }));
+  await supportResolutionService.reconcileProcessingRefunds();
+  const ticket = await SupportTicket.findById(ticketId);
+  assert.equal(ticket.resolution.status, "REFUND_FAILED");
+  ticket.lastMessagePreview = "kiểm tra validate";
+  await ticket.save(); // used to throw: resolution.events.by is required
+});

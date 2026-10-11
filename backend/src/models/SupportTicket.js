@@ -122,7 +122,10 @@ const requestedItemSchema = new mongoose.Schema(
 const resolutionEventSchema = new mongoose.Schema(
   {
     type: { type: String, required: true, trim: true, maxlength: 60 },
-    by: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    // null = the system (reconciliation jobs, gateway callbacks). Was required,
+    // which made every later ticket.save() fail once such an event existed.
+    // Relaxing it needs no migration: existing events all have a value.
+    by: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     note: { type: String, default: "", trim: true, maxlength: 500 },
     at: { type: Date, default: Date.now },
   },
