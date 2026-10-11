@@ -2048,3 +2048,99 @@ test("voucher reconciliation migration is safe across app instances", async () =
   const migrated = await Order.findById(order._id).select("+voucherReleasedAt");
   assert.ok(migrated.voucherReleasedAt);
 });
+
+async function ghnSimulatedOrder(idempotencyKey, step = 0) {
+  const book = await createBook({ weight: 400 });
+  const { order } = await orderService.createOrder(orderInput(book, { idempotencyKey }));
+  await orderService.adminApproveOrder(order._id, new mongoose.Types.ObjectId());
+  await Order.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        carrier: "GHN Sandbox",
+        trackingNumber: `GHN-${idempotencyKey}`,
+        "shipment.provider": "ghn",
+        "shipment.environment": "sandbox",
+        "shipment.providerOrderCode": `GHN-${idempotencyKey}`,
+        "shipment.providerStatus": "ready_to_pick",
+        "shipment.simulation.enabled": true,
+        "shipment.simulation.step": step,
+        "shipment.simulation.nextAt": new Date(0),
+      },
+    }
+  );
+  return order;
+}
+
+function withGhnCancel(onCancel) {
+  const originalFetch = global.fetch;
+  const originalGhn = { ...config.shipping.ghn };
+  Object.assign(config.shipping.ghn, { enabled: true, token: "ghn-test-token", shopId: 12345 });
+  global.fetch = async (url, options) => {
+    assert.ok(new URL(url).pathname.endsWith("/switch-status/cancel"));
+    await onCancel();
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 200,
+        data: [{ order_code: JSON.parse(options.body).order_codes[0], result: true }],
+      }),
+    };
+  };
+  return () => {
+    global.fetch = originalFetch;
+    Object.assign(config.shipping.ghn, originalGhn);
+  };
+}
+
+test("R-B3: a forced simulation step cannot slip in while the shipment is being cancelled", async () => {
+  const order = await ghnSimulatedOrder("rb3-forced", 1);
+  let forced;
+  const restore = withGhnCancel(async () => {
+    forced = await shippingService.advanceSandboxSimulation(order._id, { force: true });
+  });
+  try {
+    await shippingService.cancelGhnShipment(await Order.findById(order._id));
+  } finally {
+    restore();
+  }
+  assert.equal(forced.advanced, false);
+  const stored = await Order.findById(order._id);
+  assert.equal(stored.status, Order.STATUS.PROCESSING, "not shipped with a cancelled GHN parcel");
+  assert.ok(stored.shipment.cancelledAt);
+});
+
+test("R-B3: finishing a step does not re-enable a simulation paused meanwhile", async (t) => {
+  const order = await ghnSimulatedOrder("rb3-pause", 1);
+  const originalShip = orderService.adminMarkShipped;
+  t.mock.method(orderService, "adminMarkShipped", async (...args) => {
+    // Staff pause the simulation while this step is running.
+    await shippingService.controlSandboxSimulation(order._id, "pause");
+    return originalShip(...args);
+  });
+  const result = await shippingService.advanceSandboxSimulation(order._id);
+  assert.equal(result.advanced, true);
+  const stored = await Order.findById(order._id);
+  assert.equal(stored.shipment.simulation.enabled, false);
+  assert.equal(stored.shipment.simulation.nextAt, null);
+});
+
+test("R-B3: an order that moved on during a shipment cancel gets a 409 with a code", async () => {
+  const order = await ghnSimulatedOrder("rb3-conflict");
+  const restore = withGhnCancel(async () => {
+    // Staff hand the parcel over by hand while GHN processes the cancel.
+    await orderService.adminMarkShipped(order._id, new mongoose.Types.ObjectId(), {
+      carrier: "Tự giao",
+      trackingNumber: "MANUAL-1",
+    });
+  });
+  try {
+    await assert.rejects(
+      shippingService.cancelGhnShipment(await Order.findById(order._id)),
+      (error) => error.statusCode === 409 && error.code === "SHIPMENT_STATE_CHANGED"
+    );
+  } finally {
+    restore();
+  }
+});

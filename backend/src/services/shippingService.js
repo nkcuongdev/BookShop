@@ -46,6 +46,8 @@ const IN_TRANSIT_STATUSES = new Set([
   "money_collect_delivering",
 ]);
 const DELIVERED_STATUSES = new Set(["delivered"]);
+// Marker providerStatus while cancelGhnShipment is talking to GHN (R-B3).
+const CANCEL_IN_PROGRESS = "cancel_in_progress";
 const catalogCache = new Map();
 const CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
 
@@ -855,26 +857,46 @@ async function cancelGhnShipmentAtProvider(order) {
 }
 
 async function cancelGhnShipment(order) {
-  // Stop the sandbox simulation before calling GHN, so it cannot hand the
-  // parcel to the carrier (SHIPPED) while the cancellation is in flight.
-  const current = await Order.findOneAndUpdate(
-    { _id: order._id, status: Order.STATUS.PROCESSING, "shipment.cancelledAt": null },
+  // Stop the sandbox simulation before calling GHN, and mark the shipment as
+  // being cancelled: every simulation claim - including a forced "advance
+  // now" - refuses a parcel in that state, so it cannot be handed to the
+  // carrier (SHIPPED) while the cancellation is in flight.
+  const before = await Order.findOneAndUpdate(
+    {
+      _id: order._id,
+      status: Order.STATUS.PROCESSING,
+      "shipment.cancelledAt": null,
+      "shipment.providerStatus": { $ne: CANCEL_IN_PROGRESS },
+    },
     {
       $set: {
         "shipment.simulation.enabled": false,
         "shipment.simulation.nextAt": null,
+        "shipment.providerStatus": CANCEL_IN_PROGRESS,
       },
     },
-    { returnDocument: "after" }
+    { returnDocument: "before" }
   );
-  if (!current) {
+  if (!before) {
     throw shippingError(
       "Chỉ có thể hủy vận đơn trước khi GHN nhận hàng",
       "SHIPMENT_NOT_CANCELLABLE",
       409
     );
   }
-  const changed = await cancelGhnShipmentAtProvider(current);
+  const current = await Order.findById(before._id);
+  let changed;
+  try {
+    changed = await cancelGhnShipmentAtProvider(current);
+  } catch (error) {
+    // GHN refused or was unreachable: put the carrier status back. The
+    // simulation stays paused; staff can resume it.
+    await Order.updateOne(
+      { _id: current._id, "shipment.providerStatus": CANCEL_IN_PROGRESS },
+      { $set: { "shipment.providerStatus": before.shipment?.providerStatus || "" } }
+    );
+    throw error;
+  }
   if (!changed) return current;
   current.shipment.providerStatus = "cancel";
   current.shipment.cancelledAt = new Date();
@@ -884,7 +906,18 @@ async function cancelGhnShipment(order) {
     at: new Date(),
   });
   current.$where = { status: Order.STATUS.PROCESSING };
-  await current.save();
+  try {
+    await current.save();
+  } catch (error) {
+    if (!["DocumentNotFoundError", "VersionError"].includes(error?.name)) throw error;
+    // GHN has cancelled the parcel but the order was moved on meanwhile (e.g.
+    // handed over by hand). Report it as a conflict instead of a raw error.
+    throw shippingError(
+      "Đơn hàng đã đổi trạng thái trong lúc huỷ vận đơn; vận đơn GHN đã bị huỷ, cần kiểm tra lại đơn",
+      "SHIPMENT_STATE_CHANGED",
+      409
+    );
+  }
   return current;
 }
 
@@ -1185,6 +1218,8 @@ async function advanceSandboxSimulation(
     status: { $in: [Order.STATUS.PROCESSING, Order.STATUS.SHIPPED] },
     "shipment.environment": "sandbox",
     "shipment.cancelledAt": null,
+    // Not even a forced step while the parcel is being cancelled (R-B3).
+    "shipment.providerStatus": { $ne: CANCEL_IN_PROGRESS },
     "shipment.simulation.step": stepIndex,
   };
   if (!force) {
@@ -1221,6 +1256,9 @@ async function advanceSandboxSimulation(
     });
     const nextStep = stepIndex + 1;
     const completed = nextStep >= SANDBOX_SIMULATION_STEPS.length;
+    // Record the step without touching `enabled` from the snapshot taken
+    // before it ran: staff may have paused (or a cancellation stopped) the
+    // simulation meanwhile, and that must stick (R-B3).
     await Order.updateOne(
       {
         _id: claimed._id,
@@ -1229,18 +1267,30 @@ async function advanceSandboxSimulation(
       {
         $set: {
           "shipment.simulation.step": nextStep,
-          "shipment.simulation.enabled": completed
-            ? false
-            : continueAutomatically,
-          "shipment.simulation.nextAt":
-            completed || !continueAutomatically
-              ? null
-              : new Date(now.getTime() + ghnConfig().simulation.stepDelayMs),
+          ...(completed ? { "shipment.simulation.enabled": false } : {}),
+          "shipment.simulation.nextAt": null,
           "shipment.simulation.completedAt": completed ? now : null,
           "shipment.simulation.lastError": "",
         },
       }
     );
+    if (!completed && continueAutomatically) {
+      await Order.updateOne(
+        {
+          _id: claimed._id,
+          "shipment.simulation.step": nextStep,
+          "shipment.simulation.enabled": true,
+          "shipment.cancelledAt": null,
+        },
+        {
+          $set: {
+            "shipment.simulation.nextAt": new Date(
+              now.getTime() + ghnConfig().simulation.stepDelayMs
+            ),
+          },
+        }
+      );
+    }
     return {
       order: await Order.findById(claimed._id),
       advanced: true,
@@ -1249,7 +1299,8 @@ async function advanceSandboxSimulation(
     };
   } catch (error) {
     await Order.updateOne(
-      { _id: claimed._id },
+      // Only reschedule if the simulation is still meant to run.
+      { _id: claimed._id, "shipment.simulation.enabled": continueAutomatically },
       {
         $set: {
           "shipment.simulation.nextAt": continueAutomatically
