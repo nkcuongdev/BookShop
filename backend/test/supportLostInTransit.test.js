@@ -1139,3 +1139,29 @@ test("R-B5: a refund settled by recovery while its request is in flight is not c
   assert.equal(stored.supportCompensation.reservedRefundAmount, 100000, "ticket B still reserved");
   assert.equal((await SupportTicket.findById(first.ticketId)).resolution.status, "REFUND_COMPLETED");
 });
+
+test("R-B7: manual delivery is refused while a lost-in-transit claim is open", async () => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const { order, book } = await shippedOrder(customer, { method: "COD", paymentStatus: "UNPAID" });
+  const { ticketId } = await ticketFor(customer, order);
+  await supportResolutionService.createResolution({
+    ticketId,
+    adminId: admin._id,
+    payload: { type: "LOST_IN_TRANSIT_RESHIP", note: "Giao lại", items: [{ bookId: String(book._id), quantity: 1 }] },
+  });
+  const adminSession = await sessionFor(admin);
+
+  const deliver = await adminSession.agent
+    .post(`/api/admin/orders/${order._id}/deliver`)
+    .set("x-csrf-token", adminSession.csrf);
+  assert.equal(deliver.status, 409, JSON.stringify(deliver.body));
+  assert.equal(deliver.body.code, "LOST_CLAIM_ACTIVE");
+
+  const viaStatus = await adminSession.agent
+    .patch(`/api/admin/orders/${order._id}/status`)
+    .set("x-csrf-token", adminSession.csrf)
+    .send({ status: "DELIVERED" });
+  assert.equal(viaStatus.status, 409, JSON.stringify(viaStatus.body));
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.SHIPPED);
+});

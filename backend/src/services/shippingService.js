@@ -1014,6 +1014,19 @@ async function verifyGhnWebhook(payload = {}) {
   };
 }
 
+// An order with a live lost-in-transit resolution (refund or reship) must not
+// be marked delivered without a person looking at it. Shared by the carrier
+// webhook and the manual delivery routes.
+async function hasActiveLostClaim(orderId) {
+  return Boolean(
+    await SupportTicket.exists({
+      order: orderId,
+      "resolution.type": { $in: ["LOST_IN_TRANSIT_REFUND", "LOST_IN_TRANSIT_RESHIP"] },
+      "resolution.status": { $nin: ["FAILED", "REFUND_FAILED", "CANCELLED"] },
+    })
+  );
+}
+
 async function syncGhnWebhook(payload = {}) {
   const providerOrderCode = String(payload.OrderCode || payload.order_code || "").trim();
   const clientOrderCode = String(
@@ -1077,16 +1090,7 @@ async function syncGhnWebhook(payload = {}) {
   // would award points and a return window on goods that were refunded or are
   // being resent, so leave it where it is and ask an agent to reconcile.
   const deliveredAfterLostClaim =
-    DELIVERED_STATUSES.has(status) &&
-    Boolean(
-      await SupportTicket.exists({
-        order: order._id,
-        "resolution.type": {
-          $in: ["LOST_IN_TRANSIT_REFUND", "LOST_IN_TRANSIT_RESHIP"],
-        },
-        "resolution.status": { $nin: ["FAILED", "REFUND_FAILED", "CANCELLED"] },
-      })
-    );
+    DELIVERED_STATUSES.has(status) && (await hasActiveLostClaim(order._id));
   if (DELIVERED_STATUSES.has(status) && !deliveredAfterLostClaim) {
     if (order.status === Order.STATUS.PROCESSING) {
       order = await transitionSafely(() =>
@@ -1371,6 +1375,7 @@ async function processDueSandboxSimulations({ limit = 20 } = {}) {
 
 module.exports = {
   SANDBOX_SIMULATION_STEPS,
+  hasActiveLostClaim,
   advanceSandboxSimulation,
   cancelGhnShipment,
   cancelGhnShipmentAtProvider,

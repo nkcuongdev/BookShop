@@ -742,6 +742,19 @@ async function assertNoActiveGhnShipment(orderId) {
   }
 }
 
+// Same rule as the carrier webhook (M05): a parcel already declared lost is
+// not marked delivered by hand while its resolution is still open (R-B7).
+async function assertNoActiveLostClaim(orderId) {
+  if (await shippingService.hasActiveLostClaim(orderId)) {
+    const error = new Error(
+      "Đơn đang có hồ sơ thất lạc (hoàn tiền hoặc giao lại) chưa kết thúc; không thể đánh dấu đã giao."
+    );
+    error.statusCode = 409;
+    error.code = "LOST_CLAIM_ACTIVE";
+    throw error;
+  }
+}
+
 router.post("/orders/:id/ship", requirePermission("order.fulfill"), async (req, res) => {
   try {
     await assertNoActiveGhnShipment(req.params.id);
@@ -768,6 +781,7 @@ router.post("/orders/:id/ship", requirePermission("order.fulfill"), async (req, 
 router.post("/orders/:id/deliver", requirePermission("order.fulfill"), async (req, res) => {
   try {
     await assertNoActiveGhnShipment(req.params.id);
+    await assertNoActiveLostClaim(req.params.id);
     const previousStatus = await currentOrderStatus(req.params.id);
     const order = await orderService.adminMarkDelivered(
       req.params.id,
@@ -831,6 +845,7 @@ router.patch("/orders/:id/status", requireAnyPermission("order.support", "order.
     if (["SHIPPED", "DELIVERED"].includes(status)) {
       await assertNoActiveGhnShipment(req.params.id);
     }
+    if (status === "DELIVERED") await assertNoActiveLostClaim(req.params.id);
     const previousStatus = await currentOrderStatus(req.params.id);
     const order = await transition.run(req.params.id, req.user._id, req.body);
     await recordOrderStatusChange(req, order, previousStatus);
