@@ -42,6 +42,7 @@ import OrderReceiptPrintButton from "@/components/order/OrderReceipt";
 import AdminReturnRequestCard from "@/components/admin/orders/AdminReturnRequestCard";
 import CancelOrderDialog from "@/components/order/CancelOrderDialog";
 import ReturnRequestStatusBadge from "@/components/order/ReturnRequestStatusBadge";
+import { buildOrderTimeline } from "@/features/admin/orders/timeline";
 
 const ADMIN_CANCEL_REASONS = [
   "Khách yêu cầu huỷ",
@@ -50,7 +51,6 @@ const ADMIN_CANCEL_REASONS = [
   "Thông tin giao hàng không hợp lệ",
   "Nghi ngờ đơn ảo",
 ];
-import { buildOrderTimeline } from "@/features/admin/orders/timeline";
 
 function StatusTimeline({ order, current }) {
   const steps = buildOrderTimeline(order, current);

@@ -2144,3 +2144,22 @@ test("R-B3: an order that moved on during a shipment cancel gets a 409 with a co
     restore();
   }
 });
+
+test("R-B11: carrier movement on a refunded order is not described as a cancellation", async () => {
+  const order = await ghnSimulatedOrder("rb11-refunding");
+  await Order.updateOne(
+    { _id: order._id },
+    { $set: { status: Order.STATUS.REFUNDING, "shipment.simulation.enabled": false } }
+  );
+  await shippingService.syncGhnWebhook({
+    OrderCode: "GHN-rb11-refunding",
+    ClientOrderCode: order.orderCode,
+    Status: "picked",
+    Description: "Đã lấy hàng",
+    UpdatedDate: "2026-10-11T09:00:00.000Z",
+  });
+  const alert = await Notification.findOne({ role: "admin", type: "shipping" }).lean();
+  assert.ok(alert);
+  assert.doesNotMatch(alert.message, /huỷ/);
+  assert.match(alert.message, /REFUNDING/);
+});

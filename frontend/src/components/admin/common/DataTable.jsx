@@ -103,14 +103,15 @@ export function DataTable({
                     className={h.column.columnDef.meta?.headerClassName}
                     style={{ width: h.getSize?.() || undefined }}
                     // Screen readers learn the sort order, not just the arrow icon.
+                    // Only the column the table is actually sorted by carries it:
+                    // getCanSort() is also true for plain accessor columns with no
+                    // sort control (R-B11).
                     aria-sort={
-                      h.column.getCanSort?.()
-                        ? h.column.getIsSorted() === "asc"
-                          ? "ascending"
-                          : h.column.getIsSorted() === "desc"
-                            ? "descending"
-                            : "none"
-                        : undefined
+                      h.column.getIsSorted() === "asc"
+                        ? "ascending"
+                        : h.column.getIsSorted() === "desc"
+                          ? "descending"
+                          : undefined
                     }
                   >
                     {h.isPlaceholder

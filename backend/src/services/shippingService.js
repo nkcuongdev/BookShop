@@ -1157,7 +1157,14 @@ async function syncGhnWebhook(payload = {}) {
     ].includes(order.status);
   let alertMessage = "";
   if (shipmentShouldBeDead && !["cancel", "cancelled"].includes(status)) {
-    alertMessage = `GHN báo trạng thái "${status}" cho đơn ${order.orderCode} trong khi đơn/vận đơn đã huỷ hoặc đang huỷ (${order.status}).`;
+    // Describe the order as it is: a refunded or failed order was not
+    // necessarily cancelled (R-B11).
+    const closedAs =
+      order.shipment?.cancelledAt ||
+      [Order.STATUS.CANCELLING, Order.STATUS.CANCELLED].includes(order.status)
+        ? "đơn/vận đơn đã huỷ hoặc đang huỷ"
+        : "đơn đã đóng (thanh toán thất bại hoặc đang/đã hoàn tiền)";
+    alertMessage = `GHN báo trạng thái "${status}" cho đơn ${order.orderCode} trong khi ${closedAs} (${order.status}).`;
   } else if (DELIVERED_STATUSES.has(status) && order.status !== Order.STATUS.DELIVERED) {
     // Previously an invalid transition here was swallowed and nobody learned
     // that the carrier delivered an order the shop had already closed.
