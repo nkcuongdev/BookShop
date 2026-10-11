@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -32,13 +32,16 @@ const ticket = {
   },
 };
 
+// The plan choices live in the dialog opened from the panel summary.
 function renderPanel() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <OrderResolutionPanel ticket={ticket} onChanged={() => {}} />
     </QueryClientProvider>
   );
+  fireEvent.click(screen.getByRole("button", { name: /Tạo phương án/ }));
+  return view;
 }
 
 afterEach(() => cleanup());
