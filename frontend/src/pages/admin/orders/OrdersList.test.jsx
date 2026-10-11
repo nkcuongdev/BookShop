@@ -143,6 +143,18 @@ describe("OrdersList report filters", () => {
     expect(screen.getByLabelText("Lọc trạng thái thanh toán")).toBeTruthy();
   });
 
+  // R-B9: the return counts are system-wide; say so where it is visible, not
+  // only in a tooltip.
+  it("labels the return filter counts as system-wide", () => {
+    render(
+      <MemoryRouter initialEntries={["/admin/orders"]}>
+        <OrdersList />
+      </MemoryRouter>
+    );
+    const select = screen.getByLabelText("Lọc yêu cầu đổi trả");
+    expect(select.options[0].textContent).toMatch(/toàn hệ thống/);
+  });
+
   // A rejected filter (e.g. dateFrom after dateTo) must not take away the
   // toolbar the admin needs to correct it.
   it("keeps the filter toolbar when the order list fails to load", () => {

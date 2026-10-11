@@ -357,7 +357,7 @@ export default function OrdersList() {
           }}
           className="h-9 rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/20"
         >
-          <option value="all">Tất cả đổi trả</option>
+          <option value="all">Tất cả đổi trả (số đếm toàn hệ thống)</option>
           <option value="PENDING">Chờ duyệt ({returnCounts.PENDING || 0})</option>
           {/* Hồ sơ duyệt mới lưu RETURNING; APPROVED chỉ còn ở dữ liệu cũ. Backend
               lọc APPROVED theo cả hai giá trị nên số đếm cũng cộng cả hai. */}
