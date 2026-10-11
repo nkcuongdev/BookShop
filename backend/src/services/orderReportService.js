@@ -39,6 +39,38 @@ function normalizeEnumFilter(value, allowedValues, label) {
   return normalized;
 }
 
+// The return statuses one admin return filter stands for: approval now stores
+// RETURNING and APPROVED survives only on legacy requests. null = no filter.
+function returnStatusesForFilter(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!normalized || normalized === "ALL") return null;
+  return normalized === ReturnRequest.STATUS.APPROVED
+    ? [ReturnRequest.STATUS.APPROVED, ReturnRequest.STATUS.RETURNING]
+    : [normalized];
+}
+
+// Per order: how many return requests it has, and the one to show - the newest
+// matching the active return filter (an order matched through an older PENDING
+// request must not be labelled with its newer REJECTED one), else the newest.
+// Shared by the admin list badge and the CSV so both say the same thing.
+function summarizeReturnsByOrder(requests, returnStatus) {
+  const statuses = returnStatusesForFilter(returnStatus);
+  const byOrder = new Map();
+  const newestFirst = [...requests].sort(
+    (left, right) => new Date(right.createdAt) - new Date(left.createdAt)
+  );
+  for (const request of newestFirst) {
+    const key = String(request.order);
+    const entry = byOrder.get(key) || { shown: null, count: 0 };
+    entry.count += 1;
+    if (!entry.shown && (!statuses || statuses.includes(request.status))) {
+      entry.shown = request;
+    }
+    byOrder.set(key, entry);
+  }
+  return byOrder;
+}
+
 async function buildAdminOrderFilters(query = {}) {
   const baseFilter = {};
   const searchRegex = safeRegex(String(query.search || "").slice(0, 100));
@@ -92,12 +124,7 @@ async function buildAdminOrderFilters(query = {}) {
     // Approval now stores RETURNING; APPROVED only survives on legacy requests,
     // so the "approved" queue has to match both.
     const returnOrderIds = await ReturnRequest.distinct("order", {
-      status:
-        returnStatus === ReturnRequest.STATUS.APPROVED
-          ? {
-              $in: [ReturnRequest.STATUS.APPROVED, ReturnRequest.STATUS.RETURNING],
-            }
-          : returnStatus,
+      status: { $in: returnStatusesForFilter(returnStatus) },
     });
     baseFilter._id = { $in: returnOrderIds };
   }
@@ -169,8 +196,8 @@ function fullShippingAddress(address = {}) {
     .join(", ");
 }
 
-// `returns` = the order's return requests, newest first (may be empty).
-function orderCsvRow(order, returns = []) {
+// `returnSummary` = { shown, count } from summarizeReturnsByOrder.
+function orderCsvRow(order, returnSummary = { shown: null, count: 0 }) {
   const itemQuantity = (order.items || []).reduce(
     (total, item) => total + (Number(item.quantity) || 0),
     0
@@ -206,12 +233,13 @@ function orderCsvRow(order, returns = []) {
     // Appended so existing column positions stay put. Order-level refund and
     // after-sales refunds are separate columns so they are never summed twice.
     order.pointsDiscountAmount || 0,
-    [Order.STATUS.REFUNDING, Order.STATUS.REFUNDED].includes(order.status)
-      ? order.payment?.refundAmount || 0
-      : 0,
+    // "Hoàn cả đơn" only once the money has actually gone back (R-B8).
+    order.status === Order.STATUS.REFUNDED ? order.payment?.refundAmount || 0 : 0,
     order.supportCompensation?.refundedAmount || 0,
-    returns[0]?.status || "",
-    returns.length,
+    returnSummary.shown?.status || "",
+    returnSummary.count,
+    // Added last to keep earlier columns in place: still being refunded.
+    order.status === Order.STATUS.REFUNDING ? order.payment?.refundAmount || 0 : 0,
   ];
   return `${values
     .map((value, index) => (index === 4 ? phoneCsvCell(value) : csvCell(value)))
@@ -244,31 +272,31 @@ const CSV_HEADERS = [
   "Giảm bằng điểm",
   "Hoàn cả đơn",
   "Đã hoàn hậu mãi",
-  "Đổi trả (hồ sơ mới nhất)",
+  "Đổi trả (hồ sơ mới nhất khớp bộ lọc)",
   "Số hồ sơ đổi trả",
+  "Đang hoàn cả đơn",
 ];
 
 const CSV_BATCH_SIZE = 200;
 
-async function writeCsvBatch(res, orders) {
+async function writeCsvBatch(res, orders, returnStatus) {
   const returns = await ReturnRequest.find({ order: { $in: orders.map((order) => order._id) } })
     .select("order status createdAt")
-    .sort({ createdAt: -1, _id: -1 })
     .lean();
-  const byOrder = new Map();
-  for (const request of returns) {
-    const key = String(request.order);
-    if (!byOrder.has(key)) byOrder.set(key, []);
-    byOrder.get(key).push(request);
-  }
+  const byOrder = summarizeReturnsByOrder(returns, returnStatus);
   for (const order of orders) {
-    if (!res.write(orderCsvRow(order, byOrder.get(String(order._id)) || []))) {
+    if (!res.write(orderCsvRow(order, byOrder.get(String(order._id))))) {
       await once(res, "drain");
     }
   }
 }
 
-async function writeOrdersCsv(res, filter, sort = { placedAt: -1, _id: -1 }) {
+async function writeOrdersCsv(
+  res,
+  filter,
+  sort = { placedAt: -1, _id: -1 },
+  { returnStatus = "" } = {}
+) {
   const filename = `bookshop-orders-${new Date().toISOString().slice(0, 10)}.csv`;
   res.status(200);
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -285,16 +313,17 @@ async function writeOrdersCsv(res, filter, sort = { placedAt: -1, _id: -1 }) {
   for await (const order of cursor) {
     batch.push(order);
     if (batch.length >= CSV_BATCH_SIZE) {
-      await writeCsvBatch(res, batch);
+      await writeCsvBatch(res, batch, returnStatus);
       batch = [];
     }
   }
-  if (batch.length) await writeCsvBatch(res, batch);
+  if (batch.length) await writeCsvBatch(res, batch, returnStatus);
   res.end();
 }
 
 module.exports = {
   buildAdminOrderFilters,
+  summarizeReturnsByOrder,
   orderCsvRow,
   parseVietnamCalendarDate,
   writeOrdersCsv,

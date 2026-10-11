@@ -13,6 +13,7 @@ const shippingService = require("../services/shippingService");
 const orderCancellationService = require("../services/orderCancellationService");
 const {
   buildAdminOrderFilters,
+  summarizeReturnsByOrder,
   writeOrdersCsv,
 } = require("../services/orderReportService");
 const {
@@ -246,27 +247,8 @@ router.get("/orders", requirePermission("order.read"), async (req, res) => {
     const returnRequests = await ReturnRequest.find({
       order: { $in: orders.map((order) => order._id) },
     }).lean();
-    // With a return filter active, badge the newest request that matched it,
-    // otherwise an order matched through an older PENDING request would show
-    // its newest (e.g. REJECTED) request instead.
-    const filterStatus = String(req.query.returnStatus || "").trim().toUpperCase();
-    const matchingStatuses =
-      filterStatus === ReturnRequest.STATUS.APPROVED
-        ? [ReturnRequest.STATUS.APPROVED, ReturnRequest.STATUS.RETURNING]
-        : filterStatus && filterStatus !== "ALL"
-          ? [filterStatus]
-          : null;
-    const returnByOrder = new Map();
-    const returnCountByOrder = new Map();
-    for (const request of returnRequests.sort((left, right) =>
-      new Date(left.createdAt) - new Date(right.createdAt)
-    )) {
-      const key = String(request.order);
-      returnCountByOrder.set(key, (returnCountByOrder.get(key) || 0) + 1);
-      if (!matchingStatuses || matchingStatuses.includes(request.status)) {
-        returnByOrder.set(key, request);
-      }
-    }
+    // Same choice of request as the CSV (newest matching the return filter).
+    const returnsByOrder = summarizeReturnsByOrder(returnRequests, req.query.returnStatus);
     const returnStatusCounts = Object.fromEntries(
       returnStatusRows.map((row) => [row._id, row.count])
     );
@@ -277,8 +259,8 @@ router.get("/orders", requirePermission("order.read"), async (req, res) => {
         orders: orders.map((o) => ({
           ...o.toObject(),
           id: o._id,
-          returnRequest: serializeReturnRequest(returnByOrder.get(String(o._id))),
-          returnRequestCount: returnCountByOrder.get(String(o._id)) || 0,
+          returnRequest: serializeReturnRequest(returnsByOrder.get(String(o._id))?.shown),
+          returnRequestCount: returnsByOrder.get(String(o._id))?.count || 0,
         })),
         statusCounts: { all: matchingTotal, ...statusCounts },
         returnStatusCounts,
@@ -303,7 +285,7 @@ router.get("/orders", requirePermission("order.read"), async (req, res) => {
 router.get("/orders/export.csv", requirePermission("order.export"), async (req, res) => {
   try {
     const { filter, sort } = await buildAdminOrderFilters(req.query);
-    await writeOrdersCsv(res, filter, sort);
+    await writeOrdersCsv(res, filter, sort, { returnStatus: req.query.returnStatus });
   } catch (error) {
     if (res.headersSent) return res.end();
     return res.status(error.statusCode || 500).json({

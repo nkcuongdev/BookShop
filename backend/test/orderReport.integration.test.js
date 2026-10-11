@@ -266,7 +266,7 @@ test("CSV export streams every matching order and protects spreadsheet cells", a
   // F36: after-sales columns explain why an order sits in a return/refund queue.
   const [header] = response.text.replace("﻿", "").split(/\r?\n/);
   assert.ok(
-    header.endsWith('"Giảm bằng điểm","Hoàn cả đơn","Đã hoàn hậu mãi","Đổi trả (hồ sơ mới nhất)","Số hồ sơ đổi trả"'),
+    header.endsWith('"Giảm bằng điểm","Hoàn cả đơn","Đã hoàn hậu mãi","Đổi trả (hồ sơ mới nhất khớp bộ lọc)","Số hồ sơ đổi trả","Đang hoàn cả đơn"'),
     header
   );
 });
@@ -288,7 +288,7 @@ test("CSV rows carry the latest return status and refund totals", async () => {
   const response = await agent.get("/api/admin/orders/export.csv");
   assert.equal(response.status, 200);
   const row = response.text.split(/\r?\n/).find((line) => line.includes("TX-CSV-RETURN"));
-  assert.ok(row.endsWith('"40000","RETURNING","1"'), row);
+  assert.ok(row.endsWith('"40000","RETURNING","1","0"'), row);
 });
 
 test("order report rejects invalid or reversed calendar dates", async () => {
@@ -302,4 +302,38 @@ test("order report rejects invalid or reversed calendar dates", async () => {
   );
   assert.equal(reversed.status, 400);
   assert.match(reversed.body.message, /Ngày bắt đầu/);
+});
+
+test("R-B8: CSV return column follows the return filter and order refund columns are split", async () => {
+  const { agent } = await adminSession();
+  const customer = await User.create({
+    name: "CSV RB8",
+    email: "csv-rb8@example.com",
+    password: "secure-password",
+  });
+  const withReturns = await createOrder(customer._id, {
+    status: Order.STATUS.DELIVERED,
+    transactionId: "TX-RB8-RETURNS",
+  });
+  const older = await createReturnRequest(withReturns, ReturnRequest.STATUS.PENDING);
+  await ReturnRequest.updateOne({ _id: older._id }, { $set: { createdAt: new Date(Date.now() - 60_000) } });
+  await createReturnRequest(withReturns, ReturnRequest.STATUS.REJECTED);
+  await createOrder(customer._id, {
+    status: Order.STATUS.REFUNDING,
+    paymentStatus: Order.PAYMENT_STATUS.REFUNDING,
+    transactionId: "TX-RB8-REFUNDING",
+    document: { "payment.refundAmount": 120_000 },
+  });
+
+  const filtered = await agent.get("/api/admin/orders/export.csv?returnStatus=PENDING");
+  assert.equal(filtered.status, 200);
+  const returnRow = filtered.text.split(/\r?\n/).find((line) => line.includes("TX-RB8-RETURNS"));
+  assert.ok(returnRow.includes('"PENDING","2"'), returnRow);
+
+  const all = await agent.get("/api/admin/orders/export.csv");
+  const [header, ...rows] = all.text.replace("﻿", "").split(/\r?\n/);
+  assert.ok(header.endsWith('"Số hồ sơ đổi trả","Đang hoàn cả đơn"'), header);
+  const refundingRow = rows.find((line) => line.includes("TX-RB8-REFUNDING"));
+  // "Hoàn cả đơn" (completed) stays 0 while the refund is still in flight.
+  assert.ok(refundingRow.endsWith('"0","0","","0","120000"'), refundingRow);
 });
