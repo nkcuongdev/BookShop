@@ -66,3 +66,47 @@ describe("OrderResolutionPanel (R-B1)", () => {
     );
   });
 });
+
+describe("OrderResolutionPanel for the warehouse (R-C3)", () => {
+  const reshipTicket = (status) => ({
+    ...ticket,
+    resolution: {
+      type: "LOST_IN_TRANSIT_RESHIP",
+      status,
+      items: [{ book: "book-1", title: "Sách A", quantity: 1 }],
+      shipment: { carrier: "GHN Express", trackingNumber: "GHN-1" },
+    },
+    order: { ...ticket.order, status: "SHIPPED" },
+  });
+
+  function renderReship(status, canResolve) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <OrderResolutionPanel ticket={reshipTicket(status)} onChanged={() => {}} canResolve={canResolve} />
+      </QueryClientProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Xem và quản lý/ }));
+  }
+
+  it("lets the warehouse hand over a reship but hides support decisions", async () => {
+    mocks.permissions.value = ["ticket.read", "order.fulfill"];
+    renderReship("PREPARING", false);
+    expect(await screen.findByRole("button", { name: /Tạo vận đơn và bàn giao/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Hủy phiếu/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Chọn phương án khác/ })).toBeNull();
+  });
+
+  it("lets the warehouse confirm a shipped reship", async () => {
+    mocks.permissions.value = ["ticket.read", "order.fulfill"];
+    renderReship("SHIPPED", false);
+    const deliver = await screen.findByRole("button", { name: /Xác nhận đã giao/ });
+    expect(deliver.disabled).toBe(false);
+  });
+
+  it("keeps cancelling the reship for support", async () => {
+    mocks.permissions.value = ["ticket.read", "ticket.resolve", "order.support"];
+    renderReship("PREPARING", true);
+    expect(await screen.findByRole("button", { name: /Hủy phiếu/ })).toBeTruthy();
+  });
+});
