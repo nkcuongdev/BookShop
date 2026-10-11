@@ -13,8 +13,17 @@ function jsonResponse(body, status = 200) {
   };
 }
 
+// jsdom's localStorage is shadowed under Node 25 by Node's own global, which
+// has no methods without --localstorage-file; stub it in memory like
+// client.test.js, AuthContext.test.jsx and themeCleanup.test.js do.
 beforeEach(() => {
-  localStorage.clear();
+  const values = new Map();
+  vi.stubGlobal("localStorage", {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+    clear: () => values.clear(),
+  });
   vi.stubGlobal("fetch", vi.fn());
 });
 

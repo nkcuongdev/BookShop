@@ -102,7 +102,7 @@ Test: orderApi.integration — cập nhật assert DTO danh sách (nay có đún
 
 Chế độ test: chạy test backend liên quan; mỗi mục có test FAIL trên code cũ rồi PASS sau khi sửa (mục chỉ có thay đổi frontend: test vitest viết nhưng **không chạy**). Lựa chọn của chủ dự án: R-C1 phương án (c); R-C2–C5 theo gợi ý trong danh sách review; R-C6 phương án (a).
 
-**Chạy toàn bộ sau khi xong đợt R-xx (được chủ dự án đồng ý):** backend `npm test` 440/440 pass (56 file). Frontend `vitest run` 237/242 pass, 47/48 file: 5 test lỗi đều ở `src/services/api/auth.test.js` với `localStorage.clear is not a function` — do Node v25 có `localStorage` toàn cục riêng đè lên của jsdom; `auth.js`, `auth.test.js` và cấu hình vite/vitest không đổi so với `main`, nên lỗi có sẵn từ trước, không thuộc đợt này (chạy bằng Node 22 LTS hoặc sửa setup test để khắc phục).
+**Chạy toàn bộ sau khi xong đợt R-xx (được chủ dự án đồng ý):** backend `npm test` 440/440 pass (56 file). Frontend `vitest run` 237/242 pass, 47/48 file: 5 test lỗi đều ở `src/services/api/auth.test.js` với `localStorage.clear is not a function` — do Node v25 có `localStorage` toàn cục riêng đè lên của jsdom; `auth.js`, `auth.test.js` và cấu hình vite/vitest không đổi so với `main`, nên lỗi có sẵn từ trước, không thuộc đợt này (chạy bằng Node 22 LTS hoặc sửa setup test để khắc phục). **TEST-ENV** (commit "test(TEST-ENV)"): `auth.test.js` nay stub `localStorage` trong bộ nhớ giống `client.test.js`, `AuthContext.test.jsx`, `themeCleanup.test.js` — chạy lại 5/5 pass; không đổi code ứng dụng.
 
 | Mục | Trạng thái | Commit | Test | Ghi chú |
 | --- | --- | --- | --- | --- |
