@@ -93,3 +93,38 @@ describe("confirm a cancellation done outside the system (R-C1)", () => {
     expect(screen.queryByRole("button", { name: "Đã huỷ với GHN ngoài hệ thống" })).toBeNull();
   });
 });
+
+describe("confirm delivery once the lost claims are settled (R-C2)", () => {
+  it("sends an override delivery with the typed reason", async () => {
+    mocks.permissions.value = ["admin.access", "order.read", "order.fulfill"];
+    renderDrawer(baseOrder({ lostClaim: { active: true, settled: true } }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận đã giao phần còn lại" }));
+    expect(await screen.findByText("Lý do xác nhận giao (bắt buộc)")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Đóng" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Khách xác nhận đã nhận phần hàng còn lại" }));
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận đã giao" }));
+
+    await waitFor(() =>
+      expect(mocks.mutateAsync).toHaveBeenCalledWith({
+        id: "order-1",
+        action: "deliver",
+        payload: { override: true, reason: "Khách xác nhận đã nhận phần hàng còn lại" },
+      })
+    );
+  });
+
+  it("only explains the wait while a claim is still moving", () => {
+    mocks.permissions.value = ["admin.access", "order.read", "order.fulfill"];
+    renderDrawer(baseOrder({ lostClaim: { active: true, settled: false } }));
+    expect(screen.getByText(/đang hoàn tiền hoặc giao lại/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Xác nhận đã giao phần còn lại" })).toBeNull();
+  });
+
+  it("is not offered to support agents without order.fulfill", () => {
+    mocks.permissions.value = ["admin.access", "order.read", "order.support"];
+    renderDrawer(baseOrder({ lostClaim: { active: true, settled: true } }));
+    expect(screen.queryByRole("button", { name: "Xác nhận đã giao phần còn lại" })).toBeNull();
+  });
+});
