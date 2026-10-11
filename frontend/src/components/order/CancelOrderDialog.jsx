@@ -29,16 +29,25 @@ export default function CancelOrderDialog({
   // Admin cancellations must say why; the customer may leave it empty.
   requireReason = false,
   confirmText = "Xác nhận huỷ",
+  // Opt-in (admin drawer, one dialog reused across orders): clear the reason
+  // when the dialog is dismissed, and keep it when onConfirm reports failure
+  // by returning false. The customer page keeps its original behaviour.
+  resetOnClose = false,
 }) {
   const [reason, setReason] = useState("");
 
   const handleConfirm = async () => {
-    await onConfirm(reason.trim());
-    setReason("");
+    const result = await onConfirm(reason.trim());
+    if (result !== false) setReason("");
+  };
+
+  const handleOpenChange = (next) => {
+    if (!next && resetOnClose) setReason("");
+    onOpenChange(next);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -73,7 +82,7 @@ export default function CancelOrderDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleOpenChange(false)}
             disabled={loading}
           >
             Không, giữ đơn

@@ -826,6 +826,10 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
         </div>
       </SheetContent>
       <CancelOrderDialog
+        // One dialog instance per order: a reason typed for one order must not
+        // be carried over to the next one opened in the drawer.
+        key={id}
+        resetOnClose
         open={cancelOpen}
         onOpenChange={setCancelOpen}
         loading={orderAction.isPending}
@@ -835,9 +839,15 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
         requireReason
         confirmText={isPrepaid ? "Huỷ đơn và hoàn tiền" : "Huỷ đơn"}
         onConfirm={(reason) =>
-          orderAction.mutateAsync({ id, action: "cancel", payload: { reason } })
-            .then(() => setCancelOpen(false))
-            .catch(() => null)
+          orderAction
+            .mutateAsync({ id, action: "cancel", payload: { reason } })
+            .then(() => {
+              setCancelOpen(false);
+              return true;
+            })
+            // The global mutation handler already shows the error; returning
+            // false keeps the typed reason so the agent can retry.
+            .catch(() => false)
         }
       />
     </Sheet>
