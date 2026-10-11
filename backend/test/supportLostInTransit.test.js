@@ -1283,3 +1283,99 @@ test("R-C5: a reship after a partial lost refund only counts the lines it delive
   assert.equal(earn.earnBasis.eligibleAmount, 100000, "points only on the delivered line");
   assert.equal(stored.pointsEarned, earn.points);
 });
+
+async function ghnShippedTwoLineOrder(customer) {
+  const { order, books } = await twoLineShippedOrder(customer, { method: "VNPAY", status: "PAID" });
+  await Order.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        "shipment.provider": "ghn",
+        "shipment.environment": "sandbox",
+        "shipment.providerOrderCode": `GHN-${order._id}`,
+        "shipment.providerStatus": "delivering",
+        "shipment.simulation.enabled": true,
+        "shipment.simulation.nextAt": new Date(Date.now() + 60_000),
+      },
+    }
+  );
+  return { order, books };
+}
+
+test("R-C2: staff can confirm delivery with a reason once the lost claims are settled", async (t) => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const { order, books } = await ghnShippedTwoLineOrder(customer);
+  t.mock.method(paymentGateway, "requestRefund", async ({ idempotencyKey }) => ({
+    ok: true,
+    completed: true,
+    refundTransactionId: `refund-${idempotencyKey.slice(-12)}`,
+  }));
+  const { ticketId } = await ticketFor(customer, order);
+  await supportResolutionService.createResolution({
+    ticketId,
+    adminId: admin._id,
+    payload: {
+      type: "LOST_IN_TRANSIT_REFUND",
+      note: "Thất lạc dòng A",
+      items: [{ bookId: String(books[0]._id), quantity: 1 }],
+    },
+  });
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.SHIPPED);
+
+  const adminSession = await sessionFor(admin);
+  const deliver = (body) =>
+    adminSession.agent
+      .post(`/api/admin/orders/${order._id}/deliver`)
+      .set("x-csrf-token", adminSession.csrf)
+      .send(body);
+
+  const detail = await adminSession.agent.get(`/api/admin/orders/${order._id}`);
+  assert.deepEqual(detail.body.data.order.lostClaim, { active: true, settled: true });
+
+  const blocked = await deliver({});
+  assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
+  const noReason = await deliver({ override: true, reason: " " });
+  assert.equal(noReason.status, 400, JSON.stringify(noReason.body));
+  assert.equal(noReason.body.code, "REASON_REQUIRED");
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.SHIPPED);
+
+  const confirmed = await deliver({ override: true, reason: "Khách xác nhận đã nhận dòng B qua điện thoại" });
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+  const stored = await Order.findById(order._id).lean();
+  assert.equal(stored.status, Order.STATUS.DELIVERED);
+  assert.match(stored.history.at(-1).reason, /điện thoại/);
+  assert.equal(stored.shipment.simulation.enabled, false, "GHN simulation stops advancing");
+  assert.equal((await Book.findById(books[0]._id)).sold || 0, 0);
+  assert.equal((await Book.findById(books[1]._id)).sold, 1);
+  const earn = await LoyaltyLedger.findOne({ refId: order._id, type: "EARN" }).lean();
+  assert.equal(earn.earnBasis.eligibleAmount, 100000);
+  const audit = await mongoose.connection
+    .collection("auditlogs")
+    .findOne({ targetId: order._id });
+  assert.match(audit.reason, /điện thoại/);
+});
+
+test("R-C2: the delivery override is refused while a lost reship is still pending", async () => {
+  const customer = await makeUser();
+  const admin = await makeUser("admin");
+  const { order, books } = await ghnShippedTwoLineOrder(customer);
+  const { ticketId } = await ticketFor(customer, order);
+  await supportResolutionService.createResolution({
+    ticketId,
+    adminId: admin._id,
+    payload: {
+      type: "LOST_IN_TRANSIT_RESHIP",
+      note: "Giao lại",
+      items: books.map((book) => ({ bookId: String(book._id), quantity: 1 })),
+    },
+  });
+  const adminSession = await sessionFor(admin);
+  const response = await adminSession.agent
+    .post(`/api/admin/orders/${order._id}/deliver`)
+    .set("x-csrf-token", adminSession.csrf)
+    .send({ override: true, reason: "Thử chốt tay" });
+  assert.equal(response.status, 409, JSON.stringify(response.body));
+  assert.equal(response.body.code, "LOST_CLAIM_IN_PROGRESS");
+  assert.equal((await Order.findById(order._id)).status, Order.STATUS.SHIPPED);
+});

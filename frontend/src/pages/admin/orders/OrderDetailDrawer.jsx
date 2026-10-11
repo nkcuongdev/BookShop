@@ -52,6 +52,11 @@ const ADMIN_CANCEL_REASONS = [
   "Nghi ngờ đơn ảo",
 ];
 
+const OVERRIDE_DELIVERY_REASONS = [
+  "Khách xác nhận đã nhận phần hàng còn lại",
+  "GHN xác nhận đã giao phần hàng còn lại",
+];
+
 const OUTSIDE_CANCEL_REASONS = [
   "Đã huỷ qua tổng đài GHN",
   "Đã huỷ trên trang quản lý GHN",
@@ -130,6 +135,7 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
   const confirm = useConfirm();
   const [cancelOpen, setCancelOpen] = useState(false);
   const [confirmOutsideOpen, setConfirmOutsideOpen] = useState(false);
+  const [overrideDeliveryOpen, setOverrideDeliveryOpen] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const { user } = useAuth();
   // Sau khi huỷ vận đơn GHN, mã cũ đã chết: không điền sẵn vào form bàn giao
@@ -523,6 +529,35 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
             </div>
           )}
 
+          {/* R-C2: đơn có hồ sơ thất lạc không được GHN/thao tác thường chuyển sang
+              Đã giao; khi mọi hồ sơ đã kết thúc, nhân viên xác nhận giao kèm lý do. */}
+          {order.lostClaim?.active && (
+            <div className="rounded-xl border border-warning/30 bg-warning-muted/40 p-4 text-sm text-foreground">
+              {order.lostClaim.settled ? (
+                <p className="font-medium">
+                  Đơn có hồ sơ thất lạc đã kết thúc. Trạng thái giao không còn được cập nhật tự
+                  động; nếu phần hàng còn lại đã tới tay khách, xác nhận giao thủ công kèm lý do.
+                </p>
+              ) : (
+                <p className="font-medium">
+                  Đơn có hồ sơ thất lạc đang hoàn tiền hoặc giao lại. Chờ hồ sơ kết thúc trước khi
+                  xác nhận giao.
+                </p>
+              )}
+              {order.lostClaim.settled && can(user, "order.fulfill") && !error && (
+                <Button
+                  className="mt-3"
+                  size="sm"
+                  variant="outline"
+                  disabled={orderAction.isPending}
+                  onClick={() => setOverrideDeliveryOpen(true)}
+                >
+                  Xác nhận đã giao phần còn lại
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* Một đơn có thể có nhiều hồ sơ đổi trả: hiện tất cả và gửi kèm id hồ sơ
               để thao tác đúng hồ sơ đang xem. */}
           {(order.returnRequests?.length
@@ -871,6 +906,29 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
         }
       />
       <CancelOrderDialog
+        key={`${id}-deliver-override`}
+        resetOnClose
+        open={overrideDeliveryOpen}
+        onOpenChange={setOverrideDeliveryOpen}
+        loading={orderAction.isPending}
+        title="Xác nhận đã giao phần hàng còn lại?"
+        description="Đơn sẽ chuyển sang Đã giao. Chỉ các dòng không được hoàn do thất lạc được tính đã bán và tích điểm; giả lập GHN của đơn dừng lại. Lý do được ghi vào lịch sử và nhật ký quản trị."
+        presets={OVERRIDE_DELIVERY_REASONS}
+        requireReason
+        confirmText="Xác nhận đã giao"
+        reasonLabel="Lý do xác nhận giao"
+        dismissText="Đóng"
+        onConfirm={(reason) =>
+          orderAction
+            .mutateAsync({ id, action: "deliver", payload: { override: true, reason } })
+            .then(() => {
+              setOverrideDeliveryOpen(false);
+              return true;
+            })
+            .catch(() => false)
+        }
+      />
+      <CancelOrderDialog
         key={`${id}-outside`}
         resetOnClose
         open={confirmOutsideOpen}
@@ -881,6 +939,8 @@ export function OrderDetailDrawer({ order, open, onOpenChange, error = null, onR
         presets={OUTSIDE_CANCEL_REASONS}
         requireReason
         confirmText="Chốt huỷ đơn"
+        reasonLabel="Cách đã huỷ với GHN"
+        dismissText="Đóng"
         onConfirm={(reason) =>
           orderAction
             .mutateAsync({ id, action: "confirmCancelledOutside", payload: { reason } })

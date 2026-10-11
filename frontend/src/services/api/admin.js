@@ -49,8 +49,11 @@ export const adminAPI = {
       method: "POST",
       body: JSON.stringify(payload || {}),
     }),
-  deliverOrder: async (id) =>
-    request(`/admin/orders/${id}/deliver`, { method: "POST" }),
+  deliverOrder: async (id, payload) =>
+    request(`/admin/orders/${id}/deliver`, {
+      method: "POST",
+      ...(payload ? { body: JSON.stringify(payload) } : {}),
+    }),
   createShipment: async (id) =>
     request(`/admin/orders/${id}/shipment`, { method: "POST" }),
   cancelShipment: async (id) =>

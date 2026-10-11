@@ -355,6 +355,14 @@ router.get("/orders/:id", requirePermission("order.read"), async (req, res) => {
             .select("status attempts nextAttemptAt lastError")
             .lean()
         : null;
+    // R-C2: a SHIPPED order with a lost claim can only be delivered by staff
+    // confirmation, and only once every claim is settled.
+    const lostClaimActive =
+      order.status === Order.STATUS.SHIPPED &&
+      (await shippingService.hasActiveLostClaim(order._id));
+    const lostClaim = lostClaimActive
+      ? { active: true, settled: !(await shippingService.hasUnsettledLostClaim(order._id)) }
+      : null;
     res.json({
       success: true,
       data: {
@@ -369,6 +377,7 @@ router.get("/orders/:id", requirePermission("order.read"), async (req, res) => {
                 lastError: cancellationEvent.lastError,
               }
             : null,
+          lostClaim,
           returnRequest: serializeReturnRequest(returnRequests[0]),
           returnRequests: returnRequests.map(serializeReturnRequest),
         },
@@ -797,17 +806,51 @@ router.post("/orders/:id/ship", requirePermission("order.fulfill"), async (req, 
   }
 });
 
+// The R-C2 exit: an order with a lost claim cannot be delivered by the carrier
+// (webhook skips it, M05) nor by hand (guards above). Once every lost claim is
+// settled, staff may confirm delivery of the rest with a mandatory reason; the
+// GHN guard is waived only in that case.
+async function parseDeliveryOverride(req) {
+  if (req.body?.override !== true) return null;
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason || reason.length > 500) {
+    const error = new Error("Vui lòng nhập lý do xác nhận giao (tối đa 500 ký tự)");
+    error.statusCode = 400;
+    error.code = "REASON_REQUIRED";
+    throw error;
+  }
+  if (!(await shippingService.hasActiveLostClaim(req.params.id))) return null;
+  if (await shippingService.hasUnsettledLostClaim(req.params.id)) {
+    const error = new Error(
+      "Hồ sơ thất lạc của đơn vẫn đang hoàn tiền hoặc giao lại; chờ hồ sơ kết thúc rồi mới xác nhận giao thủ công."
+    );
+    error.statusCode = 409;
+    error.code = "LOST_CLAIM_IN_PROGRESS";
+    throw error;
+  }
+  return reason;
+}
+
 // POST /api/admin/orders/:id/deliver - SHIPPED → DELIVERED
 router.post("/orders/:id/deliver", requirePermission("order.fulfill"), async (req, res) => {
   try {
-    await assertNoActiveGhnShipment(req.params.id);
-    await assertNoActiveLostClaim(req.params.id);
+    const overrideReason = await parseDeliveryOverride(req);
+    if (!overrideReason) {
+      await assertNoActiveGhnShipment(req.params.id);
+      await assertNoActiveLostClaim(req.params.id);
+    }
     const previousStatus = await currentOrderStatus(req.params.id);
     const order = await orderService.adminMarkDelivered(
       req.params.id,
-      req.user._id
+      req.user._id,
+      { overrideReason: overrideReason || "" }
     );
-    await recordOrderStatusChange(req, order, previousStatus);
+    await recordOrderStatusChange(
+      req,
+      order,
+      previousStatus,
+      overrideReason ? `Xác nhận giao thủ công khi có hồ sơ thất lạc: ${overrideReason}` : ""
+    );
     res.json({
       success: true,
       message: "Đã giao hàng thành công",

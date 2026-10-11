@@ -2069,7 +2069,10 @@ async function recognizeDelivery(order, session, { performedBy = null } = {}) {
   });
 }
 
-async function adminMarkDelivered(orderId, adminId) {
+// `overrideReason` (R-C2): staff confirm delivery by hand for an order the
+// carrier flow can no longer deliver (a lost claim was settled on part of it).
+// The reason goes into the history and the GHN simulation is stopped.
+async function adminMarkDelivered(orderId, adminId, { overrideReason = "" } = {}) {
   const order = await runInTransaction(async (session) => {
     // INTERNAL_ORDER_FIELDS is required, not cosmetic: pointsEarnedAt is
     // select:false, so without it the idempotency marker reads as undefined
@@ -2080,8 +2083,14 @@ async function adminMarkDelivered(orderId, adminId) {
     if (!current) throw new Error("Order không tồn tại");
     current.applyTransition(ORDER_STATUS.DELIVERED, {
       by: `admin:${adminId}`,
-      reason: "Delivered to customer",
+      reason: overrideReason
+        ? `Xác nhận giao thủ công khi có hồ sơ thất lạc: ${overrideReason}`
+        : "Delivered to customer",
     });
+    if (overrideReason && current.shipment?.simulation) {
+      current.shipment.simulation.enabled = false;
+      current.shipment.simulation.nextAt = null;
+    }
     // Delivery is where revenue is recognised, so it is also where points are
     // earned. This is the only way into DELIVERED for a normal order.
     await recognizeDelivery(current, session, { performedBy: adminId });

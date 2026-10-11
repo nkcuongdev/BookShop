@@ -44,7 +44,7 @@ const ACTION_MAP = {
   confirmCancelledOutside: (id, payload) =>
     adminAPI.confirmCancelledOutside(id, payload),
   ship: (id, payload) => adminAPI.shipOrder(id, payload),
-  deliver: (id) => adminAPI.deliverOrder(id),
+  deliver: (id, payload) => adminAPI.deliverOrder(id, payload),
   createShipment: (id) => adminAPI.createShipment(id),
   cancelShipment: (id) => adminAPI.cancelShipment(id),
   pauseShipmentSimulation: (id) =>

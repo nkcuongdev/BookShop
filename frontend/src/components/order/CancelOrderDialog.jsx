@@ -29,6 +29,9 @@ export default function CancelOrderDialog({
   // Admin cancellations must say why; the customer may leave it empty.
   requireReason = false,
   confirmText = "Xác nhận huỷ",
+  // Reused for other reason-required confirmations (e.g. manual delivery).
+  reasonLabel = "Lý do huỷ",
+  dismissText = "Không, giữ đơn",
   // Opt-in (admin drawer, one dialog reused across orders): clear the reason
   // when the dialog is dismissed, and keep it when onConfirm reports failure
   // by returning false. The customer page keeps its original behaviour.
@@ -56,7 +59,7 @@ export default function CancelOrderDialog({
 
         <div className="space-y-3">
           <Label htmlFor="cancel-reason">
-            {requireReason ? "Lý do huỷ (bắt buộc)" : "Lý do (không bắt buộc)"}
+            {requireReason ? `${reasonLabel} (bắt buộc)` : "Lý do (không bắt buộc)"}
           </Label>
           <div className="flex flex-wrap gap-2">
             {presets.map((r) => (
@@ -85,7 +88,7 @@ export default function CancelOrderDialog({
             onClick={() => handleOpenChange(false)}
             disabled={loading}
           >
-            Không, giữ đơn
+            {dismissText}
           </Button>
           <Button
             variant="destructive"

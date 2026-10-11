@@ -1027,6 +1027,21 @@ async function hasActiveLostClaim(orderId) {
   );
 }
 
+// A lost claim whose money or replacement is still moving: a refund not yet
+// settled, or a reship not yet delivered (the reship delivers the order
+// itself). Staff may only confirm delivery by hand once none is left (R-C2).
+async function hasUnsettledLostClaim(orderId) {
+  return Boolean(
+    await SupportTicket.exists({
+      order: orderId,
+      "resolution.type": { $in: ["LOST_IN_TRANSIT_REFUND", "LOST_IN_TRANSIT_RESHIP"] },
+      "resolution.status": {
+        $nin: ["FAILED", "REFUND_FAILED", "CANCELLED", "REFUND_COMPLETED", "COMPLETED", "DELIVERED"],
+      },
+    })
+  );
+}
+
 async function syncGhnWebhook(payload = {}) {
   const providerOrderCode = String(payload.OrderCode || payload.order_code || "").trim();
   const clientOrderCode = String(
@@ -1383,6 +1398,7 @@ async function processDueSandboxSimulations({ limit = 20 } = {}) {
 module.exports = {
   SANDBOX_SIMULATION_STEPS,
   hasActiveLostClaim,
+  hasUnsettledLostClaim,
   advanceSandboxSimulation,
   cancelGhnShipment,
   cancelGhnShipmentAtProvider,
